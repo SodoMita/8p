@@ -534,10 +534,10 @@ func _run() -> void:
 	Input.action_release("move_forward")
 	var walked_keys: float = (player.global_position - start_touch).length()
 	check("keyboard_moves_in_touch_mode", walked_keys > 0.4, "%.2f m" % walked_keys)
-	# A plain mouse move always looks, even with touch mode on: _detect_touch()
-	# fires for any machine that reports a touchscreen, and those players are
-	# holding a mouse. (Encoding the opposite here is what let a real regression
-	# through: the camera could not be turned at all on a touch-capable PC.)
+	# One rule, no platform or device special cases: pointer motion turns the
+	# camera unless a finger is down or the pointer is over a widget. (Encoding a
+	# touch_mode condition here is what let a real regression through: the camera
+	# could not be turned at all on a touch-capable PC.)
 	var flick := InputEventMouseMotion.new()
 	flick.relative = Vector2(240, 0)
 	var yaw_before_flick: float = player.rotation.y
@@ -563,15 +563,6 @@ func _run() -> void:
 	player._input(drag)
 	check("mouse_drag_reaches_player", absf(player.rotation.y - yaw_before_drag) > 0.1,
 		"%.3f rad" % (player.rotation.y - yaw_before_drag))
-	# a finger's emulated mouse motion never looks twice: touch_controls owns it
-	var emulated := InputEventMouseMotion.new()
-	emulated.relative = Vector2(240, 0)
-	emulated.button_mask = MOUSE_BUTTON_MASK_LEFT
-	emulated.device = InputEvent.DEVICE_ID_EMULATION
-	var yaw_before_emu: float = player.rotation.y
-	player._input(emulated)
-	check("emulated_mouse_ignored", absf(player.rotation.y - yaw_before_emu) < 0.001,
-		"%.3f rad" % (player.rotation.y - yaw_before_emu))
 	Game.touch_mode = was_touch
 
 	# look control (touch swipe path and mouse path share add_look)

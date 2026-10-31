@@ -182,6 +182,15 @@ func _run() -> void:
 		absf(wrapf(_yaw(), -PI, PI) - (-60.0 * mouse_sens)) < 0.01,
 		"%.4f rad at position %s" % [wrapf(_yaw(), -PI, PI), str(centre)])
 
+	# the rule itself, free of any environment: look is wanted unless a finger is
+	# down or the pointer is over a widget -- one rule for mouse, trackpad, pen and
+	# a finger's engine-emulated motion alike, with no platform or device checks
+	player.finger_down = false
+	check("look_rule_plain", player._look_is_wanted())
+	player.finger_down = true
+	check("look_rule_finger_down", not player._look_is_wanted())
+	player.finger_down = false
+
 	# ... and the view itself must turn: the yaw number is not what the player
 	# sees, the camera is, and it hangs off the physics handle now
 	_reset_view()
@@ -265,7 +274,7 @@ func _run() -> void:
 	_mouse_move(Vector2(60, 0), false)
 	await _frames(2)
 	var d_free: float = wrapf(_yaw(), -PI, PI)
-	check("mouse_look_in_touch_mode_plain", absf(d_free - (-60.0 * mouse_sens)) < 0.01,
+	check("mouse_look_plain", absf(d_free - (-60.0 * mouse_sens)) < 0.01,
 		"%.4f rad, expected %.4f (touch_mode=%s, cursor free, no button)" % [
 			d_free, -60.0 * mouse_sens, str(Game.touch_mode)])
 	# ... and dragging still looks (a trackpad user who holds a button)
@@ -317,11 +326,35 @@ func _run() -> void:
 	tap.pressed = true
 	Input.parse_input_event(tap)
 	await _frames(2)
+	# (a press with no widget under it goes to the game, see tap_on_world_*)
 	if DisplayServer.get_name() == "headless":
-		skip("finger_click_does_not_capture", "headless has no pointer to capture")
+		skip("press_on_a_widget_does_not_capture", "headless has no pointer to capture")
 	else:
-		check("finger_click_does_not_capture", Input.mouse_mode == Input.MOUSE_MODE_VISIBLE,
+		# the mirror of click_captures_pointer: a press that lands on a widget is
+		# the widget's, so the game must not steal the pointer from it
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		var on_button := InputEventMouseButton.new()
+		on_button.button_index = MOUSE_BUTTON_LEFT
+		on_button.pressed = true
+		if world.hud.pause_button != null:
+			on_button.position = world.hud.pause_button.get_global_rect().get_center()
+		Input.parse_input_event(on_button)
+		await _frames(3)
+		check("press_on_a_widget_does_not_capture",
+			Input.mouse_mode != Input.MOUSE_MODE_CAPTURED,
 			"mouse_mode=%d" % Input.mouse_mode)
+		var on_button_up := InputEventMouseButton.new()
+		on_button_up.button_index = MOUSE_BUTTON_LEFT
+		on_button_up.pressed = false
+		on_button_up.position = on_button.position
+		Input.parse_input_event(on_button_up)
+		await _frames(2)
+		# that press went to the pause button on purpose, so put the game back the
+		# way it was before the following checks run
+		if get_tree().paused:
+			world._resume()
+			await _frames(2)
+		check("widget_press_left_the_game_running", not get_tree().paused)
 	var tap_up := InputEventScreenTouch.new()
 	tap_up.index = 4
 	tap_up.position = Vector2(900, 400)
