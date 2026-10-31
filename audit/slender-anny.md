@@ -91,3 +91,8 @@ changes to main. Latest audio calls and input/camera changes are preserved.
 Push of the new branch currently requires GitHub authentication (HTTPS remote
 reports no username/credential). The local branch/commits are complete; this
 must not be described as merged or published until an authenticated push.
+
+OpenCode: the original integration-risk review completed and informed the seam,
+weight, topology and tie-band checks. A second final read-only review read the
+four requested source/config files but did not return a final assessment within
+several minutes; it was stopped. No claim of a completed final sign-off.
