@@ -122,6 +122,22 @@ Godot 4.7.2 · GL Compatibility · GDScript
 1.0  procedural runs, full test suite, web + Android + Linux exports
 tests: tools/test_all.sh     exports: build/web, build/android
 
+1.5.4-labyrinth  audio: footsteps rebuilt as granular fracture, not resonators.
+     * the previous step sounds were a handful of damped sine modes with long
+       decays. Physically that is a woodblock, and that is what it sounded like
+       (tonal 0.85, centroid 150-300 Hz: a plastic brick). Dry leaves, grit and
+       soil are not resonators - they are thousands of sub-millisecond broadband
+       fractures.
+     * forest steps are now a decaying-Poisson grain cloud (0.9-6.2 kHz, ~300
+       grains in the first 50 ms plus a sparse settling tail to 180 ms) over a
+       broadband soil thud, a low-mid 'ground giving way' layer and a separate
+       toe roll. Stone steps are the same idea at a harder setting: one
+       sub-millisecond snap, a slab thud, a forefoot slap and sparse bright
+       mortar grit.
+     * measured: tonal 0.85 -> 0.09-0.12, centroid 150-300 Hz -> 1.9-2.4 kHz,
+       graininess +3x, SFM 0.01 (a few pure tones) -> 0.19. audio_audit.py now
+       enforces a tonal ceiling and a graininess floor on every footstep.
+
 1.5.3-labyrinth  audio: a real heart, and two audit rounds over every stream.
      * heartbeat rebuilt from cardiac physiology (tools/gen_sfx.py): S1 = AV
        valve closure, S2 = semilunar closure, each a bank of damped leaflet and
