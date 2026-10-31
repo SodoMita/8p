@@ -1,0 +1,21 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/world.gd" id="1_world"]
+[ext_resource type="PackedScene" path="res://scenes/Player.tscn" id="2_player"]
+[ext_resource type="Script" path="res://scripts/hud.gd" id="3_hud"]
+[ext_resource type="Script" path="res://scripts/slender.gd" id="4_slender"]
+[ext_resource type="Script" path="res://scripts/map_builder.gd" id="5_map"]
+
+[node name="World" type="Node3D" groups=["world"]]
+script = ExtResource("1_world")
+
+[node name="MapBuilder" type="Node3D" parent="."]
+script = ExtResource("5_map")
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+
+[node name="Slender" type="Node3D" parent="."]
+script = ExtResource("4_slender")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("3_hud")

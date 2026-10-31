@@ -1,0 +1,14 @@
+You are auditing a Godot 4.7 GDScript survival-horror game (project root is the current directory).
+This is a READ-ONLY audit: do not modify, create or delete any files. Only read and analyse.
+
+Please review these files and report concrete problems:
+scripts/world.gd, scripts/map_builder.gd, scripts/slender.gd, scripts/player.gd, scripts/hud.gd, scripts/touch_controls.gd, scripts/sfx.gd, scripts/game.gd, project.godot
+
+Focus on:
+1. Bugs, null/typing hazards, signals connected twice, nodes freed while referenced.
+2. Gameplay/logic issues (AI stuck states, unreachable pages, spawn overlap, pause/restart state leaks, mouse capture leaks).
+3. Performance issues for a GL Compatibility renderer on mobile (draw calls, per-frame allocations, physics queries in _process).
+4. Anything that would break a procedurally randomised level layout (assumptions of fixed positions).
+5. Missing polish that would be cheap to add.
+
+Output as a numbered list. For each item: file:line, severity (critical/major/minor), the problem in one sentence, and a one-line suggested fix. Be specific and terse. No code blocks longer than 3 lines. Max 25 items, most important first.

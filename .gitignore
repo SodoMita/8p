@@ -1,0 +1,12 @@
+# Godot editor cache / imported resources
+.godot/
+*.translation
+
+# exported builds (rebuilt by tools/ and attached to Releases instead)
+build/
+*.idsig
+
+# local junk
+.DS_Store
+*.log
+/tools/dl/

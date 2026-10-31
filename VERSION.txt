@@ -1,0 +1,10 @@
+EIGHT PAGES 1.2.0
+Godot 4.7.2 · GL Compatibility · GDScript
+----------------------------------------
+1.2  mesh normals rebuilt (parallel-transport frames, real end caps, outward
+     winding on every triangle); pumpkins + dead bushes scattered procedurally;
+     the darkness is now genuine — moonlight 0.16, ambient 0.30, a 30° beam
+     and fog instead of grey haze. 29 selftest checks incl. a normals guard.
+1.1  realistic pass: bare procedural trees, PBR ground, rendered menu backdrop
+1.0  procedural runs, full test suite, web + Android + Linux exports
+tests: tools/test_all.sh     exports: build/web, build/android

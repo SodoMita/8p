@@ -1,0 +1,5 @@
+Audit this Godot 4.7 GDScript project. Read ONLY these files, do not explore further:
+scripts/world.gd scripts/map_builder.gd scripts/slender.gd scripts/player.gd scripts/hud.gd scripts/touch_controls.gd scripts/sfx.gd scripts/game.gd scenes/World.tscn
+Output ONLY a numbered list of at most 12 findings, most severe first. Format exactly:
+N. file.gd:LINE [critical|major|minor] one sentence describing the bug. FIX: one sentence.
+No preamble, no summary, no code blocks. Do not edit any files. Be terse.

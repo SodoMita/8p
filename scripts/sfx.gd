@@ -1,0 +1,116 @@
+extends Node
+## Tiny audio manager: looping ambience beds + a pool of one-shot players.
+## All sounds are procedurally generated WAV files shipped with the project.
+
+const ONE_SHOTS := 10
+const AUDIO_DIR := "res://assets/audio/"
+
+var _streams := {}
+var _loops := {}
+var _loop_tweens := {}
+var _pool: Array[AudioStreamPlayer] = []
+var _pool_index := 0
+var _rng := RandomNumberGenerator.new()
+
+
+func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_rng.randomize()
+	for file in [
+		"wind_loop", "drone_loop", "static_loop", "heartbeat_loop", "breath_loop",
+		"step_0", "step_1", "step_2", "step_3", "page", "appear", "jumpscare",
+		"win", "ui_click", "branch",
+	]:
+		var path: String = AUDIO_DIR + file + ".wav"
+		if ResourceLoader.exists(path):
+			_streams[file] = load(path)
+		else:
+			push_warning("Missing sound: " + path)
+	for i in ONE_SHOTS:
+		var p := AudioStreamPlayer.new()
+		p.bus = "Master"
+		add_child(p)
+		_pool.append(p)
+	# looping beds (loop points are configured at runtime, no import tweaks needed)
+	for loop_name in ["wind_loop", "drone_loop", "static_loop", "heartbeat_loop", "breath_loop"]:
+		_start_loop(loop_name)
+
+
+func _start_loop(name: String) -> void:
+	var stream: AudioStream = _streams.get(name)
+	if stream == null:
+		return
+	if stream is AudioStreamWAV:
+		var wav: AudioStreamWAV = stream
+		wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		wav.loop_begin = 0
+		wav.loop_end = int(wav.get_length() * wav.mix_rate) - 1
+	var p := AudioStreamPlayer.new()
+	p.stream = stream
+	p.bus = "Master"
+	p.volume_db = -80.0
+	add_child(p)
+	p.play()
+	_loops[name] = p
+
+
+func play(name: String, volume_db := 0.0, pitch := 1.0) -> void:
+	var stream: AudioStream = _streams.get(name)
+	if stream == null:
+		return
+	var p := _pool[_pool_index]
+	_pool_index = (_pool_index + 1) % _pool.size()
+	p.stream = stream
+	p.volume_db = volume_db
+	p.pitch_scale = pitch
+	p.play()
+
+
+func footstep(sprint: bool) -> void:
+	var idx := _rng.randi_range(0, 3)
+	play("step_%d" % idx, -10.0 if sprint else -14.0, randf_range(0.9, 1.12))
+
+
+func set_loop_volume(name: String, volume_db: float) -> void:
+	var p: AudioStreamPlayer = _loops.get(name)
+	if p == null:
+		return
+	_kill_loop_tween(name)
+	p.volume_db = clampf(volume_db, -80.0, 6.0)
+
+
+func loop_volume(name: String) -> float:
+	var p: AudioStreamPlayer = _loops.get(name)
+	return p.volume_db if p != null else -80.0
+
+
+func _kill_loop_tween(name: String) -> void:
+	var old: Tween = _loop_tweens.get(name)
+	if old != null and old.is_valid():
+		old.kill()
+	_loop_tweens.erase(name)
+
+
+func fade_loop(name: String, target_db: float, time: float) -> void:
+	var p: AudioStreamPlayer = _loops.get(name)
+	if p == null:
+		return
+	_kill_loop_tween(name)
+	var tw := create_tween()
+	_loop_tweens[name] = tw
+	tw.tween_property(p, "volume_db", clampf(target_db, -80.0, 6.0), time)
+
+
+func duck_all(time := 1.5, db := -30.0) -> void:
+	for loop_key in _loops.keys():
+		fade_loop(loop_key, db, time)
+
+
+func stop_all_loops() -> void:
+	for p in _loops.values():
+		p.stop()
+
+
+func resume_ambience() -> void:
+	set_loop_volume("wind_loop", -12.0)
+	set_loop_volume("drone_loop", -16.0)
