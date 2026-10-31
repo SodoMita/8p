@@ -257,9 +257,9 @@ eight_pages/
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 67 world assertions
+│   ├── selftest.gd          # 69 world assertions
 │   ├── camera_test.gd       # 30 assertions on the handheld camera rig
-│   ├── controls_test.gd     # 25 assertions on the control paths
+│   ├── controls_test.gd     # 27 assertions on the control paths
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
 ├── shaders/
 │   ├── camcorder.gdshader   # the whole video-camera post chain, one pass
@@ -296,7 +296,7 @@ eight_pages/
 Everything below runs headless — no physical display required.
 
 ```bash
-tools/test_all.sh                  # 67 world + 30 rig + 25 control checks + scripted runs in sway
+tools/test_all.sh                  # 69 world + 30 rig + 27 control checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 

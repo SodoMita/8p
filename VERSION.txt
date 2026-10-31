@@ -50,7 +50,7 @@ Godot 4.7.2 · GL Compatibility · GDScript
      already on main (5 batched surfaces, 2.26 m hips, IK deformation through
      slender_motion.gdshader). Its animation is the same algorithm already
      retargeted to anny; merging it would replace the reviewed asset work.
-     67 world + 30 rig + 25 control checks.
+     69 world + 30 rig + 27 control checks.
      Audio follows the labyrinth branch's second pass (cardiac heartbeat, granular
      leaf footsteps, loop-seam and DC fixes) plus tools/audio_audit.py, which
      exits non-zero if any cue is noisy, offset, clipped or clicks on wrap.

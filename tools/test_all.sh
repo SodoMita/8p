@@ -51,12 +51,20 @@ grep -q 'RESULT [0-9]\+ passed, 0 failed' "$OUT/controls_gl.log" \
 # The real-pointer stage. An injected event is not a real one: it carries position
 # (0,0) and never meets the GUI hover code, which is precisely how a HUD widget
 # swallowed every genuine mouse motion while the suite stayed green.
-log "3b/9 real pointer end-to-end (Xvfb + xdotool, optional)"
-run mouse_live bash tools/mouse_live_test.sh --quality=1
-grep -E '^(PASS|FAIL|SKIP) mouse_live|real pointer:' "$OUT/mouse_live.log"
-if grep -q '^FAIL mouse_live' "$OUT/mouse_live.log"; then bad "real pointer"
-elif grep -q '^SKIP mouse_live' "$OUT/mouse_live.log"; then ok "real pointer (skipped: no Xvfb/xdotool)"
-else ok "real pointer (a genuine X11 pointer move turns the camera)"; fi
+# This stage drives a real pointer through Xvfb+xdotool. The suite is run inside
+# sway by instruction, so it is OFF unless explicitly asked for: EIGHT_PAGES_XVFB=1.
+# The X11 case is still worth keeping around - only a real pointer catches a HUD
+# widget eating the motion - it just does not belong in the default run.
+if [ "${EIGHT_PAGES_XVFB:-0}" = "1" ]; then
+	log "3b/9 real pointer end-to-end (Xvfb + xdotool, opt-in)"
+	run mouse_live bash tools/mouse_live_test.sh --quality=1
+	grep -E '^(PASS|FAIL|SKIP) mouse_live|real pointer:' "$OUT/mouse_live.log"
+	if grep -q '^FAIL mouse_live' "$OUT/mouse_live.log"; then bad "real pointer"
+	elif grep -q '^SKIP mouse_live' "$OUT/mouse_live.log"; then ok "real pointer (skipped: no Xvfb/xdotool)"
+	else ok "real pointer (a genuine X11 pointer move turns the camera)"; fi
+else
+	ok "real pointer (not run: sway suite; set EIGHT_PAGES_XVFB=1 for the X11 E2E)"
+fi
 
 log "4/9 full play-through: collect 8 pages -> win screen (headless)"
 run win "$GODOT" --headless --path . res://scenes/World.tscn -- --autotest=win
