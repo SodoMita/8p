@@ -147,13 +147,18 @@ never disables `WASD`, `Shift`, `E`, `F`, `Esc` or mouse look — a phone with a
 mouse, a tablet with a trackpad or a desktop where touch auto-detection fired all
 get the same controls.
 
-The pointer follows one rule: **a free cursor never turns the camera.** In touch
-mode the cursor belongs to the stick and the menus, so look is *drag*-look — hold
-the left button and move. A real click on the world captures the pointer and
-gives you full mouse look (this is also how the web build gets pointer-lock back
-after an alt-tab, since the browser only grants it on a gesture). A finger never
-triggers that capture: its emulated mouse click is ignored, and its emulated
-mouse motion never looks twice — the touch overlay owns the finger's look.
+The pointer follows one rule: **look is decided by where the event came from, not
+by which mode the game thinks it is in.** A real mouse or trackpad always turns
+the camera, whether or not touch mode is on — a laptop with a touchscreen, or a
+browser that reports `navigator.maxTouchPoints > 0`, still has a mouse, and gating
+look on touch mode is what made the camera impossible to turn on those machines.
+A click on the world captures the pointer so aim is unbounded and so the web build
+recovers pointer-lock after an alt-tab (browsers only grant it on a gesture).
+
+A finger is never a mouse: `emulate_mouse_from_touch` turns every screen drag into
+a mouse motion as well, so the player ignores motion tagged with the emulation
+device and any motion at all while a finger is on the glass — that twin is what
+used to make the touch camera ~1.7x too fast. The touch overlay owns the finger.
 
 The camcorder is not forced on anyone: **CAMCORDER FX** in the pause menu turns
 the lens/tape pass (and the on-screen REC/timecode furniture) off, and
@@ -219,7 +224,7 @@ eight_pages/
 │   ├── autotest.gd          # scripted runs + screenshot tours
 │   ├── selftest.gd          # 47 world assertions
 │   ├── camera_test.gd       # 30 assertions on the handheld camera rig
-│   ├── controls_test.gd     # 20 assertions on the control paths
+│   ├── controls_test.gd     # 23 assertions on the control paths
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
 ├── shaders/
 │   ├── camcorder.gdshader   # the whole video-camera post chain, one pass
@@ -262,7 +267,7 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 
 | Check | What it proves |
 |---|---|
-| `controls` | the control paths, measured: mouse yaw/pitch scale and sign (with `invert_y` and sensitivity applied exactly once), `WASD` walks ~1.15 m in 1.2 s **and still does with touch mode on**, a finger's drag looks once (a double-application would be 2×), moving the cursor in touch mode or an absolute event turns the camera **not at all**, drag-look in touch mode does, the stick never moves the view, pitch clamps, `F` toggles the lamp, pause stops movement and resume restores it, the stick is not latched across a pause, and the overlay is silent while paused or frozen |
+| `controls` | the control paths, measured: mouse yaw/pitch scale and sign (with `invert_y` and sensitivity applied exactly once), **the camera transform itself turns** (not just the yaw variable), plain mouse motion turns the view **with touch mode on and the cursor free** (the bug that made PC aim dead), a finger's drag looks once (a double-application would be 2×), a finger on the glass suppresses the mouse twin and lifting it hands aim back, a click captures the pointer while a finger's click never does, `WASD` walks 30 physics ticks **in both modes**, the stick never moves the view, pitch clamps, `F` toggles the lamp, dismissing a note eats that key and the note stays gone, pause stops movement and resume restores it, the stick is not latched across a pause, and the overlay is silent while paused or frozen. Runs headless *and* inside sway (pointer capture is a no-op headless) |
 | `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports and 180° cuts resync, a stalled tick is clamped, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
 | `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **the chain-link fence is a closed ring of 325 colliders with an open 5 m gate**, pages are live cloth with no light of their own and normals facing forward, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |

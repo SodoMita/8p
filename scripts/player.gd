@@ -32,6 +32,9 @@ var pitch := 0.0
 var stamina := STAMINA_MAX
 var sprinting := false
 var frozen := false
+## True while a finger is on the screen. The touch overlay owns that finger's
+## look, so its emulated mouse twin must not add a second helping.
+var finger_down := false
 var flashlight_on := true
 var ir_lamp := false
 var flicker := 0.0
@@ -78,11 +81,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	# the desktop ones away.
 	if event is InputEventMouseMotion and _mouse_look_allowed(event):
 		add_look(event.relative)
-	# A real mouse click on the world captures the pointer: that is how you get
-	# full mouse look on a hybrid device whose touch mode is on, and it is also
-	# how the web build recovers pointer-lock after an alt-tab (browsers refuse
-	# to lock the pointer without a gesture). Fingers are excluded: their
-	# emulated clicks must never steal the cursor from the on-screen controls.
+	# A real mouse click on the world captures the pointer: that is what makes
+	# the aim unbounded instead of stopping at the window edge, and it is how the
+	# web build recovers pointer-lock after an alt-tab (browsers refuse to lock
+	# without a gesture). Only events that reached _unhandled_input get here, so a
+	# click that landed on a button never captures; fingers are excluded too --
+	# their emulated clicks must not steal the cursor from the touch controls.
 	if event is InputEventMouseButton and event.pressed \
 			and event.device != InputEvent.DEVICE_ID_EMULATION \
 			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
@@ -95,17 +99,22 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _mouse_look_allowed(event: InputEventMouseMotion) -> bool:
-	# pointing/emulate_mouse_from_touch makes every finger emit a mouse motion
-	# too, with the emulation device id. touch_controls already turns that finger
-	# into look, so counting it again made the touch camera ~1.7x too fast.
+	# The decision is about WHERE THE EVENT CAME FROM, never about Game.touch_mode.
+	# Gating mouse look on touch_mode is what left PC players unable to turn at
+	# all: _detect_touch() returns true for any machine that reports a touchscreen
+	# (a Windows laptop, a desktop browser with navigator.maxTouchPoints > 0), and
+	# those people are holding a mouse.
+	#
+	# A finger is the touch overlay's business: pointing/emulate_mouse_from_touch
+	# turns every screen drag into a mouse motion tagged with the emulation
+	# device, and touch_controls already looked for that finger, so counting the
+	# twin made the touch camera ~1.7x too fast. Anything else is a real mouse or
+	# trackpad and it always looks.
 	if event.device == InputEvent.DEVICE_ID_EMULATION:
 		return false
-	if Game.touch_mode:
-		# Touch mode keeps the cursor usable for the on-screen stick and menus, so
-		# a plain pointer move is just a pointer move; hold a button to drag-look,
-		# or click once (below) to capture the pointer and get full mouse look.
-		return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or event.button_mask != 0
-	return true
+	# belt and braces for platforms that do not tag the emulated twin: while a
+	# finger is actually on the glass, the overlay owns look
+	return not finger_down
 
 
 func add_look(delta_px: Vector2) -> void:

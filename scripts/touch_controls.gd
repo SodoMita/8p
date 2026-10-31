@@ -17,6 +17,8 @@ var _take_btn: Panel
 
 var _move_id := -1
 var _look_id := -1
+## every finger currently on the glass, by index
+var _fingers := {}
 var _run_id := -1
 var _look_last := Vector2.ZERO
 var _base_origin := Vector2.ZERO
@@ -120,6 +122,8 @@ func clear_input() -> void:
 	_move_id = -1
 	_run_id = -1
 	_look_id = -1
+	_fingers.clear()
+	_sync_fingers()
 	_joy_vec = Vector2.ZERO
 	if _knob != null:
 		_home_stick()
@@ -145,14 +149,31 @@ func _input(event: InputEvent) -> void:
 	# steer the stick (which would latch and walk you off on resume) or turn the
 	# camera behind the menu
 	if not visible or get_tree().paused:
+		# dropping the overlay must not leave the player thinking a finger is
+		# still down, or mouse look stays suppressed after a pause
+		if not _fingers.is_empty():
+			_fingers.clear()
+			_sync_fingers()
 		return
 	if event is InputEventScreenTouch:
 		if event.pressed:
+			_fingers[event.index] = true
 			_on_touch_down(event.index, event.position)
 		else:
+			_fingers.erase(event.index)
 			_on_touch_up(event.index)
+		_sync_fingers()
 	elif event is InputEventScreenDrag:
+		if not _fingers.has(event.index):
+			# a drag can arrive without its press (focus change, dropped event)
+			_fingers[event.index] = true
+			_sync_fingers()
 		_on_drag(event.index, event.position, event.relative)
+
+
+func _sync_fingers() -> void:
+	if player != null:
+		player.finger_down = not _fingers.is_empty()
 
 
 func _on_touch_down(id: int, pos: Vector2) -> void:
