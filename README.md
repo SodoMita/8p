@@ -264,6 +264,8 @@ eight_pages/
 ├── VERSION.txt
 ├── tools/
 │   ├── gen_assets.py        # regenerates base textures, sounds, title plate
+│   ├── gen_sfx.py           # every sound: voices, foley, beds, heartbeat
+│   ├── audio_audit.py       # objective audit + cardiac physiology report
 │   ├── gen_textures_real.py # PBR ground/bark/stone/grass/litter maps
 │   ├── gen_trees.gd         # bakes the bare-tree meshes into assets/models
 │   ├── gen_title_bg.gd      # renders the menu backdrop from the tree meshes
@@ -437,9 +439,22 @@ painted ones.
   intake of air, all through a synthetic room. Three takes of the apparition
   sting, a close whisper for when he is already beside you, and a chase roar are
   picked at random so he never sounds the same twice. The beds (wind, a
-  minor-second drone, static, heartbeat, strained breathing) are cross-faded
-  into seamless loops at runtime; a limiter on the Master bus keeps the sting
-  from clipping.
+  minor-second drone, static, heartbeat, strained breathing, substation hum) are
+  cross-faded into seamless loops at runtime; a limiter on the Master bus keeps
+  the sting from clipping.
+* **The heartbeat** is scheduled like a heart, not a metronome: S1 is AV valve
+  closure and S2 semilunar closure, each built from damped leaflet and
+  blood-column modes excited by a pressure step with a turbulent jet through the
+  same modes, then conducted through a chest wall resonating at 68 Hz. The
+  systolic interval is 319 ms at rest and 244 ms running, RR intervals wander
+  ±3.9 % with breathing, S3 appears on long beats and S4 before S1 under load.
+  A resting loop (68 bpm) and a strained one (125 bpm) crossfade on dread or on
+  an empty stamina bar.
+* **`tools/audio_audit.py`** is the objective gate: it reports spectral
+  flatness, tonality, centroid, crest, kurtosis, envelope movement, DC offset,
+  loop-seam discontinuity and loudness range for all 25 streams (and a cardiac
+  physiology report for the heartbeat), and exits non-zero if any cue is noisy,
+  offset, clipped or clicks when it wraps.
 
 ## Mobile notes
 

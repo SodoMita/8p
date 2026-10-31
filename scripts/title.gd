@@ -26,7 +26,7 @@ func _ready() -> void:
 	_build()
 	Sfx.resume_ambience()
 	Sfx.set_loop_volume("static_loop", -60.0)
-	Sfx.set_loop_volume("heartbeat_loop", -60.0)
+	Sfx.set_heartbeat(0.0, -60.0)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_fade.color.a = 1.0
 	create_tween().tween_property(_fade, "color:a", 0.0, 1.6)

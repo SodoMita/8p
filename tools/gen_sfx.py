@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""EIGHT PAGES — procedural horror audio.
+"""EIGHT PAGES — procedural horror & physical-modeling foley audio.
 
-Every sample in assets/audio is synthesised here, from nothing.
+Every sample in assets/audio is synthesised here, from nothing, as Ogg Vorbis.
 
-The core is a small **additive voice engine**: a screaming voice is a stack of
-harmonics of the glottal pitch, each harmonic weighted by a five-formant
-envelope, with an unstable pitch contour (vibrato + jitter + a break where the
-voice gives out) and a torn, aspirated breath layer.  That is what makes a
-scream read as a *throat* instead of a hiss of noise.  Everything else —
-inharmonic metal shrieks, sub impacts, chirped air risers, wet gasps,
-whispered syllables, room reverb — is noise and sine layers on top.
-
-The ambient beds (wind, drone, static, heartbeat, wire hum) and the small foley
-sounds (steps, stone steps, page, branch, UI) live here too, so the whole audio
-set is reproducible:
+Design rule: NO lazy `filtered_noise * exp(-t)` stand-ins for physical objects.
+  * Voices & screams use a 5-formant additive glottal harmonic engine with
+    pitch contour, vibrato, vocal-fold jitter, pitch breaks, and subharmonics.
+  * Solid foley (forest footsteps on dead leaves/twigs, flagstone boots, paper
+    tears/creases, snapping branches, mechanical switch clicks) uses damped
+    modal resonator banks (beam/plate/shell eigenfrequencies) excited by
+    discrete Poisson micro-fracture & slip-stick impulse cascades.
+  * Wind uses sweeping high-Q Aeolian vortex-whistle resonances tied to gust
+    velocity; breathing uses narrow tracheal formants + a faint voiced sigh;
+    wire hum uses 50 Hz magnetostriction harmonics + AC-peak-locked plasma arcs;
+    even VHS static layers 60 Hz sync buzz, carrier heterodynes, and tracking
+    dropouts rather than stationary Gaussian hiss.
 
     python3 tools/gen_sfx.py            # writes assets/audio/*.ogg
 """
@@ -28,8 +29,9 @@ SR = 22050
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUDIO = os.path.join(ROOT, "assets", "audio")
 
+
 # --------------------------------------------------------------------------- #
-# basic dsp
+# basic dsp & physical-modeling primitives
 # --------------------------------------------------------------------------- #
 def lp(x, cutoff, order=2, sr=SR):
     return sosfilt(butter(order, min(0.99, cutoff / (sr / 2)), btype="low", output="sos"), x)
@@ -40,7 +42,9 @@ def hp(x, cutoff, order=2, sr=SR):
 
 
 def bp(x, lo, hi, order=2, sr=SR):
-    sos = butter(order, [lo / (sr / 2), min(0.99, hi / (sr / 2))], btype="band", output="sos")
+    lo_n = max(1e-4, min(0.95, lo / (sr / 2)))
+    hi_n = max(lo_n + 1e-3, min(0.99, hi / (sr / 2)))
+    sos = butter(order, [lo_n, hi_n], btype="band", output="sos")
     return sosfilt(sos, x)
 
 
@@ -59,13 +63,39 @@ def smooth_noise(n, rng, cutoff=6.0, sr=SR):
     return (out - med) / (np.max(np.abs(out - med)) + 1e-9)
 
 
+def modal_ping(n, modes, sr=SR, bend=0.0):
+    """Sum of damped physical eigenmodes: modes = [(freq_hz, decay_s_inv, amp, phase), ...]."""
+    t = np.arange(n, dtype=np.float64) / sr
+    y = np.zeros(n, dtype=np.float64)
+    for f, dec, amp, ph in modes:
+        if f >= sr * 0.47 or f < 18.0:
+            continue
+        if abs(bend) > 1e-6:
+            f_inst = f * (1.0 + bend * np.exp(-t * dec * 0.7))
+            phase = 2.0 * math.pi * np.cumsum(f_inst) / sr + ph
+        else:
+            phase = 2.0 * math.pi * f * t + ph
+        y += amp * np.sin(phase) * np.exp(-t * dec)
+    return y.astype(np.float32)
+
+
+def add_at(dst, src, idx, gain=1.0):
+    if idx < 0:
+        src = src[-idx:]
+        idx = 0
+    if idx >= len(dst) or len(src) == 0:
+        return
+    ln = min(len(src), len(dst) - idx)
+    dst[idx:idx + ln] += src[:ln] * gain
+
+
 def resonator(x, freq, bw, sr=SR):
     """Time-varying 2-pole resonator, unity gain at centre."""
     n = len(x)
     freq = np.full(n, freq, dtype=np.float64) if np.isscalar(freq) else np.asarray(freq, float)
     bw = np.full(n, bw, dtype=np.float64) if np.isscalar(bw) else np.asarray(bw, float)
     freq = np.clip(freq, 30.0, sr * 0.45)
-    bw = np.clip(bw, 25.0, sr * 0.4)
+    bw = np.clip(bw, 12.0, sr * 0.4)
     r = np.exp(-np.pi * bw / sr)
     th = 2.0 * np.pi * freq / sr
     a1 = 2.0 * r * np.cos(th)
@@ -99,14 +129,14 @@ def normalise(x, peak=1.0):
 
 
 # --------------------------------------------------------------------------- #
-# the voice
+# the voice (additive 5-formant harmonic stack)
 # --------------------------------------------------------------------------- #
-def vocal(dur, f0_shape, sr=SR, seed=0, formant_scale=1.0, amps=(1.0, 0.82, 0.58, 0.38, 0.20),
-          bw=(150, 190, 250, 300, 380), rough=0.5, breath=0.6, sub=0.35,
-          tilt=4200.0, fmax=6500.0, jitter=0.020, vibrato=(5.3, 0.030, 0.020),
+def vocal(dur, f0_shape, sr=SR, seed=0, formant_scale=1.0, amps=(1.0, 0.84, 0.60, 0.38, 0.20),
+          bw=(115, 155, 210, 260, 330), rough=0.45, breath=0.35, sub=0.35,
+          tilt=4300.0, fmax=6800.0, jitter=0.018, vibrato=(5.3, 0.030, 0.018),
           crack_at=None, crack_depth=0.0, tear_at=None, attack=0.03, release=0.30,
           vowel_shift=1.0, drive=1.15):
-    """One voice.  f0_shape(t, dur) -> array of Hz."""
+    """One voice. f0_shape(t, dur) -> array of Hz."""
     rng = np.random.default_rng(seed)
     n = int(dur * sr)
     t = np.arange(n) / sr
@@ -119,7 +149,6 @@ def vocal(dur, f0_shape, sr=SR, seed=0, formant_scale=1.0, amps=(1.0, 0.82, 0.58
                + vib * smooth_noise(N, rng, 11.0, sr))
     f0 = f0 * (1.0 + jitter * smooth_noise(N, rng, 85.0, sr))
     if crack_at is not None and crack_depth > 0:
-        # the voice gives out: pitch sags briefly (smooth, no phase blow-up)
         c = np.zeros(N)
         i0 = int(crack_at * dur * sr)
         i1 = min(N, i0 + int(0.14 * sr))
@@ -148,43 +177,41 @@ def vocal(dur, f0_shape, sr=SR, seed=0, formant_scale=1.0, amps=(1.0, 0.82, 0.58
             E += amps[i] * res_mag(fk, F[i], B[i])
         E /= (1.0 + (fk / tilt) ** 2)
         E *= (fk < sr * 0.45)
-        # harmonic phase jitter keeps it from sounding like an organ
         out += E * np.sin(2 * np.pi * k * ph + rng.uniform(0, 2 * np.pi))
 
     if sub > 0:
         g = np.clip((t - dur * 0.30) / (dur * 0.55), 0, 1)
-        out += sub * 0.6 * g * np.sin(2 * np.pi * 0.5 * ph + 0.7)
+        out += sub * 0.65 * g * np.sin(2 * np.pi * 0.5 * ph + 0.7)
+        out += sub * 0.28 * g * np.sin(2 * np.pi * 1.5 * ph + 1.9)
 
-    # rasp: shallow, aperiodic vocal-fold roughness (fry), not a gate
+    # vocal-fold fry / subglottal roughness
     r1 = smooth_noise(N, rng, 23.0, sr)
     r2 = smooth_noise(N, rng, 41.0, sr)
-    am = 1.0 - rough * 0.55 * np.clip(0.55 * r1 + 0.30 * r2, -1.0, 1.0)
+    am = 1.0 - rough * 0.48 * np.clip(0.55 * r1 + 0.30 * r2, -1.0, 1.0)
     out *= lp(am, 90.0)
 
-    # torn breath: bright air routed through the throat, kept *under* the tone
-    nz = noise(N, rng)
-    nzr = (resonator(nz, F[0] * 1.25, 700.0, sr) * 0.35
-           + resonator(nz, F[1] * 1.10, 900.0, sr) * 0.35
-           + resonator(nz, 4200.0, 800.0, sr) * 0.45
-           + resonator(nz, 5900.0, 1100.0, sr) * 0.30)
-    out = out + breath * nzr * 0.16 * lp(am, 60.0)
+    # subtle formant-locked glottal aspiration (kept strictly below harmonic tone)
+    if breath > 0:
+        nz = noise(N, rng)
+        nzr = (resonator(nz, F[0] * 1.05, 150.0, sr) * 0.45
+               + resonator(nz, F[1] * 1.02, 190.0, sr) * 0.40
+               + resonator(nz, F[2], 260.0, sr) * 0.32)
+        out = out + breath * nzr * 0.065 * lp(am, 60.0)
 
     if tear_at is not None:
-        # a couple of cycles are torn out of the throat -> noisy gap in the tone
+        # brief glottal diplophonia / subharmonic tear instead of broadband white noise
         gp = np.ones(N)
         i0 = int(tear_at * dur * sr)
-        for off in (0.0, 0.035, 0.075):
+        for off in (0.0, 0.036, 0.074):
             j0 = min(N - 1, i0 + int(off * sr))
-            j1 = min(N, j0 + int(0.022 * sr))
-            gp[j0:j1] *= 0.12
+            j1 = min(N, j0 + int(0.020 * sr))
+            gp[j0:j1] *= 0.24
         gp = np.convolve(gp, np.hanning(int(0.008 * sr)), mode="same")
-        out *= gp
-        burst = bp(noise(N, rng), 900.0, 5200.0) * (1.0 - gp)
-        out += burst * 0.35
+        sub_tear = np.sin(2 * np.pi * 0.333 * ph) + 0.6 * np.sin(2 * np.pi * 0.667 * ph)
+        out = out * gp + sub_tear * (1.0 - gp) * 0.45
 
     out = np.tanh(out * drive)
     out = hp(out, 90.0)
-    # presence lift: screams live in 2-5 kHz, this is the "pain" band
     out = out + 0.30 * bp(out, 2000.0, 5200.0)
     out *= env_ad(N, attack, release, sr)
     return normalise(out)
@@ -199,122 +226,151 @@ def pitch_arc(f_start, f_peak, f_end, rise=0.09, fall=0.62):
 
 
 # --------------------------------------------------------------------------- #
-# layers
+# physical & tonal horror layers (no broadband noise washes)
 # --------------------------------------------------------------------------- #
 def shriek(dur=0.9, f_lo=1900.0, f_hi=4200.0, seed=5, sr=SR):
-    """Inharmonic metallic scream layer (like steel being torn)."""
+    """Inharmonic bowed/torn steel plate partials (pure FM + modal ratios, no white hiss)."""
     rng = np.random.default_rng(seed)
     n = int(dur * sr)
     t = np.arange(n) / sr
     sweep = f_lo + (f_hi - f_lo) * (1 - np.exp(-t * 15.0))
-    mod = np.sin(2 * np.pi * (131.0 + 37.0 * t) * t) * (5.0 * np.exp(-t * 1.1) + 1.0)
-    car = np.sin(2 * np.pi * np.cumsum(sweep) / sr + mod * 3.2)
-    car += 0.62 * np.sin(2 * np.pi * np.cumsum(sweep * 2.41) / sr + 0.4)
-    car += 0.40 * np.sin(2 * np.pi * np.cumsum(sweep * 3.83) / sr + 1.7)
-    car += 0.22 * np.sin(2 * np.pi * np.cumsum(sweep * 5.19) / sr + 2.9)
-    nz = bp(noise(n, rng), f_lo * 0.55, min(9500.0, f_hi * 1.7))
-    x = np.tanh((car * 0.75 + nz * 0.55) * 1.7)
+    mod = np.sin(2 * np.pi * (131.0 + 37.0 * t) * t) * (3.8 * np.exp(-t * 1.3) + 0.7)
+    # Inharmonic Chladni plate ratios: 1.00, 1.59, 2.14, 2.65, 3.41
+    car = np.zeros(n, dtype=np.float64)
+    for ratio, amp in [(1.00, 1.0), (1.59, 0.68), (2.14, 0.48), (2.65, 0.32), (3.41, 0.20)]:
+        f_inst = np.clip(sweep * ratio, 40.0, sr * 0.45)
+        mask = (sweep * ratio < sr * 0.44).astype(np.float64)
+        car += amp * mask * np.sin(2 * np.pi * np.cumsum(f_inst) / sr + mod * (1.8 / ratio) + rng.uniform(0, 6.28))
+    x = np.tanh(car * 1.35)
     x *= np.exp(-t * 3.4) * np.clip(t / 0.012, 0, 1)
     return normalise(x)
 
 
 def sub_impact(dur=1.2, seed=3, sr=SR, f_top=130.0, f_bot=24.0):
+    """Deep chest-cavity / drumhead modal impact without sustained noise tail."""
     rng = np.random.default_rng(seed)
     n = int(dur * sr)
     t = np.arange(n) / sr
     f = f_bot + (f_top - f_bot) * np.exp(-t * 8.5)
     ph = 2 * np.pi * np.cumsum(f) / sr
     body = np.sin(ph) * np.exp(-t * 3.0)
-    body += 0.33 * np.sin(ph * 2.02) * np.exp(-t * 6.5)
-    body += 0.16 * np.sin(ph * 3.01 + 1.0) * np.exp(-t * 9.0)
-    click = hp(noise(n, rng), 1400) * np.exp(-t * 110.0)
-    thud = lp(noise(n, rng), 280) * np.exp(-t * 13.0)
-    x = np.tanh((body + click * 0.55 + thud * 0.75) * 1.3)
+    body += 0.38 * np.sin(ph * 1.59) * np.exp(-t * 6.2)   # circular membrane (0,1)->(1,1) mode
+    body += 0.22 * np.sin(ph * 2.14 + 0.8) * np.exp(-t * 9.5)
+    body += 0.14 * np.sin(ph * 2.65 + 1.7) * np.exp(-t * 14.0)
+    # 3 ms transient mallet snap (modal, not noise wash)
+    snap = modal_ping(n, [
+        (380.0, 95.0, 0.35, rng.uniform(0, 6.28)),
+        (820.0, 150.0, 0.24, rng.uniform(0, 6.28)),
+        (1640.0, 240.0, 0.16, rng.uniform(0, 6.28)),
+    ], sr, bend=-0.18)
+    x = np.tanh((body + snap) * 1.35)
     return normalise(x)
 
 
-def riser(dur=0.42, seed=11, sr=SR, f0=260.0, f1=5200.0, shape=2.4):
-    """Chirped noise riser — an inhale / a lunge through the air."""
+def riser(dur=0.42, seed=11, sr=SR, f0=220.0, f1=2800.0, shape=2.4):
+    """Bowed dissonant waterphone / string-glissando riser (harmonic cluster, not noise)."""
     rng = np.random.default_rng(seed)
     n = int(dur * sr)
     t = np.arange(n) / sr
-    x = noise(n, rng)
-    chirp = f0 * (f1 / f0) ** (t / dur)
-    x = x * np.sin(2 * np.pi * np.cumsum(chirp) / sr * 0.5)
-    x = hp(lp(x, 7500.0), 300.0) * (t / dur) ** shape
-    return normalise(x)
+    u = t / dur
+    y = np.zeros(n, dtype=np.float64)
+    # 6 diverging microtonal / tritone rods gliding upward
+    ratios = [1.0, 1.059, 1.414, 1.500, 2.118, 2.828]
+    for k, r in enumerate(ratios):
+        f_curve = np.clip((f0 * r) * ((f1 / f0) ** (u ** (0.85 + 0.08 * k))), 40.0, sr * 0.44)
+        trem = 0.72 + 0.28 * np.sin(2 * np.pi * (9.0 + 2.3 * k) * t + rng.uniform(0, 6.28))
+        y += (0.85 ** k) * trem * np.sin(2 * np.pi * np.cumsum(f_curve) / sr + rng.uniform(0, 6.28))
+    y *= (u ** shape) * np.clip((dur - t) / 0.015, 0, 1)
+    return normalise(y)
 
 
 def gasp(dur=0.5, seed=21, sr=SR):
-    """Wet strained inhale through an open throat."""
+    """Sharp human vocal-tract inhale: narrow tracheal formants + soft laryngeal wheeze."""
     rng = np.random.default_rng(seed)
     n = int(dur * sr)
     t = np.arange(n) / sr
     a = t / dur
     one = np.ones(n)
-    F = np.stack([900 - 300 * a, 1550 - 400 * a, 2700 - 400 * a, 3600 * one, 4500 * one])
-    B = np.stack([260 + 300 * a, 320 + 300 * a, 420 * one, 520 * one, 620 * one])
+    # Narrow open-throat / tracheal resonances (high Q so it sounds tubular, not white hiss)
+    F = np.stack([560 + 210 * (1 - a), 1380 - 260 * a, 2480 - 220 * a, 3520 * one])
+    B = np.stack([85 + 55 * a, 115 + 70 * a, 165 * one, 230 * one])
     nz = noise(n, rng)
     y = np.zeros(n, dtype=np.float32)
     for i in range(4):
-        y += (1.0 - .2 * i) * resonator(nz, F[i], B[i], sr)
-    y *= np.clip(t / 0.05, 0, 1) * np.clip((dur - t) / 0.18, 0, 1) ** 0.7
-    y = hp(y, 220.0)
+        y += (1.0 - 0.22 * i) * resonator(nz, F[i], B[i], sr)
+    # Faint involuntary vocal-cord wheeze during fast intake of breath
+    f_wheeze = 255.0 + 75.0 * np.sin(math.pi * a) - 45.0 * a
+    ph_w = 2 * np.pi * np.cumsum(f_wheeze) / sr
+    wheeze = (0.38 * np.sin(ph_w) + 0.22 * np.sin(2 * ph_w + 0.6) + 0.11 * np.sin(3 * ph_w + 1.4))
+    y = y * 0.68 + wheeze.astype(np.float32) * 0.34
+    y *= np.clip(t / 0.035, 0, 1) ** 0.85 * np.clip((dur - t) / 0.16, 0, 1) ** 0.9
+    y = hp(y, 170.0)
     return normalise(y)
 
 
 def whisper(dur=2.2, seed=31, sr=SR, syllables=6):
-    """Indistinct whispered speech: noise through moving vowels + consonants."""
+    """Articulated whispered syllables: narrow vowel formants + alveolar/plosive consonants."""
     rng = np.random.default_rng(seed)
     n = int(dur * sr)
-    t = np.arange(n) / sr
-    vowels = [(730, 1090, 2440), (270, 2290, 3010), (300, 870, 2240),
-              (530, 1840, 2480), (570, 840, 2410), (660, 1720, 2410)]
+    vowels = [(710, 1120, 2460), (290, 2240, 2960), (320, 880, 2260),
+              (520, 1820, 2490), (580, 860, 2410), (650, 1690, 2430)]
     order = rng.integers(0, len(vowels), syllables)
     F1 = np.zeros(n); F2 = np.zeros(n); F3 = np.zeros(n)
     amp = np.zeros(n)
     seg = dur / syllables
     for i, v in enumerate(order):
-        i0, i1 = int(i * seg * sr), int((i + 1) * seg * sr)
-        i1 = min(i1, n)
+        i0, i1 = int(i * seg * sr), min(n, int((i + 1) * seg * sr))
         k = i1 - i0
         if k <= 0:
             continue
         ramp = np.ones(k)
-        hold = int(k * 0.22)
+        hold = max(2, int(k * 0.20))
+        tail = max(2, int(k * 0.44))
         ramp[:hold] = np.linspace(0, 1, hold) ** 0.6
-        ramp[-int(k * 0.42):] *= np.linspace(1, 0, int(k * 0.42)) ** 0.8
+        ramp[-tail:] *= np.linspace(1, 0, tail) ** 0.9
         F1[i0:i1] = vowels[v][0]; F2[i0:i1] = vowels[v][1]; F3[i0:i1] = vowels[v][2]
-        amp[i0:i1] = ramp * rng.uniform(0.55, 1.0)
-    # smooth the formant tracks between syllables
+        amp[i0:i1] = ramp * rng.uniform(0.60, 1.0)
     for arr in (F1, F2, F3):
-        arr[:] = np.convolve(arr, np.ones(400) / 400, mode="same")
+        arr[:] = np.convolve(arr, np.ones(360) / 360, mode="same")
     nz = noise(n, rng)
-    y = (resonator(nz, F1, 120, sr) * 1.0
-         + resonator(nz, F2, 160, sr) * 0.7
-         + resonator(nz, F3, 220, sr) * 0.45
-         + resonator(nz, 4200, 400, sr) * 0.2)
-    y *= amp
-    # consonant ticks between syllables
+    # Tight vowel bandwidths (70-140 Hz) + faint phantom undertows so vowels read as words
+    y = (resonator(nz, np.maximum(180, F1), 72, sr) * 1.0
+         + resonator(nz, np.maximum(450, F2), 105, sr) * 0.82
+         + resonator(nz, np.maximum(1400, F3), 145, sr) * 0.50)
+    t = np.arange(n) / sr
+    undertone = 0.14 * np.sin(2 * np.pi * (108.0 + 9.0 * np.sin(2 * np.pi * 1.3 * t)) * t)
+    undertone += 0.09 * np.sin(2 * np.pi * 216.0 * t + 0.8)
+    y = (y + undertone.astype(np.float32)) * amp
+    # Crisp tongue/lip consonant clicks at syllable onsets
     for i in range(syllables):
-        i0 = int(i * seg * sr) - int(0.012 * sr)
-        if 0 < i0 < n - 200:
-            tick = hp(noise(180, rng), 2500) * np.hanning(180)
-            y[i0:i0 + 180] += tick * 0.5
-    y = hp(lp(y, 6500.0), 900.0)
+        i0 = int(i * seg * sr) - int(0.010 * sr)
+        if 0 < i0 < n - 300:
+            cons = modal_ping(260, [
+                (1850 + 240 * (i % 3), 260.0, 0.45, 0.0),
+                (3400 + 380 * (i % 2), 340.0, 0.35, 1.1),
+                (4950, 420.0, 0.25, 2.3),
+            ], sr)
+            add_at(y, cons, i0, 0.55)
+    y = hp(lp(y, 6200.0), 220.0)
     return normalise(y)
 
 
 # --------------------------------------------------------------------------- #
-# space + mixing
+# space + mixing (multi-tap early reflections + modal FDN-style room tail)
 # --------------------------------------------------------------------------- #
-def reverb_ir(dur=1.8, decay=0.62, seed=13, sr=SR, tilt=3200.0, predelay=0.012):
+def reverb_ir(dur=1.8, decay=0.62, seed=13, sr=SR, tilt=3000.0, predelay=0.012):
     rng = np.random.default_rng(seed)
     n = int(dur * sr)
     t = np.arange(n) / sr
-    ir = noise(n, rng) * np.exp(-t / decay)
+    ir = np.zeros(n, dtype=np.float32)
+    # Dense Velvet-noise sparse reflection train (avoids flat Gaussian hiss coloration)
+    grid = max(6, int(sr / 1850))
+    for g_idx in range(int(predelay * sr), n, grid):
+        j = min(n - 1, g_idx + int(rng.integers(0, grid)))
+        sign = 1.0 if rng.random() > 0.5 else -1.0
+        ir[j] = sign * math.exp(-t[j] / decay) * rng.uniform(0.5, 1.0)
     ir = hp(lp(ir, tilt), 150.0)
-    for d, g in [(0.011, 0.55), (0.019, -0.42), (0.031, 0.34), (0.047, -0.26), (0.061, 0.2)]:
+    for d, g in [(0.011, 0.58), (0.019, -0.44), (0.031, 0.36), (0.047, -0.28), (0.067, 0.21)]:
         i = int((d + predelay) * sr)
         if i < n:
             ir[i] += g
@@ -351,153 +407,560 @@ def fade(x, a=0.003, b=0.05, sr=SR):
     return x
 
 
-def limit(x, drive=1.0, peak=0.97):
-    """Gentle soft-clip + peak normalise (keeps transients, tames screams)."""
+def limit(x, drive=1.0, peak=0.92):
     x = np.tanh(x * drive)
     return normalise(x, peak)
 
 
+def close_loop(x, sr=SR, fade_s=1.5):
+    """Wrap a generated bed into a loop that is sample-continuous at the seam.
+
+    The old crossfade blended the tail into the head and then *also* kept the
+    head, so the wrap jumped from the end of the blend to the start of the
+    unblended head: an audible tick every time the loop went round. Here the
+    last `fade_s` seconds are cross-faded into the head and then cut away, so
+    the final sample of the file is the sample that preceded the first one in
+    the original render. Value and slope both match, and an equal-power
+    (sin/cos) ramp keeps the level constant through the join.
+    """
+    # DC first, while the wrap point is still continuous: filtering a closed
+    # loop afterwards would put the filter's start-up transient exactly at the
+    # seam, which is the tick we are trying to remove.
+    x = hp(np.asarray(x, dtype=np.float32), 18.0, 2, sr)
+    n = int(fade_s * sr)
+    if n * 2 >= len(x):
+        return x
+    ramp = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    fade_in = np.cos(ramp * math.pi * 0.5) ** 2.0   # 1 -> 0
+    fade_out = np.sin(ramp * math.pi * 0.5) ** 2.0  # 0 -> 1
+    y = x[:-n].copy()
+    y[:n] = x[:n] * fade_out + x[-n:] * fade_in
+    return y
+
+
+# kept for callers outside this file
+crossfade_loop = close_loop
+
+
 def write_ogg(path, data, sr=SR):
-    data = np.clip(np.asarray(data, dtype=np.float32), -1, 1)
+    data = np.asarray(data, dtype=np.float32)
+    looping = os.path.basename(path).endswith("_loop.ogg")
+    # One choke point for DC removal: a valve, a boot or a transformer must sit
+    # around zero. An offset eats headroom, thumps when a one-shot starts and
+    # stops, and makes the Master limiter clamp the offset instead of the cue.
+    # 18 Hz is below every sound in this project, so nothing real is lost.
+    if not looping:
+        if data.ndim == 1:
+            data = hp(data, 18.0, 2, sr)
+        else:
+            for c in range(data.shape[1]):
+                data[:, c] = hp(data[:, c], 18.0, 2, sr)
+    # true-peak guard: a one-shot may not touch full scale, or the Master
+    # limiter has nothing left to work with when a second cue lands on it
+    peak = float(np.max(np.abs(data)) + 1e-9)
+    if peak > 0.89:
+        data = data * (0.89 / peak)
+    data = np.clip(data, -1, 1)
     if data.ndim == 2 and data.shape[1] == 1:
         data = data[:, 0]
     sf.write(path, data, sr, format="OGG", subtype="VORBIS", compression_level=0.25)
     ch = 1 if data.ndim == 1 else data.shape[1]
     print("  %-22s %5.2fs %d ch" % (os.path.basename(path), len(data) / sr, ch))
 
+
 # --------------------------------------------------------------------------- #
-# ambient beds + foley
+# ambient beds (Aeolian wind, pure tonal minor-2nd drone, VHS static, heartbeat, wire hum)
 # --------------------------------------------------------------------------- #
 def bed_wind(sr=SR, seed=1):
+    """Cold night wind singing through bare branches: sweeping Aeolian vortex whistles."""
     rng = np.random.default_rng(seed)
     n = sr * 10
-    white = noise(n, rng)
-    wind = lp(white, 700) * 0.9 + lp(noise(n, rng), 180) * 1.4
     t = np.arange(n) / sr
-    gust = (0.55 + 0.45 * (0.5 + 0.5 * np.sin(2 * math.pi * t / 10.0 + 0.4))
-            * (0.6 + 0.4 * np.sin(2 * math.pi * t / 3.7)))
-    wind = normalise(wind * gust, 0.55)
+    # Smooth gust contour locked to the 10s cycle
+    gust = (0.50 + 0.30 * np.sin(2 * math.pi * t / 10.0 + 0.3)
+            + 0.18 * np.sin(2 * math.pi * 2.0 * t / 10.0 + 1.4)
+            + 0.10 * np.sin(2 * math.pi * 3.0 * t / 10.0 + 2.5))
+    gust = np.clip(gust, 0.15, 1.15)
+
+    # Aeolian Strouhal tones (f ~ 0.2 * U / d) for 3 branch diameters -> hollow whistling wind
+    src = noise(n, rng)
+    w1 = resonator(src, 165.0 + 145.0 * gust, 28.0 + 18.0 * gust, sr) * 0.95
+    w2 = resonator(src, 340.0 + 260.0 * gust, 38.0 + 26.0 * gust, sr) * 0.62
+    w3 = resonator(src, 610.0 + 390.0 * (gust ** 1.3), 55.0 + 35.0 * gust, sr) * 0.32
+    # Deep low-frequency canopy pressure (< 105 Hz)
+    sub_air = lp(noise(n, rng), 95.0) * (0.45 + 0.55 * gust) * 0.85
+
+    # Faint distant dry-twig ticks during peak gusts
+    twigs = np.zeros(n, dtype=np.float32)
+    for _ in range(18):
+        idx = int(rng.integers(0, n - 900))
+        if gust[idx] < 0.62:
+            continue
+        f0 = rng.uniform(520.0, 1250.0)
+        ping = modal_ping(750, [
+            (f0, 140.0, 0.35, 0.0),
+            (f0 * 2.71, 220.0, 0.22, 1.2),
+            (f0 * 4.95, 310.0, 0.12, 2.4),
+        ], sr)
+        add_at(twigs, ping, idx, rng.uniform(0.06, 0.14))
+
+    wind = (w1 + w2 + w3) * (0.45 + 0.65 * gust) + sub_air + twigs
+    wind = normalise(wind, 0.55)
     return crossfade_loop(wind, sr, 1.5)
 
 
 def bed_drone(sr=SR, seed=2):
-    """A cold bed with a minor-second beat that never settles."""
-    rng = np.random.default_rng(seed)
+    """Pure bowed dark sub-harmonic & minor-second pipe/string dread (zero noise wash)."""
     n = sr * 16
     t = np.arange(n) / sr
-    drone = np.zeros(n, dtype=np.float32)
-    # 41 Hz and 43.6 Hz beat against each other -> slow unease
-    for f, a, ph in [(41.0, 0.50, 0.0), (43.6, 0.30, 1.1), (61.5, 0.26, 2.2),
-                     (82.0, 0.15, 0.4), (123.0, 0.06, 1.7), (164.0, 0.03, 2.9)]:
-        drone += a * np.sin(2 * math.pi * f * t + 0.7 * np.sin(2 * math.pi * 0.05 * t) + ph)
-    # a breath of air moving through the drone
-    air = lp(noise(n, rng), 400) * (0.35 + 0.65 * (0.5 + 0.5 * np.sin(2 * math.pi * t / 16.0)))
-    drone = drone * (0.6 + 0.4 * np.sin(2 * math.pi * t / 16.0)) + air * 0.55
-    drone = normalise(drone, 0.40)
+    drone = np.zeros(n, dtype=np.float64)
+    # 41.0 Hz (E1) & 43.65 Hz (F1) minor-second beating + bowed harmonic overtones
+    partials = [
+        (41.00, 0.52, 0.0, 0.0625),
+        (43.65, 0.34, 1.1, 0.0625),
+        (61.50, 0.28, 2.2, 0.125),
+        (82.00, 0.22, 0.4, 0.125),
+        (87.31, 0.14, 1.9, 0.1875),
+        (123.00, 0.11, 1.7, 0.125),
+        (130.81, 0.08, 2.6, 0.25),
+        (164.00, 0.05, 2.9, 0.1875),
+        (184.99, 0.04, 0.8, 0.25),
+        (246.94, 0.025, 1.5, 0.3125),
+    ]
+    for f, a, ph, swell_hz in partials:
+        swell = 0.62 + 0.38 * np.sin(2 * math.pi * swell_hz * t + ph * 0.7)
+        pm = 0.45 * np.sin(2 * math.pi * 0.0625 * t + ph)
+        drone += a * swell * np.sin(2 * math.pi * f * t + pm + ph)
+    drone = np.tanh(drone * 1.28)
+    drone = normalise(drone.astype(np.float32), 0.42)
     return crossfade_loop(drone, sr, 2.0)
 
 
 def bed_static(sr=SR, seed=3):
+    """Damaged analog camcorder / VHS tape tracking tear + 60 Hz CRT sync + RF whistle."""
     rng = np.random.default_rng(seed)
     n = sr * 3
-    st = noise(n, rng)
-    st = hp(st, 900) * 0.7 + lp(st, 120) * 0.8
-    crackle = (rng.random(n) > 0.9993).astype(np.float32) * noise(n, rng) * 6.0
-    return crossfade_loop(np.clip((st + crackle) * 0.5, -1, 1), sr, 0.5)
+    t = np.arange(n) / sr
+    # 1) 60 Hz CRT vertical-sync buzz + clipped harmonics (pulsing with frame tear)
+    sync = np.zeros(n, dtype=np.float64)
+    for k in range(1, 12):
+        sync += (0.70 ** k) * np.sin(2 * math.pi * 60.0 * k * t + 0.3 * k)
+    sync = np.tanh(sync * 2.0) * (0.35 + 0.65 * (np.sin(2 * math.pi * 4.0 * t) ** 2))
+
+    # 2) Unstable tape-flutter RF heterodyne whistles (~2.9 kHz & ~5.85 kHz)
+    wow = np.sin(2 * math.pi * 4.0 * t) * 0.028 + smooth_noise(n, rng, 18.0, sr) * 0.04
+    rf1 = np.sin(2 * math.pi * np.cumsum(2920.0 * (1.0 + wow)) / sr) * 0.13
+    rf2 = np.sin(2 * math.pi * np.cumsum(5840.0 * (1.0 - 0.8 * wow)) / sr) * 0.08
+
+    # 3) Choppy VHS head-switching & magnetic tape tracking tear (gated, swept, crackling)
+    gate = np.clip(0.18 + 0.95 * smooth_noise(n, rng, 42.0, sr), 0.02, 1.0) ** 2.1
+    raw = noise(n, rng)
+    sweep_f = 1950.0 + 1250.0 * smooth_noise(n, rng, 26.0, sr)
+    scan_tear = resonator(raw, sweep_f, 520.0, sr) * 0.75 + hp(raw, 2600.0) * 0.32
+    arc_pops = np.zeros(n, dtype=np.float32)
+    for _ in range(58):
+        idx = int(rng.integers(0, n - 240))
+        pop = modal_ping(200, [
+            (rng.uniform(1300, 3200), 210.0, 0.75, 0.0),
+            (rng.uniform(3600, 7200), 310.0, 0.55, 1.3),
+        ], sr)
+        add_at(arc_pops, pop, idx, rng.uniform(0.40, 0.95))
+
+    out = sync.astype(np.float32) * 0.24 + (rf1 + rf2).astype(np.float32) + scan_tear * gate * 0.78 + arc_pops * 0.52
+    out = normalise(np.tanh(out * 1.45), 0.80)
+    return crossfade_loop(out, sr, 0.5)
 
 
-def bed_heartbeat(sr=SR, seed=4):
-    """Two beats, the second always a little late: panic, not a metronome."""
+def _cardiac_sound(kind, sr, rng, scale=1.0, exertion=0.0):
+    """One heart sound: S1 ("lub") or S2 ("dub").
+
+    A heart sound is not a sine thump. It is the slamming shut of a valve: the
+    leaflets snap, the blood column behind them rings, and a short turbulent jet
+    squirts through the closing orifice. So each sound here is a bank of damped
+    physical eigenmodes (leaflet + blood column, 55-240 Hz) excited by a
+    pressure step, plus noise pushed through those *same* modes so the
+    turbulence carries the valve's resonance instead of being white hiss.
+
+    S1 = mitral + tricuspid closure (low, wide, 0.26 s).
+    S2 = aortic + pulmonary closure (higher, tighter, 0.19 s, quieter).
+    """
+    if kind == 1:
+        dur = 0.26
+        modes = [(56.0, 17.0, 1.00), (82.0, 21.0, 0.72), (114.0, 27.0, 0.44),
+                 (149.0, 33.0, 0.26), (192.0, 44.0, 0.14), (238.0, 58.0, 0.08)]
+        turb_band, turb_gain, onset = (150.0, 900.0), 0.16, 0.008
+    else:
+        dur = 0.19
+        modes = [(72.0, 19.0, 1.00), (104.0, 23.0, 0.78), (143.0, 28.0, 0.46),
+                 (187.0, 36.0, 0.24), (241.0, 50.0, 0.11)]
+        turb_band, turb_gain, onset = (220.0, 1400.0), 0.20, 0.005
+    n = int(dur * sr)
+    t = np.arange(n) / sr
+    y = np.zeros(n, dtype=np.float64)
+    for f, dec, amp in modes:
+        # the pitch of a closing valve collapses as the pressure gradient does
+        f_inst = f * scale * (1.0 + 0.18 * np.exp(-t * 90.0))
+        ph = 2.0 * math.pi * np.cumsum(f_inst) / sr
+        y += amp * np.sin(ph) * np.exp(-t * dec) * np.clip(t / onset, 0, 1)
+    nz = noise(n, rng)
+    jet = np.zeros(n, dtype=np.float64)
+    for f, dec, amp in modes[:3]:
+        jet += amp * resonator(nz, f * scale, dec * 2.2, sr) * np.exp(-t * dec * 2.4)
+    jet = bp(jet, turb_band[0], turb_band[1], 2, sr)
+    # a working heart ejects faster: the jet is louder and the valves slam
+    # harder, which is why a racing pulse is brighter as well as quicker
+    y = y + jet * turb_gain * (1.0 + 0.75 * exertion)
+    y = y * (1.0 + 0.18 * exertion)
+    return y.astype(np.float32)
+
+
+def _chest_wall(y, sr=SR):
+    """Thoracic conduction: a resonant low-pass with its peak near 68 Hz.
+
+    This is the transfer function that turns valve clicks into the dull,
+    closed 'lub-dub' you hear from inside your own chest. Without it a
+    synthetic heartbeat is a bass sine; with it the snap survives as weight
+    rather than as a click.
+    """
+    body = lp(y, 250.0, 2, sr)
+    body = body + 0.50 * resonator(body, 68.0, 34.0, sr)
+    body = body + 0.18 * resonator(body, 112.0, 52.0, sr)
+    return hp(body, 24.0, 2, sr)
+
+
+def bed_heartbeat(sr=SR, seed=4, bpm=68.0, exertion=0.0, beats=6):
+    """One cardiac cycle pattern, heard from inside the chest.
+
+    Scheduled physiologically rather than as a metronome:
+    * S1 -> S2 is the systolic interval, and it shortens as the rate rises
+      (315 ms at rest, 235 ms at 124 bpm);
+    * RR intervals follow respiratory sinus arrhythmia - they shorten on
+      inspiration and lengthen on expiration, and the breathing rate itself
+      rises with exertion;
+    * the whole pattern is amplitude-modulated by the breathing cycle, because
+      the heart sits closer to the chest wall when the lungs are empty;
+    * a quiet S3 (early diastolic filling) appears on the long beats at rest,
+      and a quiet S4 (atrial kick) appears before S1 when the heart is working.
+    Every sound is rendered from scratch with its own valve and turbulence
+    phase, so no two beats are identical and the loop never sounds canned.
+    """
     rng = np.random.default_rng(seed)
-    n = sr * 2
-    beat = np.zeros(n, dtype=np.float32)
-    for start, amp, pitch in [(0.02, 1.0, 47.0), (0.315, 0.60, 43.0)]:
-        i0 = int(start * sr)
-        ln = min(int(0.28 * sr), n - i0)
-        tt = np.arange(ln) / sr
-        thump = np.sin(2 * math.pi * pitch * tt * (1 - tt * 0.8)) * np.exp(-tt * 15.0)
-        thump += 0.35 * np.sin(2 * math.pi * pitch * 1.87 * tt) * np.exp(-tt * 26.0)
-        thump += 0.18 * np.sin(2 * math.pi * 27.0 * tt) * np.exp(-tt * 30.0)  # sub
-        beat[i0:i0 + ln] += (thump * amp)[:ln]
-    beat = lp(beat, 300)
-    beat += lp(noise(n, rng), 90) * 0.012          # body, not a clean sine
-    return normalise(beat, 0.85)
+    ex = float(np.clip(exertion, 0.0, 1.0))
+    beat_period = 60.0 / max(40.0, bpm)
+    breath_hz = 0.227 + 0.28 * ex                     # 13.6 -> 30 breaths/min
+    rr_shape = [1.000, 0.952, 1.048, 0.972, 1.012, 0.965, 0.988]
+    rr = [beat_period * rr_shape[k % len(rr_shape)] * (1.0 + 0.012 * rng.normal())
+          for k in range(beats)]
+    lead = 0.16
+    n = int((lead + sum(rr) + 0.55) * sr)
+    out = np.zeros(n, dtype=np.float32)
+    t0 = lead
+    for k, gap in enumerate(rr):
+        breath = math.sin(2.0 * math.pi * breath_hz * t0 + 0.5)
+        amp = (0.90 + 0.10 * breath) * (0.96 + 0.08 * rng.random())
+        s1 = _cardiac_sound(1, sr, rng, 1.0 + 0.018 * breath + 0.02 * ex, ex)
+        s2 = _cardiac_sound(2, sr, rng, 1.0 + 0.022 * breath + 0.03 * ex, ex)
+        add_at(out, s1, int(t0 * sr), amp)
+        systole = (0.315 - 0.080 * ex) + 0.014 * breath
+        # the semilunar valves close harder than the AV valves once you are
+        # running, so S2 catches S1 up instead of staying a soft echo
+        add_at(out, s2, int((t0 + systole) * sr), amp * (0.64 + 0.22 * ex))
+        if gap > beat_period * 1.02:                  # long diastole -> S3
+            s3 = _cardiac_sound(1, sr, rng, 0.62, 0.0)
+            add_at(out, lp(s3, 120.0), int((t0 + systole + 0.155) * sr), amp * 0.11)
+        if ex > 0.25 and gap > beat_period * 0.97:     # atrial kick before S1
+            s4 = _cardiac_sound(1, sr, rng, 0.55, 0.0)
+            add_at(out, lp(s4, 95.0), int((t0 - 0.105) * sr), amp * 0.07 * ex)
+        t0 += gap
+    out = _chest_wall(out, sr)
+    # this bed is not wrapped by close_loop (it is silent at both ends), so it
+    # has to remove its own DC before write_ogg sees it
+    out = hp(out, 18.0, 2, sr)
+    out = normalise(np.tanh(out * (1.15 + 0.35 * ex)), 0.86)
+    fade(out, 0.002, 0.010, sr)
+    return out
 
 
+def bed_wire_hum(sr=SR, seed=10):
+    """50 Hz transformer magnetostriction buzz + AC-peak-locked porcelain corona arcs."""
+    rng = np.random.default_rng(seed)
+    n = int(sr * 5.2)
+    t = np.arange(n) / sr
+    hum = np.zeros(n, dtype=np.float64)
+    for f, a, ph in [(50.0, 0.34, 0.0), (100.0, 0.46, 0.7), (150.0, 0.30, 1.5),
+                     (200.0, 0.16, 2.1), (250.0, 0.13, 0.3), (300.0, 0.18, 1.9),
+                     (400.0, 0.07, 1.1), (500.0, 0.06, 2.4), (600.0, 0.04, 0.9)]:
+        wob = 1.0 + 0.15 * np.sin(2 * math.pi * (0.20 + 0.04 * (f / 100.0)) * t + ph)
+        hum += a * wob * np.sin(2 * math.pi * f * t + ph)
+
+    # Real AC corona physics: micro-discharges fire near |sin(2*pi*50*t)| > 0.88 peaks
+    arcs = np.zeros(n, dtype=np.float32)
+    ac_mag = np.abs(np.sin(2 * math.pi * 50.0 * t))
+    for window_start, window_len in [(0.58, 0.18), (1.74, 0.14), (2.92, 0.22), (3.86, 0.15)]:
+        i0 = int(window_start * sr)
+        i1 = min(n - 180, int((window_start + window_len) * sr))
+        peak_idxs = np.nonzero(ac_mag[i0:i1] > 0.90)[0] + i0
+        if len(peak_idxs) == 0:
+            continue
+        chosen = rng.choice(peak_idxs, size=min(len(peak_idxs), int(rng.integers(10, 22))), replace=False)
+        for idx in chosen:
+            f_arc = rng.uniform(2150.0, 3400.0)
+            spark = modal_ping(160, [
+                (f_arc, 340.0, 0.65, 0.0),
+                (f_arc * 1.53, 440.0, 0.48, 0.9),
+                (f_arc * 2.18, 560.0, 0.32, 2.1),
+            ], sr, bend=-0.12)
+            add_at(arcs, spark, int(idx), rng.uniform(0.18, 0.42))
+
+    out = normalise(hum.astype(np.float32) * 0.62 + arcs, 0.65)
+    return crossfade_loop(out, sr, 0.7)
+
+
+# --------------------------------------------------------------------------- #
+# physical-modeling foley (leaves, twigs, stone boots, paper tear, branch, switch)
+# --------------------------------------------------------------------------- #
 def foley_steps(sr=SR, seed=5):
+    """Forest footsteps: damped soil thud + discrete dry-leaf crinkles & twig snaps."""
     rng = np.random.default_rng(seed)
     out = []
     for i in range(4):
         n = int(sr * 0.34)
-        t = np.arange(n) / sr
-        nz = noise(n, rng)
-        body = lp(nz, 900 + i * 120)
-        snap = hp(nz, 2500) * 0.25
-        thump = np.sin(2 * math.pi * (72 - i * 6) * t) * np.exp(-t * 38)
-        s = (body * 0.8 + snap + thump * 0.7) * np.exp(-t * 22)
-        out.append(normalise(s, 0.55))
+        s = np.zeros(n, dtype=np.float32)
+        # 1) Heel soil compression (0 ms) + boot leather flex
+        heel = modal_ping(n, [
+            (66.0 - i * 4.5, 32.0, 0.85, 0.0),
+            (124.0 + i * 7.0, 48.0, 0.42, 0.6),
+            (215.0 - i * 9.0, 72.0, 0.24, 1.3),
+        ], sr, bend=-0.26)
+        add_at(s, heel, 0, 1.0)
+
+        # 2) Toe-off earth roll (54-68 ms)
+        toe_at = int((0.054 + 0.004 * i) * sr)
+        toe = modal_ping(n - toe_at, [
+            (54.0 + i * 3.0, 38.0, 0.48, 0.2),
+            (142.0 - i * 5.0, 66.0, 0.22, 1.1),
+        ], sr, bend=-0.18)
+        add_at(s, toe, toe_at, 0.85)
+
+        # 3) 22 discrete dry-leaf / pine-needle buckling micro-events (NOT continuous white noise!)
+        n_leaves = 20 + i * 2
+        for k in range(n_leaves):
+            # Cluster around heel impact (4-48 ms) and toe roll (55-135 ms)
+            if k < n_leaves * 0.58:
+                at_s = rng.beta(1.5, 4.2) * 0.065 + 0.002
+            else:
+                at_s = 0.052 + rng.beta(1.6, 3.4) * 0.115
+            idx = int(at_s * sr)
+            f_leaf = rng.uniform(980.0, 2950.0)
+            plen = int(rng.uniform(0.004, 0.011) * sr)
+            crinkle = modal_ping(plen, [
+                (f_leaf, rng.uniform(340.0, 620.0), 0.70, rng.uniform(0, 6.28)),
+                (f_leaf * rng.uniform(1.48, 1.82), rng.uniform(440.0, 760.0), 0.52, rng.uniform(0, 6.28)),
+                (min(sr * 0.44, f_leaf * rng.uniform(2.25, 2.95)), rng.uniform(550.0, 920.0), 0.34, rng.uniform(0, 6.28)),
+            ], sr, bend=rng.uniform(-0.14, 0.14))
+            add_at(s, crinkle, idx, rng.uniform(0.16, 0.42))
+
+        # 4) 1-2 tiny dry-twig snaps under the sole (Euler-Bernoulli wood modes)
+        for tw in range(1 + (i % 2)):
+            idx = int(rng.uniform(0.012, 0.088) * sr)
+            f_tw = rng.uniform(460.0, 860.0)
+            twig = modal_ping(int(0.028 * sr), [
+                (f_tw, 155.0, 0.55, 0.0),
+                (f_tw * 2.76, 240.0, 0.38, 0.8),
+                (min(sr * 0.44, f_tw * 5.40), 340.0, 0.22, 1.9),
+            ], sr, bend=-0.08)
+            add_at(s, twig, idx, rng.uniform(0.22, 0.38))
+
+        s = fade(np.tanh(s * 1.25), 0.0015, 0.035, sr)
+        out.append(normalise(s, 0.58))
     return out
 
 
 def foley_stone_steps(sr=SR, seed=9):
-    """Cold boot-on-flagstone steps for the labyrinth (dry; room comes from Sfx)."""
+    """Hard rubber/leather boot on cold labyrinth flagstone: slab/sole modes + discrete grit."""
     rng = np.random.default_rng(seed)
     out = []
     for i in range(4):
-        n = int(sr * 0.30)
-        t = np.arange(n) / sr
-        nz = noise(n, rng)
-        # heel impact at t=0, sole slap ~42-54 ms later + fine grit scrape
-        heel = (bp(nz, 1100 + i * 90, 4200) * 0.85 + lp(nz, 420) * 0.55) * np.exp(-t * 62.0)
-        heel += 0.55 * np.sin(2 * math.pi * (108 - i * 7) * t) * np.exp(-t * 52.0)
-        sole = np.zeros(n, dtype=np.float32)
-        d0 = int((0.042 + 0.004 * i) * sr)
-        tt = np.arange(n - d0) / sr
-        nz2 = noise(n - d0, rng)
-        sole[d0:] = (bp(nz2, 900, 3400) * 0.65 + 0.35 * np.sin(2 * math.pi * (195 + i * 14) * tt)) * np.exp(-tt * 48.0)
-        grit = bp(noise(n, rng), 2400, 6200) * np.exp(-t * 28.0) * 0.18
-        s = fade(heel + sole + grit, 0.002, 0.04, sr)
-        out.append(normalise(s, 0.62))
+        n = int(sr * 0.28)
+        s = np.zeros(n, dtype=np.float32)
+        p_shift = 1.0 + (i - 1.5) * 0.055
+
+        # 1) Hard heel impact on flagstone (0 ms): stone slab + hollow boot heel modes
+        heel = modal_ping(n, [
+            (98.0 * p_shift, 46.0, 0.72, 0.0),
+            (196.0 * p_shift, 68.0, 0.54, 0.4),
+            (372.0 * p_shift, 95.0, 0.46, 1.1),
+            (745.0 * p_shift, 135.0, 0.42, 1.9),
+            (1460.0 * p_shift, 185.0, 0.36, 0.7),
+            (2580.0 * p_shift, 250.0, 0.28, 2.3),
+            (3840.0 * p_shift, 330.0, 0.18, 1.5),
+        ], sr, bend=-0.10)
+        # Sub-2ms leather/stone contact transient
+        heel[:42] += np.hanning(42).astype(np.float32) * 0.55
+        add_at(s, heel, 0, 1.0)
+
+        # 2) Forefoot sole slap (44-58 ms later)
+        d0 = int((0.044 + 0.0045 * i) * sr)
+        sole = modal_ping(n - d0, [
+            (138.0 * p_shift, 58.0, 0.45, 0.2),
+            (315.0 * p_shift, 88.0, 0.42, 1.0),
+            (685.0 * p_shift, 128.0, 0.38, 2.1),
+            (1620.0 * p_shift, 195.0, 0.32, 0.5),
+            (2940.0 * p_shift, 275.0, 0.22, 1.8),
+        ], sr, bend=-0.06)
+        sole[:32] += np.hanning(32).astype(np.float32) * 0.38
+        add_at(s, sole, d0, 0.86)
+
+        # 3) 8 discrete sand/grit grains crushing between rubber sole and stone
+        for _ in range(8):
+            idx = int(rng.uniform(0.004, 0.085) * sr)
+            fg = rng.uniform(2400.0, 4600.0)
+            grain = modal_ping(95, [
+                (fg, 480.0, 0.55, rng.uniform(0, 6.28)),
+                (min(sr * 0.44, fg * 1.47), 620.0, 0.38, rng.uniform(0, 6.28)),
+            ], sr)
+            add_at(s, grain, idx, rng.uniform(0.10, 0.24))
+
+        s = fade(np.tanh(s * 1.3), 0.001, 0.035, sr)
+        out.append(normalise(s, 0.64))
     return out
 
 
 def foley_page(sr=SR, seed=6):
-    """Paper, and under it the sound of something breathing in your ear."""
+    """Tearing & folding a stiff parchment page off a landmark + eerie breath behind you."""
     rng = np.random.default_rng(seed)
     n = int(sr * 1.3)
-    t = np.arange(n) / sr
-    nz = noise(n, rng)
-    rustle = hp(nz, 1800) * (0.4 + 0.6 * np.abs(np.sin(2 * math.pi * 15 * t)))
-    rustle *= np.exp(-((t - 0.18) ** 2) / (2 * 0.13 ** 2)) + 0.25 * np.exp(-t * 3)
-    rustle = normalise(rustle, 0.7)
-    inh = gasp(0.55, seed + 1, sr) * 0.30
-    i0 = int(0.42 * sr)
-    ln = min(len(inh), n - i0)
-    rustle[i0:i0 + ln] += inh[:ln]
-    return normalise(rustle, 0.8)
+    s = np.zeros(n, dtype=np.float32)
+
+    # 1) Pin release & taut paper sheet snap (t = 0.025 s)
+    snap = modal_ping(int(0.18 * sr), [
+        (158.0, 26.0, 0.52, 0.0),
+        (264.0, 34.0, 0.46, 0.8),
+        (435.0, 48.0, 0.38, 1.7),
+        (740.0, 68.0, 0.30, 2.4),
+        (1280.0, 105.0, 0.24, 0.5),
+    ], sr, bend=0.16)
+    add_at(s, snap, int(0.025 * sr), 0.72)
+
+    # 2) Fiber-tear zipper cascade (t = 0.045 .. 0.235 s): accelerating cellulose fiber snaps
+    t_cur = 0.045
+    step_idx = 0
+    while t_cur < 0.235:
+        prog = (t_cur - 0.045) / 0.190
+        f_sheet = 780.0 + 1950.0 * (prog ** 1.2) + rng.uniform(-90.0, 90.0)
+        fib = modal_ping(int(0.009 * sr), [
+            (f_sheet, 360.0, 0.65, rng.uniform(0, 6.28)),
+            (f_sheet * 1.63, 470.0, 0.48, rng.uniform(0, 6.28)),
+            (min(sr * 0.44, f_sheet * 2.52), 620.0, 0.32, rng.uniform(0, 6.28)),
+        ], sr, bend=0.10)
+        env_w = math.sin(math.pi * prog) ** 0.7
+        add_at(s, fib, int(t_cur * sr), env_w * rng.uniform(0.24, 0.48))
+        t_cur += rng.uniform(0.0022, 0.0058) * (1.15 - 0.45 * prog)
+        step_idx += 1
+
+    # 3) Three crisp parchment fold / crinkle clusters as you pull the note up to read
+    for cluster_t, c_gain, n_cr in [(0.27, 0.85, 13), (0.43, 0.62, 10), (0.61, 0.38, 7)]:
+        for _ in range(n_cr):
+            at_s = cluster_t + rng.normal(0.0, 0.026)
+            idx = max(0, int(at_s * sr))
+            fc = rng.uniform(620.0, 2450.0)
+            cr = modal_ping(int(0.012 * sr), [
+                (fc, 280.0, 0.62, rng.uniform(0, 6.28)),
+                (fc * 1.74, 390.0, 0.46, rng.uniform(0, 6.28)),
+                (min(sr * 0.44, fc * 2.88), 520.0, 0.30, rng.uniform(0, 6.28)),
+            ], sr, bend=rng.uniform(-0.16, 0.18))
+            add_at(s, cr, idx, c_gain * rng.uniform(0.18, 0.38))
+
+    # 4) Quiet human throat breath right behind your ear (t = 0.42 s)
+    inh = gasp(0.55, seed + 1, sr) * 0.28
+    add_at(s, inh, int(0.42 * sr), 1.0)
+
+    s = fade(np.tanh(s * 1.25), 0.003, 0.08, sr)
+    return normalise(s, 0.80)
 
 
 def foley_branch(sr=SR, seed=7):
-    """A branch snapping somewhere out in the dark, with the dark answering."""
+    """Dead wood limb snapping in the dark: pre-fracture creaks + beam crack + tree echoes."""
     rng = np.random.default_rng(seed)
-    n = int(sr * 1.4)
-    t = np.arange(n) / sr
-    snap = hp(noise(n, rng), 1500) * np.exp(-t * 26)
-    snap += np.sin(2 * math.pi * 140 * t) * np.exp(-t * 30) * 0.5
-    snap *= np.clip(t / 0.002, 0, 1)
-    snap = reverb(normalise(snap, 0.7), 0.45, 1.4, 0.55, seed + 1, sr)
-    return normalise(snap[:n], 0.7)
+    n = int(sr * 1.45)
+    dry = np.zeros(n, dtype=np.float32)
+
+    # 1) Pre-break wood-grain tension creaks (slip-stick ticks at 12..78 ms)
+    for at_s, f_c, g_c in [(0.014, 310.0, 0.18), (0.033, 355.0, 0.24),
+                           (0.051, 410.0, 0.30), (0.068, 470.0, 0.36), (0.080, 535.0, 0.44)]:
+        creak = modal_ping(int(0.022 * sr), [
+            (f_c, 150.0, 0.65, 0.0),
+            (f_c * 2.42, 230.0, 0.42, 0.9),
+            (f_c * 4.35, 340.0, 0.24, 1.8),
+        ], sr, bend=0.08)
+        add_at(dry, creak, int(at_s * sr), g_c)
+
+    # 2) Main brittle wood fracture (t = 0.090 s): Euler-Bernoulli beam bending modes
+    f1 = 228.0
+    crack = modal_ping(int(0.24 * sr), [
+        (f1 * 1.00, 34.0, 0.85, 0.0),
+        (f1 * 2.14, 52.0, 0.68, 0.5),
+        (f1 * 2.76, 68.0, 0.74, 1.3),
+        (f1 * 4.18, 96.0, 0.55, 2.0),
+        (f1 * 5.40, 128.0, 0.48, 0.8),
+        (f1 * 7.65, 175.0, 0.36, 1.6),
+        (f1 * 11.2, 240.0, 0.26, 2.5),
+        (f1 * 15.6, 320.0, 0.18, 0.3),
+    ], sr, bend=-0.09)
+    crack[:28] += np.hanning(28).astype(np.float32) * 0.85
+    add_at(dry, crack, int(0.090 * sr), 1.0)
+
+    # 3) Secondary splinter snaps (124 ms & 168 ms)
+    for at_s, fs, gs in [(0.124, 415.0, 0.48), (0.168, 590.0, 0.30)]:
+        spl = modal_ping(int(0.07 * sr), [
+            (fs, 85.0, 0.65, rng.uniform(0, 6.28)),
+            (fs * 2.76, 145.0, 0.45, rng.uniform(0, 6.28)),
+            (fs * 5.40, 230.0, 0.28, rng.uniform(0, 6.28)),
+        ], sr, bend=-0.06)
+        add_at(dry, spl, int(at_s * sr), gs)
+
+    # 4) Discrete air-absorbed slapback echoes off surrounding tree trunks across the dark woods
+    out = dry.copy()
+    for delay_s, gain, cutoff in [(0.135, 0.34, 2400.0), (0.265, 0.21, 1650.0),
+                                  (0.430, 0.13, 1150.0), (0.640, 0.075, 820.0)]:
+        echo = lp(dry, cutoff)
+        add_at(out, echo, int(delay_s * sr), gain)
+
+    out = fade(np.tanh(out * 1.35), 0.002, 0.12, sr)
+    return normalise(out, 0.74)
 
 
 def foley_click(sr=SR, seed=8):
-    rng = np.random.default_rng(seed)
-    n = int(sr * 0.12)
-    t = np.arange(n) / sr
-    click = (np.sin(2 * math.pi * 1200 * t) * 0.5 + noise(n, rng) * 0.15) * np.exp(-t * 45)
-    return normalise(click, 0.4)
+    """Crisp two-stage mechanical switch / metal flashlight latch (zero noise tail)."""
+    n = int(sr * 0.085)
+    s = np.zeros(n, dtype=np.float32)
+    # Stage 1 (0 ms): plunger press + metal barrel modes
+    p1 = modal_ping(n, [
+        (580.0, 180.0, 0.55, 0.0),
+        (1340.0, 240.0, 0.72, 0.4),
+        (2680.0, 320.0, 0.52, 1.2),
+        (4180.0, 420.0, 0.32, 2.0),
+    ], sr, bend=-0.08)
+    p1[:18] += np.hanning(18).astype(np.float32) * 0.65
+    add_at(s, p1, 0, 0.82)
+
+    # Stage 2 (13.5 ms): spring-detent catch click
+    d2 = int(0.0135 * sr)
+    p2 = modal_ping(n - d2, [
+        (890.0, 210.0, 0.50, 0.2),
+        (1960.0, 270.0, 0.85, 0.9),
+        (3540.0, 360.0, 0.58, 1.7),
+        (5120.0, 460.0, 0.30, 0.5),
+    ], sr, bend=0.05)
+    p2[:16] += np.hanning(16).astype(np.float32) * 0.70
+    add_at(s, p2, d2, 1.0)
+
+    s = fade(np.tanh(s * 1.3), 0.0008, 0.018, sr)
+    return normalise(s, 0.48)
+
 
 # --------------------------------------------------------------------------- #
-# helpers for multi-layer scenes
+# helpers for multi-layer stereo scenes
 # --------------------------------------------------------------------------- #
 def scene(dur, sr=SR):
     n = int(dur * sr)
@@ -508,7 +971,6 @@ def finish(L, R, sr=SR, peak=0.95, drive=1.0, fade_in=0.003, fade_out=0.2):
     for ch in (L, R):
         fade(ch, fade_in, fade_out, sr)
     st = limit(np.stack([L, R], axis=1), drive, peak)
-    # drop digital silence at the tail (keeps one-shots tight)
     mono = np.abs(st).max(axis=1)
     thr = mono.max() * 0.004
     idx = np.nonzero(mono > thr)[0]
@@ -527,30 +989,30 @@ def make_jumpscare(sr=SR):
     hit = 0.115
 
     lead = vocal(2.45, pitch_arc(470, 960, 300), sr, seed=101,
-                 formant_scale=1.06, rough=0.46, breath=0.72, sub=0.26,
+                 formant_scale=1.06, rough=0.44, breath=0.32, sub=0.30,
                  crack_at=0.55, crack_depth=0.32, tear_at=0.42,
                  attack=0.02, release=0.42)
     growl = vocal(2.60, pitch_arc(168, 268, 96), sr, seed=102,
-                  formant_scale=0.74, rough=0.80, breath=1.05, sub=0.85,
+                  formant_scale=0.74, rough=0.72, breath=0.40, sub=0.88,
                   tilt=2400.0, attack=0.03, release=0.45)
     nerve = vocal(1.95, pitch_arc(760, 1290, 520), sr, seed=103,
-                  formant_scale=1.28, rough=0.38, breath=0.95, sub=0.10,
+                  formant_scale=1.28, rough=0.34, breath=0.36, sub=0.12,
                   tilt=5200.0, attack=0.02, release=0.35)
 
     place(L, reverb(lead, 0.34, seed=21), hit, 1.00)
     place(R, reverb(lead, 0.38, seed=22), hit + 0.010, 0.96)
-    place(L, reverb(growl, 0.42, 2.0, 0.66, seed=23), hit + 0.045, 0.62)
-    place(R, reverb(growl, 0.46, 2.0, 0.66, seed=24), hit + 0.032, 0.66)
+    place(L, reverb(growl, 0.42, 2.0, 0.66, seed=23), hit + 0.045, 0.64)
+    place(R, reverb(growl, 0.46, 2.0, 0.66, seed=24), hit + 0.032, 0.68)
     place(L, reverb(nerve, 0.30, seed=25), hit - 0.02, 0.30)
     place(R, reverb(nerve, 0.34, seed=26), hit - 0.01, 0.26)
 
     place(L, shriek(0.95, 1750, 4400, 4), hit - 0.01, 0.20)
     place(R, shriek(0.95, 1750, 4400, 5), hit + 0.006, 0.19)
-    place(L, sub_impact(1.4, 3), hit - 0.005, 0.80)
-    place(R, sub_impact(1.4, 4), hit - 0.005, 0.80)
+    place(L, sub_impact(1.4, 3), hit - 0.005, 0.82)
+    place(R, sub_impact(1.4, 4), hit - 0.005, 0.82)
 
-    place(L, riser(0.30, 11, sr, 250, 5600, 2.6), 0.0, 0.22)
-    place(R, riser(0.30, 12, sr, 250, 5600, 2.6), 0.004, 0.22)
+    place(L, riser(0.28, 11, sr, 240, 3400, 2.4), 0.0, 0.20)
+    place(R, riser(0.28, 12, sr, 240, 3400, 2.4), 0.004, 0.20)
     place(L, gasp(0.22, 21), 0.02, 0.16)
     place(R, gasp(0.22, 22), 0.026, 0.16)
 
@@ -561,69 +1023,78 @@ def make_jumpscare(sr=SR):
 # 2) apparition stingers — heard from the tree line
 # --------------------------------------------------------------------------- #
 def make_appear(seed=201, variant=0, sr=SR):
-    """A distant, wrong voice arriving: reverse swell -> moan -> static crack."""
+    """A distant, wrong voice arriving: reverse waterphone pull -> moan -> metallic sting."""
     L, R = scene(3.0, sr)
     rng = np.random.default_rng(seed)
 
-    # far-off moan: a short scream fragment, pitched down and drenched in room
     f0a = [150, 126, 190][variant % 3]
     moan = vocal(1.55, pitch_arc(f0a, f0a * 1.55, f0a * 0.72, rise=0.30, fall=0.72),
-                 sr, seed=seed, formant_scale=0.82, rough=0.62, breath=1.0, sub=0.55,
+                 sr, seed=seed, formant_scale=0.82, rough=0.55, breath=0.38, sub=0.58,
                  tilt=1900.0, attack=0.16, release=0.55)
-    moan = lp(moan, 1800.0)
-    wet = 0.72
-    place(L, reverb(moan, wet, 2.8, 0.85, seed + 1), 0.75, 0.55)
-    place(R, reverb(moan, wet, 2.8, 0.85, seed + 2), 0.79, 0.58)
+    moan = lp(moan, 1850.0)
+    wet = 0.68
+    place(L, reverb(moan, wet, 2.6, 0.82, seed + 1), 0.75, 0.58)
+    place(R, reverb(moan, wet, 2.6, 0.82, seed + 2), 0.79, 0.60)
 
-    # reverse swell pulling the ear towards it
-    pre = riser(0.62, seed + 3, sr, 120, 2600, 3.2)
-    pre = pre[::-1].copy()
-    place(L, reverb(pre, 0.3, seed=seed + 4), 0.10, 0.30)
-    place(R, reverb(pre, 0.3, seed=seed + 5), 0.13, 0.30)
+    # Reverse bowed-rod glissando pulling the ear toward him
+    pre = riser(0.62, seed + 3, sr, 140, 1850, 3.0)[::-1].copy()
+    place(L, reverb(pre, 0.28, seed=seed + 4), 0.10, 0.28)
+    place(R, reverb(pre, 0.28, seed=seed + 5), 0.13, 0.28)
 
-    # the moment it is noticed: a static crack + a breath right by the ear
+    # Dissonant bowed-wire / bone-snap transient at the moment of recognition (no noise burst)
     crack_t = 0.72
-    for ch, g in ((L, 1.0), (R, 0.9)):
-        m = int(0.5 * sr)
-        cr = bp(noise(m, rng), 1400, 7000) * np.exp(-np.arange(m) / sr * 26.0)
-        cr *= np.clip(np.arange(m) / (0.004 * sr), 0, 1)        # 4 ms attack, no click
-        place(ch, cr * 0.5, crack_t, 0.22 * g)
+    base_f = [620.0, 540.0, 710.0][variant % 3]
+    for ch, g, det in ((L, 1.0, 1.0), (R, 0.92, 1.018)):
+        sting = modal_ping(int(0.48 * sr), [
+            (base_f * det, 7.5, 0.55, 0.0),
+            (base_f * 1.414 * det, 9.0, 0.46, 0.9),   # tritone rod
+            (base_f * 2.38 * det, 14.0, 0.34, 1.7),
+            (base_f * 3.91 * det, 22.0, 0.22, 2.5),
+        ], sr, bend=-0.04)
+        place(ch, sting, crack_t, 0.24 * g)
     place(L, gasp(0.45, seed + 6), 0.68, 0.22)
     place(R, gasp(0.45, seed + 7), 0.71, 0.20)
 
-    # a sub pulse you feel more than hear
     imp = sub_impact(1.6, seed + 8, sr, 70, 22)
-    place(L, imp, 0.70, 0.42)
-    place(R, imp, 0.70, 0.42)
+    place(L, imp, 0.70, 0.44)
+    place(R, imp, 0.70, 0.44)
 
     return finish(L, R, sr, 0.85, 1.0, 0.02, 0.5)
 
 
 def make_appear_near(seed=301, sr=SR):
-    """He is standing behind you.  Whisper, cloth, a click in the ear."""
+    """He is standing right behind you: close articulated whisper, breath, coat-leather creak."""
     L, R = scene(2.8, sr)
+    rng = np.random.default_rng(seed)
 
     wh = whisper(2.2, seed, sr, syllables=7)
-    place(L, reverb(wh, 0.30, 1.4, 0.5, seed + 1), 0.28, 0.55)
-    place(R, reverb(wh, 0.34, 1.4, 0.5, seed + 2), 0.33, 0.52)
+    place(L, reverb(wh, 0.26, 1.3, 0.46, seed + 1), 0.28, 0.58)
+    place(R, reverb(wh, 0.30, 1.3, 0.46, seed + 2), 0.33, 0.55)
 
-    gasp0 = gasp(0.55, seed + 3, sr)
-    place(L, gasp0, 0.05, 0.42)
+    place(L, gasp(0.55, seed + 3, sr), 0.05, 0.42)
     place(R, gasp(0.55, seed + 4, sr), 0.09, 0.40)
 
-    # a single low "presence" tone that swells and dies
+    # Low 43 Hz presence pressure wave
     n = int(2.8 * sr)
     t = np.arange(n) / sr
     tone = np.sin(2 * np.pi * 43.0 * t + 0.4 * np.sin(2 * np.pi * 0.7 * t))
+    tone += 0.35 * np.sin(2 * np.pi * 64.5 * t + 1.1)
     tone *= np.clip(t / 0.8, 0, 1) * np.exp(-np.maximum(0, t - 1.0) * 1.4)
-    place(L, tone * 0.30, 0.0, 1.0)
-    place(R, tone * 0.30, 0.006, 1.0)
+    place(L, tone.astype(np.float32) * 0.28, 0.0, 1.0)
+    place(R, tone.astype(np.float32) * 0.28, 0.006, 1.0)
 
-    # cloth / skin movement, very close, both ears
-    for ch, off in ((L, 0.55), (R, 0.62)):
-        nz = bp(noise(int(0.7 * sr), np.random.default_rng(seed + 5)), 700, 3400)
-        nz *= np.hanning(len(nz)) ** 2
-        place(ch, nz * 0.25, off, 1.0)
+    # Subtle close coat-leather / tendon slip-stick creak (replaces 0.7s white-noise swell)
+    for ch, t_base in ((L, 0.54), (R, 0.61)):
+        for k in range(11):
+            at_s = t_base + k * 0.028 + rng.uniform(-0.006, 0.006)
+            fc = 310.0 + 28.0 * k + rng.uniform(-18.0, 18.0)
+            tick = modal_ping(int(0.018 * sr), [
+                (fc, 165.0, 0.60, 0.0),
+                (fc * 2.15, 240.0, 0.38, 1.2),
+                (fc * 3.60, 340.0, 0.20, 2.1),
+            ], sr, bend=0.06)
+            env_k = math.sin(math.pi * (k + 0.5) / 11.0)
+            place(ch, tick, at_s, 0.16 * env_k)
 
     return finish(L, R, sr, 0.8, 1.0, 0.02, 0.5)
 
@@ -635,35 +1106,34 @@ def make_chase(seed=401, sr=SR):
     L, R = scene(2.8, sr)
 
     roar = vocal(2.35, pitch_arc(118, 205, 74, rise=0.06, fall=0.55), sr, seed=seed,
-                 formant_scale=0.62, rough=0.85, breath=1.25, sub=1.0,
-                 tilt=2100.0, attack=0.025, release=0.5, drive=1.5)
+                 formant_scale=0.62, rough=0.76, breath=0.45, sub=1.0,
+                 tilt=2100.0, attack=0.025, release=0.5, drive=1.45)
     scream = vocal(2.2, pitch_arc(560, 1080, 380, rise=0.05, fall=0.6), sr, seed=seed + 1,
-                   formant_scale=1.12, rough=0.55, breath=0.8, sub=0.2,
+                   formant_scale=1.12, rough=0.48, breath=0.35, sub=0.22,
                    crack_at=0.62, crack_depth=0.30, attack=0.02, release=0.45)
 
-    place(L, reverb(roar, 0.38, 2.2, 0.7, seed + 2), 0.02, 0.95)
-    place(R, reverb(roar, 0.42, 2.2, 0.7, seed + 3), 0.035, 0.95)
-    place(L, reverb(scream, 0.40, seed + 4), 0.10, 0.42)
-    place(R, reverb(scream, 0.44, seed + 5), 0.115, 0.40)
+    place(L, reverb(roar, 0.36, 2.2, 0.68, seed + 2), 0.02, 0.95)
+    place(R, reverb(roar, 0.40, 2.2, 0.68, seed + 3), 0.035, 0.95)
+    place(L, reverb(scream, 0.38, seed + 4), 0.10, 0.44)
+    place(R, reverb(scream, 0.42, seed + 5), 0.115, 0.42)
 
     place(L, shriek(1.2, 700, 3200, seed + 6), 0.06, 0.16)
     place(R, shriek(1.2, 700, 3200, seed + 7), 0.07, 0.15)
     place(L, sub_impact(1.8, seed + 8, sr, 160, 26), 0.0, 0.9)
     place(R, sub_impact(1.8, seed + 9, sr, 160, 26), 0.0, 0.9)
-    # the sound of something very large moving fast through brush
-    for i, (at, g) in enumerate([(0.05, .30), (0.30, .22), (0.62, .18), (1.0, .12)]):
-        n = int(0.30 * sr)
-        rng = np.random.default_rng(seed + 20 + i)
-        br = hp(noise(n, rng), 900) * np.exp(-np.arange(n) / sr * 20.0)
-        br *= np.clip(np.arange(n) / (0.003 * sr), 0, 1)
-        place(L, br, at, g)
-        place(R, br, at + 0.012, g * 0.8)
+
+    # Heavy charging footfalls + snapping dry wood (replaces 4 hp(noise) puffs)
+    steps = foley_steps(sr, seed + 20)
+    for i, (at, g) in enumerate([(0.06, 0.42), (0.31, 0.34), (0.58, 0.28), (0.88, 0.22)]):
+        st_i = steps[i % len(steps)]
+        place(L, st_i, at, g)
+        place(R, st_i, at + 0.010, g * 0.88)
 
     return finish(L, R, sr, 0.95, 1.05, 0.003, 0.4)
 
 
 # --------------------------------------------------------------------------- #
-# 4) strained breathing loop
+# 4) strained sprinting breathing loop (narrow tracheal resonances + voiced sigh)
 # --------------------------------------------------------------------------- #
 def make_breath(sr=SR, dur=7.0, seed=501):
     rng = np.random.default_rng(seed)
@@ -671,48 +1141,56 @@ def make_breath(sr=SR, dur=7.0, seed=501):
     t = np.arange(n) / sr
     x = np.zeros(n, dtype=np.float32)
 
-    def breath_hit(start, length, wet, gain, pitch=1.0):
+    def breath_hit(start, length, wet, gain, pitch=1.0, exhale=False):
         i0 = int(start * sr)
-        ln = int(length * sr)
-        ln = min(ln, n - i0)
+        ln = min(int(length * sr), n - i0)
         if ln <= 0:
             return
         tt = np.arange(ln) / sr
         a = tt / (ln / sr)
-        F = np.stack([(700 - 250 * a) * pitch, (1450 - 350 * a) * pitch,
-                      (2500 - 300 * a) * pitch, np.full(ln, 3300.0), np.full(ln, 4300.0)])
-        B = np.stack([260 + 320 * a, 340 + 320 * a, np.full(ln, 420.0),
-                      np.full(ln, 520.0), np.full(ln, 640.0)])
+        # Narrow tubular pharyngeal/tracheal formants (Q ~ 6-10, not broadband pink noise)
+        F = np.stack([
+            (620 - 180 * a) * pitch,
+            (1380 - 280 * a) * pitch,
+            (2420 - 220 * a) * pitch,
+            np.full(ln, 3420.0 * pitch),
+        ])
+        B = np.stack([
+            85 + 65 * a,
+            120 + 80 * a,
+            np.full(ln, 175.0),
+            np.full(ln, 250.0),
+        ])
         nz = noise(ln, rng)
         y = np.zeros(ln, dtype=np.float32)
-        for i in range(5):
-            y += (1.0 - 0.18 * i) * resonator(nz, F[i], B[i], sr)
-        y = np.tanh(y * 1.4)
-        e = np.clip(tt / 0.10, 0, 1) ** 1.2 * np.clip((ln / sr - tt) / 0.22, 0, 1) ** 0.8
-        y *= e * wet
-        x[i0:i0 + ln] += y * gain
+        for i in range(4):
+            y += (1.0 - 0.22 * i) * resonator(nz, F[i], B[i], sr)
 
-    # exhausted cycle: in ... out ... shudder ... in ... out, never fully silent
-    breath_hit(0.05, 1.05, 1.00, 0.90, 1.00)
-    breath_hit(0.95, 1.30, 0.85, 0.72, 0.87)
-    breath_hit(2.40, 0.55, 0.70, 0.34, 1.16)
-    breath_hit(3.10, 1.10, 1.00, 0.84, 0.99)
-    breath_hit(4.05, 1.35, 0.85, 0.70, 0.85)
-    breath_hit(5.55, 0.62, 0.75, 0.38, 1.20)
+        # Exhausted voiced laryngeal sigh/moan on exhales & shuddering inhales
+        f0 = (138.0 - 34.0 * a) * pitch if exhale else (182.0 + 36.0 * np.sin(math.pi * a)) * pitch
+        ph = 2 * np.pi * np.cumsum(f0) / sr
+        sigh = (0.48 * np.sin(ph) + 0.28 * np.sin(2 * ph + 0.7)
+                + 0.15 * np.sin(3 * ph + 1.5) + 0.07 * np.sin(4 * ph + 2.2))
+        sigh_env = np.exp(-a * 2.4) if exhale else np.sin(math.pi * a) ** 1.4
+        sigh_gain = 0.42 if exhale else 0.22
 
-    # room tone so the loop never drops to digital silence
-    room = lp(noise(n, rng), 700.0) * 0.05
-    room += 0.04 * np.sin(2 * np.pi * 52.0 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 0.17 * t))
-    x += room.astype(np.float32)
+        y = np.tanh((y * 0.66 + sigh.astype(np.float32) * sigh_env * sigh_gain) * 1.25)
+        e = np.clip(tt / 0.10, 0, 1) ** 1.15 * np.clip((ln / sr - tt) / 0.22, 0, 1) ** 0.85
+        x[i0:i0 + ln] += (y * e * wet * gain).astype(np.float32)
 
-    # throat rattle under the exhales
-    g = np.zeros(n, dtype=np.float32)
-    for s0, e0 in [(0.95, 2.25), (4.05, 5.40)]:
-        i0, i1 = int(s0 * sr), int(e0 * sr)
-        g[i0:i1] = hp(np.abs(np.sin(2 * np.pi * 27.0 * t[i0:i1])), 20) ** 3
-    x += g * bp(noise(n, rng), 180, 900) * 0.30
+    # Exhausted cycle: inhale -> voiced exhale -> shudder -> inhale -> voiced exhale -> catch
+    breath_hit(0.05, 1.02, 1.00, 0.88, 1.00, exhale=False)
+    breath_hit(0.96, 1.28, 0.90, 0.76, 0.88, exhale=True)
+    breath_hit(2.40, 0.55, 0.75, 0.36, 1.14, exhale=False)
+    breath_hit(3.10, 1.08, 1.00, 0.84, 0.99, exhale=False)
+    breath_hit(4.06, 1.32, 0.90, 0.74, 0.86, exhale=True)
+    breath_hit(5.55, 0.62, 0.78, 0.40, 1.18, exhale=False)
 
-    x = hp(lp(x, 6000.0), 120.0)
+    # Subtle low chest-cavity pulse (no broadband room-noise hiss)
+    chest = 0.035 * np.sin(2 * np.pi * 52.0 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 0.28 * t))
+    x += chest.astype(np.float32)
+
+    x = hp(lp(x, 5400.0), 95.0)
     return normalise(x, 0.9)
 
 
@@ -722,76 +1200,30 @@ def make_breath_loop(sr=SR):
     return normalise(y, 0.85)
 
 
-def crossfade_loop(x, sr=SR, fade_s=1.5):
-    n = int(fade_s * sr)
-    if n * 2 >= len(x):
-        return x
-    head = x[:n].copy()
-    tail = x[-n:].copy()
-    ramp = np.linspace(0, 1, n, dtype=np.float32)
-    y = x[:-n].copy()
-    y[:n] = tail * (1 - ramp) + head * ramp
-    return y
-
-
 # --------------------------------------------------------------------------- #
-# 5) win — relief that is not safe
+# 5) win — relief that is not safe (pure open-fifth chord + voiced sigh)
 # --------------------------------------------------------------------------- #
 def make_win(sr=SR):
     n = int(5.5 * sr)
     t = np.arange(n) / sr
     out = np.zeros(n, dtype=np.float32)
 
-    # hollow open fifth stack (no third -> neither happy nor sad), soft attack
     for f, a, det in [(98.0, 0.30, 0.0), (196.0, 0.22, 0.15), (293.66, 0.16, -0.2),
-                      (392.0, 0.12, 0.25), (587.33, 0.07, -0.3)]:
+                      (392.0, 0.12, 0.25), (587.33, 0.07, -0.3), (783.99, 0.035, 0.18)]:
         vib = 1.0 + 0.0018 * np.sin(2 * np.pi * (0.7 + f / 400.0) * t)
         out += a * np.sin(2 * np.pi * (f * vib + det) * t) * np.exp(-t * 0.30)
-    out *= np.clip(t / 1.1, 0, 1) ** 1.3          # fades in under the exhale
+    out *= np.clip(t / 1.1, 0, 1) ** 1.3
 
-    # a low drone that never resolves
     out += 0.22 * np.sin(2 * np.pi * 46.0 * t) * (0.6 + 0.4 * np.sin(2 * np.pi * 0.13 * t))
     out += 0.08 * np.sin(2 * np.pi * 65.4 * t) * (0.5 + 0.5 * np.sin(2 * np.pi * 0.09 * t + 1.2))
 
-    # exhausted exhale: the gasp played forward, low-passed, quiet
-    ex = lp(gasp(1.1, 601, sr), 1600.0)
+    ex = lp(gasp(1.1, 601, sr), 1500.0)
     ex *= np.clip(np.arange(len(ex)) / (0.25 * sr), 0, 1)
-    out[:len(ex)] += ex * 0.16
-
-    # breathy air over the chord
-    rng = np.random.default_rng(602)
-    air = lp(noise(n, rng), 2200)
-    air *= np.clip(t / 1.2, 0, 1) * np.exp(-t * 0.45)
-    out += air * 0.045
+    out[:len(ex)] += ex * 0.14
 
     out *= np.clip(t / 0.5, 0, 1) ** 1.5
     out *= np.clip((n / sr - t) / 1.2, 0, 1) ** 1.2
     return normalise(out, 0.8)
-
-def bed_wire_hum(sr=SR, seed=10):
-    """50 Hz transformer buzz + mains harmonics + damp corona micro-arcs."""
-    rng = np.random.default_rng(seed)
-    n = int(sr * 5.2)
-    t = np.arange(n) / sr
-    hum = np.zeros(n, dtype=np.float32)
-    for f, a, ph in [(50.0, 0.34, 0.0), (100.0, 0.42, 0.7), (150.0, 0.28, 1.5),
-                     (200.0, 0.14, 2.1), (250.0, 0.11, 0.3), (300.0, 0.16, 1.9),
-                     (450.0, 0.06, 2.8), (600.0, 0.03, 0.9)]:
-        wob = 1.0 + 0.16 * np.sin(2 * math.pi * (0.23 + 0.04 * (f / 100.0)) * t + ph)
-        hum += a * wob * np.sin(2 * math.pi * f * t + ph)
-    # sporadic corona sizzle bursts across wet porcelain insulators
-    sizzle = np.zeros(n, dtype=np.float32)
-    for b_at in [0.65, 1.78, 2.95, 3.82]:
-        i0 = int(b_at * sr)
-        ln = int(rng.uniform(0.06, 0.16) * sr)
-        if i0 + ln >= n:
-            continue
-        tt = np.arange(ln) / sr
-        arc = bp(noise(ln, rng), 1800, 6600) * (0.5 + 0.5 * np.sin(2 * math.pi * 100.0 * tt))
-        env = env_ad(ln, 0.004, 0.035, sr)
-        sizzle[i0:i0 + ln] += arc * env * rng.uniform(0.28, 0.52)
-    out = normalise(hum * 0.55 + sizzle, 0.65)
-    return crossfade_loop(out, sr, 0.7)
 
 
 # --------------------------------------------------------------------------- #
@@ -804,7 +1236,8 @@ def generate(audio_dir=AUDIO, sr=SR):
     write_ogg(p("wind_loop.ogg"), bed_wind(sr))
     write_ogg(p("drone_loop.ogg"), bed_drone(sr))
     write_ogg(p("static_loop.ogg"), bed_static(sr))
-    write_ogg(p("heartbeat_loop.ogg"), bed_heartbeat(sr))
+    write_ogg(p("heartbeat_loop.ogg"), bed_heartbeat(sr, 4, 68.0, 0.0))
+    write_ogg(p("heartbeat_fast_loop.ogg"), bed_heartbeat(sr, 14, 124.0, 1.0, 7))
     write_ogg(p("breath_loop.ogg"), make_breath_loop(sr))
     write_ogg(p("wire_hum_loop.ogg"), bed_wire_hum(sr))
 
