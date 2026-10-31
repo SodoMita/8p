@@ -131,10 +131,20 @@ func _pbr(name: String, repeats_per_metre := 1.0, rough := 1.0, normal_scale := 
 	return m
 
 
-## World-space triplanar PBR: the texture is projected in metres on all three
+## Metre-space triplanar PBR (stone rotates with the object, scale does not stretch): the texture is projected in metres on all three
 ## axes, so a 2048 px map at `metres_per_repeat` gives the same texel density on
 ## a 1 m pillar and a 20 m wall - nothing stretches, nothing looks low-res.
-func _triplanar(tex: String, metres_per_repeat: float, rough: float, normal_scale: float) -> StandardMaterial3D:
+func _triplanar(tex: String, metres_per_repeat: float, rough: float, normal_scale: float) -> Material:
+	if tex == "stone":
+		var surface := ShaderMaterial.new()
+		surface.shader = load("res://shaders/concrete_surface.gdshader")
+		surface.set_shader_parameter("albedo_map", load("res://assets/textures/stone_albedo.png"))
+		surface.set_shader_parameter("normal_map", load("res://assets/textures/stone_normal.png"))
+		surface.set_shader_parameter("roughness_map", load("res://assets/textures/stone_rough.png"))
+		surface.set_shader_parameter("metres_per_repeat", metres_per_repeat)
+		surface.set_shader_parameter("normal_strength", normal_scale)
+		surface.set_shader_parameter("roughness_multiplier", rough)
+		return surface
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = load("res://assets/textures/%s_albedo.png" % tex)
 	m.normal_enabled = true
