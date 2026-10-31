@@ -434,6 +434,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	# a note never traps you: any button dismisses it instantly
 	if note_root.modulate.a > 0.05:
 		if event.is_action_pressed("interact") or event.is_action_pressed("sprint") or event.is_action_pressed("pause") or event.is_action_pressed("flashlight"):
+			# Killing the tween is the point: show_note() animates the alpha to 1,
+			# idles, then fades, and setting alpha here while it was still climbing
+			# just got overwritten on the next frame -- the note you "dismissed"
+			# came back and ate the following key press too.
+			_kill_tween("note")
 			note_root.modulate.a = 0.0
 			# the key that closes the note is spent: it must not also toggle the
 			# torch, grab a page or open the pause menu on the same press

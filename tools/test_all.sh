@@ -40,6 +40,13 @@ run controls "$GODOT" --headless --path . res://scenes/World.tscn -- --autotest=
 grep -E '^\[controls\] (PASS|FAIL)' "$OUT/controls.log" | grep FAIL
 n_ctl=$(grep -cE '^\[controls\] PASS' "$OUT/controls.log")
 grep -q 'RESULT [0-9]\+ passed, 0 failed' "$OUT/controls.log" && ok "controls ($n_ctl checks)" || bad "controls"
+# pointer capture cannot be tested headless (Input.mouse_mode is a no-op there),
+# so the same harness runs again inside sway where capture is real
+run controls_gl bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=controls --quality=1
+grep -E '^\[controls\] (FAIL|SKIP)' "$OUT/controls_gl.log"
+n_ctl_gl=$(grep -cE '^\[controls\] PASS' "$OUT/controls_gl.log")
+grep -q 'RESULT [0-9]\+ passed, 0 failed' "$OUT/controls_gl.log" \
+  && ok "controls on a display ($n_ctl_gl checks incl. pointer capture)" || bad "controls on a display"
 
 log "4/9 full play-through: collect 8 pages -> win screen (headless)"
 run win "$GODOT" --headless --path . res://scenes/World.tscn -- --autotest=win

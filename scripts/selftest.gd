@@ -322,15 +322,27 @@ func _run() -> void:
 	Input.action_release("move_forward")
 	var walked_keys: float = (player.global_position - start_touch).length()
 	check("keyboard_moves_in_touch_mode", walked_keys > 0.4, "%.2f m" % walked_keys)
-	# with the cursor free (touch mode), a plain pointer move must not turn the
-	# camera: the cursor belongs to the stick and the menus
+	# A plain mouse move always looks, even with touch mode on: _detect_touch()
+	# fires for any machine that reports a touchscreen, and those players are
+	# holding a mouse. (Encoding the opposite here is what let a real regression
+	# through: the camera could not be turned at all on a touch-capable PC.)
 	var flick := InputEventMouseMotion.new()
 	flick.relative = Vector2(240, 0)
 	var yaw_before_flick: float = player.rotation.y
 	player._unhandled_input(flick)
-	check("plain_mouse_ignored_in_touch_mode",
-		absf(player.rotation.y - yaw_before_flick) < 0.001,
+	check("plain_mouse_looks_in_touch_mode",
+		absf(player.rotation.y - yaw_before_flick) > 0.1,
 		"%.3f rad" % (player.rotation.y - yaw_before_flick))
+	# ... except while a finger is actually on the glass: then the overlay owns it
+	player.finger_down = true
+	var yaw_before_twin: float = player.rotation.y
+	var twin := InputEventMouseMotion.new()
+	twin.relative = Vector2(240, 0)
+	player._unhandled_input(twin)
+	check("finger_down_blocks_mouse_look",
+		absf(player.rotation.y - yaw_before_twin) < 0.001,
+		"%.3f rad" % (player.rotation.y - yaw_before_twin))
+	player.finger_down = false
 	# ... holding a button is drag-look, and that does turn the camera
 	var drag := InputEventMouseMotion.new()
 	drag.relative = Vector2(240, 0)

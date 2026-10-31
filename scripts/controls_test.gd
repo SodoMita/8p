@@ -25,6 +25,14 @@ func _ready() -> void:
 	get_tree().quit(0 if failed == 0 else 1)
 
 
+## Headless Godot ignores Input.mouse_mode entirely (it stays VISIBLE), so a
+## pointer-capture assertion is only meaningful on a real display. Skipping is
+## printed, never silently counted as a pass: the same harness is run under sway
+## (tools/run_sway.sh ... --autotest=controls) where those checks do run.
+func skip(name: String, reason: String) -> void:
+	print("[controls] SKIP  %s (%s)" % [name, reason])
+
+
 func check(name: String, condition: bool, detail := "") -> void:
 	if condition:
 		passed += 1
@@ -61,6 +69,32 @@ func _mouse_move(rel: Vector2, held := false) -> void:
 	if held:
 		e.button_mask = MOUSE_BUTTON_MASK_LEFT
 	Input.parse_input_event(e)
+
+
+## Yaw of the camera the player is actually looking through, i.e. the direction
+## the picture points. The rig lags behind the yaw on purpose, so this is
+## measured after letting it settle.
+func _cam_yaw() -> float:
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if cam == null:
+		cam = player.camera
+	if cam == null:
+		return 0.0
+	var f := -cam.global_transform.basis.z
+	return wrapf(atan2(-f.x, -f.z), -PI, PI)
+
+
+## Hold an action for a fixed number of physics ticks and report how far the
+## player travelled. Physics ticks are 1/60 s of simulated time whatever the
+## renderer is doing, so this measures the same thing at 145 fps and at 2 fps.
+func _hold(action: String, ticks: int) -> float:
+	var start := player.global_position
+	Input.action_press(action)
+	for i in ticks:
+		await get_tree().physics_frame
+	Input.action_release(action)
+	await get_tree().physics_frame
+	return (player.global_position - start).length()
 
 
 ## A real finger: touch down, drag, up (the drag is what carries `relative`).
@@ -111,6 +145,20 @@ func _run() -> void:
 	check("mouse_look_yaw", absf(d_mouse - (-60.0 * mouse_sens)) < 0.01,
 		"%.4f rad, expected %.4f" % [d_mouse, -60.0 * mouse_sens])
 
+	# ... and the view itself must turn: the yaw number is not what the player
+	# sees, the camera is, and it hangs off the physics handle now
+	_reset_view()
+	await _frames(20)
+	var cam_before: float = _cam_yaw()
+	_mouse_move(Vector2(60, 0))
+	# the rig lags on purpose: ~90 frames of 145 fps before the view has caught
+	# up with the head (camtest measures the same settle curve)
+	await _frames(90)
+	var cam_turned: float = wrapf(_cam_yaw() - cam_before, -PI, PI)
+	check("camera_actually_turns_with_mouse",
+		absf(cam_turned) > absf(60.0 * mouse_sens) * 0.5 and signf(cam_turned) == -1.0,
+		"view turned %.4f rad, yaw moved %.4f" % [cam_turned, -60.0 * mouse_sens])
+
 	_reset_view()
 	_mouse_move(Vector2(0, 60))
 	await _frames(2)
@@ -133,13 +181,9 @@ func _run() -> void:
 
 	# --------------------------------------------------------------- keyboard
 	_reset_view()
-	var start := player.global_position
 	player.frozen = false
-	Input.action_press("move_forward")
-	await _wait(0.5)
-	Input.action_release("move_forward")
-	var walked: float = (player.global_position - start).length()
-	check("keyboard_walk", walked > 0.4, "%.2f m" % walked)
+	var walked: float = await _hold("move_forward", 30)
+	check("keyboard_walk", walked > 0.4, "%.2f m in 30 ticks" % walked)
 
 	# ------------------------------------------------------------------ touch
 	# The touch overlay drives look from InputEventScreenDrag. The project has
@@ -169,24 +213,84 @@ func _run() -> void:
 
 	# --------------------------------------------------- keyboard while touch on
 	var start2 := player.global_position
-	Input.action_press("move_forward")
-	await _wait(0.45)
-	Input.action_release("move_forward")
-	check("keyboard_walks_in_touch_mode",
-		(player.global_position - start2).length() > 0.35,
-		"%.2f m" % (player.global_position - start2).length())
+	var walked_touch: float = await _hold("move_forward", 30)
+	check("keyboard_walks_in_touch_mode", walked_touch > 0.35,
+		"%.2f m in 30 ticks" % walked_touch)
 
-	# a real mouse on a touch device: moving the cursor must not spin the camera
-	# (the cursor has to stay usable for the on-screen controls)
+	# THE BUG THE HUMAN REPORTED. _detect_touch() returns true for any machine
+	# that reports a touchscreen -- a Windows laptop, a desktop browser where
+	# navigator.maxTouchPoints > 0 -- so Game.touch_mode can be on for someone
+	# holding a mouse. Plain mouse motion, no button, cursor free, must still turn
+	# the camera, and by exactly one sensitivity step (not two).
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	await _frames(1)
 	_reset_view()
 	_mouse_move(Vector2(60, 0), false)
 	await _frames(2)
-	check("idle_cursor_does_not_turn_camera", absf(_yaw()) < 0.01, "%.4f rad" % _yaw())
-	# ... but dragging with a button held does look
+	var d_free: float = wrapf(_yaw(), -PI, PI)
+	check("mouse_look_in_touch_mode_plain", absf(d_free - (-60.0 * mouse_sens)) < 0.01,
+		"%.4f rad, expected %.4f (touch_mode=%s, cursor free, no button)" % [
+			d_free, -60.0 * mouse_sens, str(Game.touch_mode)])
+	# ... and dragging still looks (a trackpad user who holds a button)
 	_reset_view()
 	_mouse_move(Vector2(60, 0), true)
 	await _frames(2)
 	check("mouse_drag_looks_in_touch_mode", absf(_yaw()) > 0.02, "%.4f rad" % _yaw())
+	# while a finger IS on the glass, its emulated twin is ignored (no double look)
+	var finger := InputEventScreenTouch.new()
+	finger.index = 3
+	finger.position = Vector2(900, 400)
+	finger.pressed = true
+	Input.parse_input_event(finger)
+	await _frames(1)
+	_reset_view()
+	_mouse_move(Vector2(60, 0))
+	await _frames(2)
+	check("finger_down_suppresses_mouse_twin", absf(_yaw()) < 1e-6,
+		"%.6f rad while finger_down=%s" % [_yaw(), str(player.finger_down)])
+	var lift := InputEventScreenTouch.new()
+	lift.index = 3
+	lift.position = Vector2(900, 400)
+	lift.pressed = false
+	Input.parse_input_event(lift)
+	await _frames(2)
+	# ... and the finger lifting hands look back to the mouse immediately
+	_reset_view()
+	_mouse_move(Vector2(60, 0))
+	await _frames(2)
+	check("mouse_look_after_finger_lifts", absf(wrapf(_yaw(), -PI, PI) - (-60.0 * mouse_sens)) < 0.01,
+		"%.4f rad" % wrapf(_yaw(), -PI, PI))
+	# a real click on the world captures the pointer; a finger's emulated click
+	# must never take the cursor away from the on-screen controls
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	Input.parse_input_event(click)
+	await _frames(2)
+	if DisplayServer.get_name() == "headless":
+		skip("click_captures_pointer", "headless has no pointer to capture")
+	else:
+		check("click_captures_pointer", Input.mouse_mode == Input.MOUSE_MODE_CAPTURED,
+			"mouse_mode=%d" % Input.mouse_mode)
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	var tap := InputEventScreenTouch.new()
+	tap.index = 4
+	tap.position = Vector2(900, 400)
+	tap.pressed = true
+	Input.parse_input_event(tap)
+	await _frames(2)
+	if DisplayServer.get_name() == "headless":
+		skip("finger_click_does_not_capture", "headless has no pointer to capture")
+	else:
+		check("finger_click_does_not_capture", Input.mouse_mode == Input.MOUSE_MODE_VISIBLE,
+			"mouse_mode=%d" % Input.mouse_mode)
+	var tap_up := InputEventScreenTouch.new()
+	tap_up.index = 4
+	tap_up.position = Vector2(900, 400)
+	tap_up.pressed = false
+	Input.parse_input_event(tap_up)
+	await _frames(2)
 
 	# ------------------------------------------------------------- edge cases
 	# absolute-mode motion (some remote desktop / tablet drivers) must not snap
@@ -222,22 +326,13 @@ func _run() -> void:
 	# --------------------------------------------------------------- pause
 	world._toggle_pause()
 	await _frames(2)
-	var paused_start := player.global_position
-	Input.action_press("move_forward")
-	await _wait(0.35)
-	Input.action_release("move_forward")
-	var moved_paused: float = (player.global_position - paused_start).length()
+	var moved_paused: float = await _hold("move_forward", 24)
 	check("pause_stops_movement", moved_paused < 0.05, "%.3f m" % moved_paused)
 	# and the packed state does not leak out of the pause into the resume
 	world._resume()
 	await _frames(2)
-	var resumed_start := player.global_position
-	Input.action_press("move_forward")
-	await _wait(0.35)
-	Input.action_release("move_forward")
-	check("resume_restores_movement",
-		(player.global_position - resumed_start).length() > 0.25,
-		"%.2f m" % (player.global_position - resumed_start).length())
+	var resumed: float = await _hold("move_forward", 24)
+	check("resume_restores_movement", resumed > 0.25, "%.2f m in 24 ticks" % resumed)
 
 	# the stick must not stay latched across a pause
 	world._toggle_pause()
@@ -278,19 +373,18 @@ func _run() -> void:
 	# a note swallows the key that dismisses it (F closes the note, it must not
 	# also toggle the torch on the same press)
 	world.hud.show_note("1\n\nTEST", 4.0)
-	await _wait(0.4)
+	await _frames(4)
 	var torch_before: bool = player.flashlight_on
 	var dismiss := InputEventAction.new()
 	dismiss.action = "flashlight"
 	dismiss.pressed = true
 	Input.parse_input_event(dismiss)
 	await _frames(3)
+	await _frames(10)
 	check("note_dismiss_consumes_key",
-		player.flashlight_on == torch_before and world.hud.note_root.modulate.a < 0.3,
-		"torch %s, note alpha %.2f" % [str(player.flashlight_on), world.hud.note_root.modulate.a])
-	world.hud.note_root.modulate.a = 0.0
-	Input.parse_input_event(dismiss)
-	await _frames(2)
+		player.flashlight_on == torch_before and world.hud.note_root.modulate.a < 0.05,
+		"torch %s, note alpha %.2f (must not climb back)" % [
+			str(player.flashlight_on), world.hud.note_root.modulate.a])
 
 	# and after that, the same key works again
 	var torch_before2: bool = player.flashlight_on

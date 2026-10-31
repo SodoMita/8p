@@ -1,6 +1,17 @@
-EIGHT PAGES 1.5.2
+EIGHT PAGES 1.5.3
 Godot 4.7.2 · GL Compatibility · GDScript
 ----------------------------------------
+1.5.3 mouse look, for real this time: 1.5.1 had gated mouse look on Game.touch_mode,
+     which _detect_touch() sets for ANY machine reporting a touchscreen -- a
+     Windows laptop, a desktop browser with navigator.maxTouchPoints > 0 -- so on
+     those PCs the camera could not be turned at all without holding a button.
+     Look is now decided by the origin of the event, never by the mode: a real
+     mouse always looks, a finger never does (emulation device tag, plus a
+     finger-down state so untracked platforms are covered too). Dismissing a note
+     also actually dismisses it now: the fade-in tween used to keep running and
+     drag it back, eating the next key press as well. 48 selftests + 30 rig + 23
+     control checks, the control ones headless and again inside sway where pointer
+     capture is real.
 1.5.2 effects restored (#28): the camcorder pass had quietly turned the old
      static-grain overlay off and halved the vignette (0.92 -> 0.35) to avoid
      stacking two of each. Both are back at full strength on top of the tape,
