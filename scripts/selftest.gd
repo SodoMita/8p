@@ -63,6 +63,15 @@ func _build_other_map(source: Node) -> Node:
 	return other
 
 
+## The gate leaves are part of the fence but are swung into the forest on purpose,
+## so the "panels must span the run" check has to skip them.
+func _is_gate_leaf(t3: Transform3D, leaves: Array) -> bool:
+	for l in leaves:
+		if (l as Transform3D).origin.distance_to(t3.origin) < 0.01:
+			return true
+	return false
+
+
 func _run() -> void:
 	var player: CharacterBody3D = world.player
 	var sl: Node3D = world.slender
@@ -322,8 +331,9 @@ func _run() -> void:
 		var covered := 0.0
 		for span in fabric_spans:
 			covered += span
-		# four 120 m runs, less the 5 m gate opening (one 3 m bay is skipped)
-		var expected := 4.0 * 120.0 - 3.0
+		# four full sides (the runs now reach the corners), less the gate opening
+		var expected: float = 4.0 * (2.0 * world.map_builder.FENCE_SIDE) \
+			- 2.0 * world.map_builder.GATE_OPEN_HALF
 		if absf(covered - expected) > 12.0:
 			fence_ok = false
 			print("[selftest]   fence covers %.1f m, expected ~%.1f" % [covered, expected])
@@ -336,29 +346,75 @@ func _run() -> void:
 			var gp: Vector3 = (c as CollisionShape3D).global_position
 			if absf(gp.x - gate.x) < 0.4 and absf(gp.z) < 2.2 and gp.y > 0.5:
 				gate_clear = false
-	# the panels must SPAN the run: their local X has to lie along the fence line
-	# and their local Y has to be up. Hand-derived yaw maths got this 90 degrees
-	# wrong once already, and it showed up as a fence standing sideways.
+	# The fence is verified from the transforms it was BUILT from, not from the
+	# MultiMesh: get_instance_transform() reads back as identity in a headless run,
+	# so a check reading the GPU buffer would pass no matter what the fence did.
+	var built_panels: Array = world.map_builder.boundary_panels
+	check("fence_panels_exist", built_panels.size() > 100, "%d panels" % built_panels.size())
+
+	# 1) each panel must SPAN the run: local X along the fence line, not the normal
 	var panels_ok := true
-	var worst := 1.0
-	for node_name in ["FencePanels", "FenceRails"]:
-		var mmi: MultiMeshInstance3D = world.map_builder.get_node_or_null(node_name)
-		if mmi == null:
+	var worst := 0.0
+	var leaves: Array = world.map_builder.boundary_gate_leaves
+	for tr in built_panels:
+		var t3: Transform3D = tr
+		if _is_gate_leaf(t3, leaves):
 			continue
-		var mm: MultiMesh = mmi.multimesh
-		for k in mm.instance_count:
-			var t3: Transform3D = mm.get_instance_transform(k)
-			var xaxis: Vector3 = t3.basis.x.normalized()
-			var yaxis: Vector3 = t3.basis.y.normalized()
-			var p := t3.origin
-			# outward direction of the nearest side of the square ring
-			var outd: Vector3 = (Vector3(p.x, 0, 0) if absf(p.x) > absf(p.z) else Vector3(0, 0, p.z)).normalized()
-			var flat := absf(xaxis.dot(outd))
-			worst = maxf(worst, flat) if not panels_ok else flat
-			if flat > 0.15 or absf(yaxis.dot(Vector3.UP)) < 0.95:
-				panels_ok = false
-				print("[selftest]   panel ", k, " spans the normal: |x.out|=", flat)
-	check("fence_panels_follow_the_line", panels_ok)
+		var xaxis: Vector3 = t3.basis.x.normalized()
+		var p: Vector3 = t3.origin
+		var outd: Vector3 = (Vector3(p.x, 0, 0) if absf(p.x) > absf(p.z) else Vector3(0, 0, p.z)).normalized()
+		var flat := absf(xaxis.dot(outd))
+		worst = maxf(worst, flat)
+		if flat > 0.15 or absf(t3.basis.y.normalized().dot(Vector3.UP)) < 0.95:
+			panels_ok = false
+	check("fence_panels_follow_the_line", panels_ok, "worst |x.out| = %.3f" % worst)
+
+	# 2) the runs must MEET at the corners: the outermost fabric has to reach the
+	# side distance. Each run used to be truncated to a whole number of panels and
+	# stopped 1 m short at both ends, leaving a 2x2 m hole at every corner.
+	var half_extent := 0.0
+	var segs: Array = []
+	for tr in built_panels:
+		var t3: Transform3D = tr
+		var xaxis: Vector3 = t3.basis.x
+		var half_len: float = xaxis.length() * 0.5
+		var dir: Vector3 = xaxis.normalized()
+		segs.append([Vector2(t3.origin.x, t3.origin.z),
+			Vector2(dir.x, dir.z), half_len])
+		for e in [t3.origin + dir * half_len, t3.origin - dir * half_len]:
+			half_extent = maxf(half_extent, maxf(absf(e.x), absf(e.z)))
+	var side: float = world.map_builder.FENCE_SIDE
+	check("fence_reaches_the_corners", half_extent >= side - 0.15,
+		"outer edge %.2f vs side %.2f" % [half_extent, side])
+
+	# 3) walk the perimeter: no point may be more than two thirds of a bay from
+	# fabric (the gate opening is the one intended hole, so it is exempt)
+	var holes := 0
+	var probes := 0
+	var bay: float = world.map_builder.PANEL_WIDTH
+	for step in 240:
+		var a := TAU * float(step) / 240.0
+		var dir2 := Vector3(cos(a), 0.0, sin(a))
+		var sc: float = side / maxf(absf(dir2.x), absf(dir2.z))
+		var p_on: Vector3 = dir2 * sc
+		# the gate sits at +X; skip probes across the opening
+		if p_on.x > side - 0.5 and absf(p_on.z) < world.map_builder.GATE_OPEN_HALF + 0.2:
+			continue
+		var p2 := Vector2(p_on.x, p_on.z)
+		var nearest := 1e9
+		for sg in segs:
+			var c2: Vector2 = sg[0]
+			var ax2: Vector2 = sg[1]
+			var half_len2: float = sg[2]
+			var rel := p2 - c2
+			var al := clampf(rel.dot(ax2), -half_len2, half_len2)
+			nearest = minf(nearest, p2.distance_to(c2 + ax2 * al))
+		probes += 1
+		if nearest > bay * 0.667:
+			holes += 1
+	if holes > 0:
+		print("[selftest]   ", holes, " of ", probes, " perimeter probes are in a hole")
+	check("fence_has_no_corner_holes", holes == 0, "%d/%d open" % [holes, probes])
 
 	check("gate_is_open", gate_clear, str(gate))
 

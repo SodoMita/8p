@@ -457,6 +457,15 @@ func _run_shots() -> void:
 	await _shot("gate_from_outside")
 	await _set_camera(gate + Vector3(-9.0, 0.05, -3.0), gate + Vector3(30.0, -1.4, 14.0))
 	await _wait(0.8)
+	# the corner of the fence, where two runs have to meet
+	var corner := Vector3(world.map_builder.FENCE_SIDE, 0, world.map_builder.FENCE_SIDE)
+	await _set_camera(corner + Vector3(-7.0, 2.2, -7.0), corner + Vector3(0, 1.2, 0))
+	await _wait(0.6)
+	await _shot("fence_corner")
+	await _set_camera(corner + Vector3(-2.5, 2.0, -16.0), corner + Vector3(0, 1.0, 0))
+	await _wait(0.6)
+	await _shot("fence_corner_low")
+
 	await _shot("fence_line")
 	_log_line("autotest shots done")
 	get_tree().quit(0)

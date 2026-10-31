@@ -29,6 +29,12 @@ var page_spots: Array[Dictionary] = []
 # set by each landmark builder: a surface point (landmark-local) and its outward
 # normal, so a page is pinned to something real instead of floating in a clearing
 var _attach_hint: Dictionary = {}
+var GATE_OPEN_HALF := GATE_HALF   # effective gate opening, set by _boundary()
+var gate_leaf_half := GATE_HALF
+var boundary_panels: Array = []
+var boundary_gate_leaves: Array = []
+var boundary_rails: Array = []
+var boundary_posts: Array = []
 var tree_positions: PackedVector3Array = PackedVector3Array()
 var landmarks: Array[Dictionary] = []
 var labyrinth: Dictionary = {}
@@ -392,37 +398,58 @@ func _boundary() -> void:
 	var rails: Array = []
 	var panels: Array = []
 
-	# four runs; side 0 (+X) carries the gate
+	# Four runs; side 0 (+X) carries the gate.
+	#
+	# Each run spans the FULL side, corner to corner. It used to be truncated to a
+	# whole number of panels (`int(FENCE_SIDE / PANEL_WIDTH)`), which left the run
+	# 2 m short of both corners: with FENCE_SIDE 61 and 3 m panels that is a 1 m
+	# gap at every run end, and two of them meeting at a corner made a 2x2 m hole.
+	# Now the bay count is rounded UP and the bay width derived from it, so the
+	# fabric reaches the corner exactly; the slight width change is absorbed by
+	# scaling each panel along its length.
+	var run_length := FENCE_SIDE * 2.0
+	var bays := int(ceil(run_length / PANEL_WIDTH))
+	var bay_w := run_length / float(bays)
+	# the gate opening has to be a whole number of bays, so measure the opening the
+	# bays actually leave and hang the leaves on that
+	var gate_open_half := GATE_HALF
+	for bay in bays:
+		var tc := (float(bay) + 0.5) * bay_w - run_length * 0.5
+		if absf(tc) < GATE_HALF:
+			gate_open_half = maxf(gate_open_half, absf(tc) + bay_w * 0.5)
 	for side in 4:
 		var ang := TAU * float(side) / 4.0
 		var out := Vector3(cos(ang), 0.0, sin(ang))
 		var along := Vector3(-sin(ang), 0.0, cos(ang))
-		var run_length := PANEL_WIDTH * 2.0 * float(int(FENCE_SIDE / PANEL_WIDTH))
-		var bays := int(run_length / PANEL_WIDTH)
 		for bay in bays:
 			# panel centre, measured along the run
-			var t := (float(bay) + 0.5) / float(bays) - 0.5
-			var centre: Vector3 = out * FENCE_SIDE + along * (t * run_length)
-			var in_gate := side == 0 and absf(t * run_length) < GATE_HALF
+			var t := (float(bay) + 0.5) * bay_w - run_length * 0.5
+			var centre: Vector3 = out * FENCE_SIDE + along * t
+			var in_gate := side == 0 and absf(t) < gate_open_half - 0.001
 			if in_gate:
 				continue
-			# the panel spans the run, not the outward normal
-			var b := _along_basis(along)
+			# the panel spans the run, not the outward normal; scale it to the
+			# derived bay width so the run closes on the corner
+			var b := _along_basis(along).scaled(Vector3(bay_w / PANEL_WIDTH, 1.0, 1.0))
 			panels.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)))
 			# top rail, same direction as the fabric it clamps
 			rails.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
 			# one fabric collider per panel: thin slab exactly on the fence line
 			var shape := BoxShape3D.new()
-			shape.size = Vector3(PANEL_WIDTH, FENCE_FABRIC_H, 0.1)
+			shape.size = Vector3(bay_w, FENCE_FABRIC_H, 0.1)
 			var col := CollisionShape3D.new()
 			col.shape = shape
 			col.transform = Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0))
 			body.add_child(col)
-		# posts between bays (shared, so bays + 1)
+		# posts between bays (shared, so bays + 1). The LAST one sits exactly on the
+		# corner, where the next run's first post already is, so it is skipped
+		# rather than drawn twice in the same place.
 		for p_i in bays + 1:
-			var t2 := float(p_i) / float(bays) - 0.5
-			var ppos: Vector3 = out * FENCE_SIDE + along * (t2 * run_length)
-			if side == 0 and absf(t2 * run_length) <= GATE_HALF + 0.01:
+			if p_i == bays:
+				continue
+			var t2 := float(p_i) * bay_w - run_length * 0.5
+			var ppos: Vector3 = out * FENCE_SIDE + along * t2
+			if side == 0 and absf(t2) <= gate_open_half + 0.01:
 				continue
 			# sunk 0.35 m into the ground so the fence sits IN the terrain
 			posts.append(Transform3D(Basis.IDENTITY, ppos + Vector3(0, POST_HEIGHT * 0.5 - 0.35, 0)))
@@ -434,7 +461,15 @@ func _boundary() -> void:
 			pcol.position = ppos + Vector3(0, POST_HEIGHT * 0.5 - 0.35, 0)
 			body.add_child(pcol)
 		if side == 0:
-			_gate_leaves(body, panels, rails)
+			gate_leaf_half = gate_open_half
+			GATE_OPEN_HALF = gate_open_half
+			_gate_leaves(body, panels, rails, gate_open_half)
+
+	# keep what we built: MultiMesh.get_instance_transform() returns identity in a
+	# headless run, so the tests read these instead of the GPU buffer
+	boundary_panels = panels
+	boundary_rails = rails
+	boundary_posts = posts
 
 	_add_multimesh(panel_mesh, _mats["chainlink"], panels, _blank_tints(panels.size()), "FencePanels")
 	_add_multimesh(post_mesh, _mats["metal"], posts, _blank_tints(posts.size()), "FencePosts")
@@ -461,20 +496,22 @@ func _blank_tints(n: int) -> Array:
 	return out
 
 
-func _gate_leaves(body: StaticBody3D, panels: Array, rails: Array) -> void:
+func _gate_leaves(body: StaticBody3D, panels: Array, rails: Array, open_half: float) -> void:
 	# two leaves hinged on the gate posts, swung open into the forest
 	gate_centre = Vector3(FENCE_SIDE, 0.0, 0.0)
 	var out := Vector3(1, 0, 0)
 	for sgn_f in [-1.0, 1.0]:
 		var sgn: float = sgn_f
-		var hinge: Vector3 = gate_centre + Vector3(0, 0, sgn * GATE_HALF)
+		var hinge: Vector3 = gate_centre + Vector3(0, 0, sgn * open_half)
 		var swing: float = 0.62 * sgn     # radians, opening inward
 		var yaw: float = swing
-		var leaf_w := GATE_HALF - 0.1
+		var leaf_w := open_half - 0.1
 		var leaf_dir: Vector3 = Vector3(cos(yaw), 0, sin(yaw)) * sgn
 		var centre: Vector3 = hinge + leaf_dir * (leaf_w * 0.5)
 		var b := _along_basis(leaf_dir)
-		panels.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)))
+		var leaf_xf := Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0))
+		panels.append(leaf_xf)
+		boundary_gate_leaves.append(leaf_xf)
 		rails.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
 		var shape := BoxShape3D.new()
 		shape.size = Vector3(leaf_w, FENCE_FABRIC_H, 0.1)
