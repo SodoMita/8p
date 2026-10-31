@@ -14,6 +14,7 @@ var _best_label: Label
 var _time := 0.0
 var _starting := false
 var _lang_btn: Button
+var _menu_first_focus: Control
 
 func _ready() -> void:
 	Game.run_active = false

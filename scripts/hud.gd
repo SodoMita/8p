@@ -116,7 +116,11 @@ func _build() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	# --- camcorder: the lens, the tape, the viewfinder ---------------------\n\t# first child on purpose: the shader pass has to resample the 3D image\n\t# before any other overlay is composited, and the slop of the VHS tape is\n\t# allowed to run underneath the crisp HUD text\n\tvar cam_scene: PackedScene = load("res://scenes/Camcorder.tscn")
+	# --- camcorder: the lens, the tape, the viewfinder ---------------------
+	# first child on purpose: the shader pass has to resample the 3D image
+	# before any other overlay is composited, and the slop of the VHS tape is
+	# allowed to run underneath the crisp HUD text
+	var cam_scene: PackedScene = load("res://scenes/Camcorder.tscn")
 	camcorder = cam_scene.instantiate()
 	root.add_child(camcorder)
 
@@ -130,7 +134,8 @@ func _build() -> void:
 	vignette_mat.set_shader_parameter("strength", 0.92)
 	root.add_child(vig)
 
-	# --- static / grain overlay -----------------------------------------\n\tstatic_rect = _shader_rect("res://shaders/static.gdshader")
+	# --- static / grain overlay -----------------------------------------
+	static_rect = _shader_rect("res://shaders/static.gdshader")
 	static_mat = static_rect.material as ShaderMaterial
 	static_mat.set_shader_parameter("noise_tex", load("res://assets/textures/noise.png"))
 	static_mat.set_shader_parameter("intensity", 0.03)
@@ -143,7 +148,8 @@ func _build() -> void:
 	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(flash_rect)
 
-	# --- fade to black ----------------------------------------------------\n\tfade_rect = ColorRect.new()
+	# --- fade to black ----------------------------------------------------
+	fade_rect = ColorRect.new()
 	fade_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	fade_rect.color = Color(0, 0, 0, 0)
 	fade_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -160,7 +166,8 @@ func _build() -> void:
 	crosshair.add_child(dot)
 	root.add_child(crosshair)
 
-	# --- page counter -----------------------------------------------------\n\tvar pages_box := VBoxContainer.new()
+	# --- page counter -----------------------------------------------------
+	var pages_box := VBoxContainer.new()
 	pages_box.position = Vector2(30, 24)
 	pages_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cap := _label(TranslationManager.get_instance().get_string("hud_pages"), 15, Color(0.62, 0.62, 0.6, 0.9))
@@ -245,7 +252,8 @@ func _build() -> void:
 	prompt.modulate.a = 0.0
 	root.add_child(prompt)
 
-	# --- rotate hint (portrait phones) ------------------------------------\n\trotate_hint = _label(TranslationManager.get_instance().get_string("hud_rotate"), 15, Color(0.85, 0.83, 0.78, 0.85))
+	# --- rotate hint (portrait phones) ------------------------------------
+	rotate_hint = _label(TranslationManager.get_instance().get_string("hud_rotate"), 15, Color(0.85, 0.83, 0.78, 0.85))
 	rotate_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	rotate_hint.anchor_left = 0.5
 	rotate_hint.anchor_right = 0.5
@@ -257,7 +265,8 @@ func _build() -> void:
 	rotate_hint.visible = false
 	root.add_child(rotate_hint)
 
-	# --- mobile hint -------------------------------------------------------\n\ttouch_hint = _label(TranslationManager.get_instance().get_string("hud_touch"), 13, Color(0.6, 0.6, 0.58, 0.8))
+	# --- mobile hint -------------------------------------------------------
+	touch_hint = _label(TranslationManager.get_instance().get_string("hud_touch"), 13, Color(0.6, 0.6, 0.58, 0.8))
 	touch_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	touch_hint.anchor_left = 0.5
 	touch_hint.anchor_right = 0.5
@@ -268,7 +277,8 @@ func _build() -> void:
 	touch_hint.visible = false
 	root.add_child(touch_hint)
 
-	# --- note popup -------------------------------------------------------\n\tnote_root = Control.new()
+	# --- note popup -------------------------------------------------------
+	note_root = Control.new()
 	note_root.set_anchors_preset(Control.PRESET_CENTER)
 	note_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	note_root.modulate.a = 0.0

@@ -12,6 +12,7 @@ var best_pages := 0
 var flash_warning_seen := false
 var camcorder := true          # the video-camera post stack + viewfinder
 var camcorder_physics := true  # camera on the joint-driven handheld rig
+var language := 0              # TranslationManager.Language: 0 EN, 1 RU, 2 ZH
 
 
 func _ready() -> void:
@@ -36,6 +37,7 @@ func load_settings() -> void:
 	flash_warning_seen = cfg.get_value("misc", "flash_warning_seen", false)
 	camcorder = cfg.get_value("video", "camcorder", true)
 	camcorder_physics = cfg.get_value("video", "camcorder_physics", true)
+	language = cfg.get_value("ui", "language", 0)
 	apply_volume()
 
 
@@ -50,6 +52,7 @@ func save_settings() -> void:
 	cfg.set_value("misc", "flash_warning_seen", flash_warning_seen)
 	cfg.set_value("video", "camcorder", camcorder)
 	cfg.set_value("video", "camcorder_physics", camcorder_physics)
+	cfg.set_value("ui", "language", language)
 	cfg.save(PATH)
 	apply_volume()
 

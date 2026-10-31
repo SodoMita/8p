@@ -17,7 +17,13 @@
 
 ### How to Play Panel
 - "HOW TO PLAY" (Header)
-- "You are alone in a dark forest. Eight pages are pinned to landmarks: concrete walls, a tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a watchtower.\n\nCollect all eight, then get out.\n\nHe appears at the edge of the trees. Looking at him slows him down — but if you stare too long he will know, and he will run.\n\nStatic is his voice. When it rises, look away — or run." (Body text)
+- "You are alone in a dark forest. Eight pages are pinned to landmarks: concrete walls, a tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a watchtower.
+
+Collect all eight, then get out.
+
+He appears at the edge of the trees. Looking at him slows him down — but if you stare too long he will know, and he will run.
+
+Static is his voice. When it rises, look away — or run." (Body text)
 - "KEYBOARD:  WASD move · SHIFT sprint · F flashlight · E take page · ESC pause" (Keyboard keys)
 - "TOUCH:  left side = virtual stick · right side = look · RUN to sprint · TAKE to pick up" (Touch keys)
 - "BACK" (Back button)
@@ -108,7 +114,13 @@
     "controls_keyboard": "WASD move · SHIFT sprint · F light · E take · ESC pause",
     "credit": "a tribute to Slender: The Eight Pages",
     "how_header": "HOW TO PLAY",
-    "how_body": "You are alone in a dark forest. Eight pages are pinned to landmarks: concrete walls, a tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a watchtower.\n\nCollect all eight, then get out.\n\nHe appears at the edge of the trees. Looking at him slows him down — but if you stare too long he will know, and he will run.\n\nStatic is his voice. When it rises, look away — or run.",
+    "how_body": "You are alone in a dark forest. Eight pages are pinned to landmarks: concrete walls, a tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a watchtower.
+
+Collect all eight, then get out.
+
+He appears at the edge of the trees. Looking at him slows him down — but if you stare too long he will know, and he will run.
+
+Static is his voice. When it rises, look away — or run.",
     "how_keys_keyboard": "KEYBOARD:  WASD move · SHIFT sprint · F flashlight · E take page · ESC pause",
     "how_keys_touch": "TOUCH:  left side = virtual stick · right side = look · RUN to sprint · TAKE to pick up",
     "button_back": "BACK",
