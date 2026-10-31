@@ -114,7 +114,7 @@ several minutes; it was stopped. No claim of a completed final sign-off.
 - Vertex normals receive inverse-transpose Y correction and winding is checked
   after the morph. Shader inverse rest-coordinate thresholds retain canonical
   joint weighting, but actual physical pivots match the taller runtime mesh.
-  CPU IK and tie anchors match; head visibility target follows the taller head.
+  CPU IK and tie anchors match; the head-position helper follows the taller head.
   AI root speed/catch rules, environment, controls and camera code unchanged.
 - **35,397 triangles / five batches**, still one watertight anatomical skin.
 - New `tools/test_slender_proportions.gd` verifies every actual runtime skin
@@ -125,6 +125,8 @@ several minutes; it was stopped. No claim of a completed final sign-off.
 - Godot GL compatibility under actual Sway/pixman: full front, detailed hand,
   216-frame side locomotion study rendered; front/hand/moving pose visually
   inspected. `screenshots/slender_claws_front.png`, `_hands.png`, `_motion.gif`.
-- OpenCode focused source review requested; completion recorded below if returned.
+- OpenCode focused source review read the changed source and checked reference
+  heights, but did not return a final assessment after several minutes; stopped.
+  No final external sign-off claimed. The visibility-ray policy remains unchanged.
   The earlier Web pack result predates this revision; JSON inclusion path and
   runtime dependency mechanism are unchanged. No new mobile/browser claim.
