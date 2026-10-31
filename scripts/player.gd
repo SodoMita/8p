@@ -32,6 +32,14 @@ var pitch := 0.0
 var stamina := STAMINA_MAX
 var sprinting := false
 var frozen := false
+## Diagnostics for the F3 overlay (see hud.gd): how many motion events arrived,
+## how far the pointer moved in total, and how many of them actually turned the
+## camera. If events climb while looks stay at 0, the input path is blocked.
+var diag_motion_events := 0
+var diag_motion_px := Vector2.ZERO
+var diag_looks_applied := 0
+var diag_last_relative := Vector2.ZERO
+var diag_last_device := 0
 ## True while a finger is on the screen. The touch overlay owns that finger's
 ## look, so its emulated mouse twin must not add a second helping.
 var finger_down := false
@@ -69,18 +77,30 @@ func _ready() -> void:
 	handle.impact_gain = 1.0
 
 
+## Mouse look is read here, in _input, and NOT in _unhandled_input.
+##
+## Godot's GUI layer runs before unhandled input and marks a mouse motion as
+## handled whenever a Control with mouse_filter == STOP is under the pointer. A
+## captured pointer sits at the centre of the screen, and the HUD's crosshair dot
+## (a 4x4 ColorRect that had inherited the default STOP) was exactly there: every
+## real mouse motion was eaten by the GUI and the camera never turned. Synthetic
+## events in the tests carried position (0,0), missed that rect, and passed.
+## _input runs before the GUI, so this cannot happen again whatever widget ends
+## up under the cursor.
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		diag_motion_events += 1
+		diag_motion_px += event.relative
+		diag_last_relative = event.relative
+		diag_last_device = event.device
+	if event is InputEventMouseMotion and _mouse_look_allowed(event):
+		diag_looks_applied += 1
+		add_look(event.relative)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if frozen:
 		return
-	# --- mouse look -------------------------------------------------------
-	# Desktop: the pointer is captured, every motion is a look.
-	# Touch mode: the cursor stays visible so the on-screen stick and menus work,
-	# so plain motion must NOT spin the camera (moving the pointer over the RUN
-	# button would turn you around). There, hold a mouse button to drag-look.
-	# Either way the keyboard is live: touch mode adds controls, it never takes
-	# the desktop ones away.
-	if event is InputEventMouseMotion and _mouse_look_allowed(event):
-		add_look(event.relative)
 	# A real mouse click on the world captures the pointer: that is what makes
 	# the aim unbounded instead of stopping at the window edge, and it is how the
 	# web build recovers pointer-lock after an alt-tab (browsers refuse to lock
@@ -114,7 +134,16 @@ func _mouse_look_allowed(event: InputEventMouseMotion) -> bool:
 		return false
 	# belt and braces for platforms that do not tag the emulated twin: while a
 	# finger is actually on the glass, the overlay owns look
-	return not finger_down
+	if finger_down:
+		return false
+	# Touch mode draws a real cursor for the stick and the buttons, so while that
+	# cursor is over an actual widget it belongs to the widget; everywhere else
+	# (i.e. the whole game view) plain mouse motion turns the camera, which is
+	# what a PC player with a touchscreen laptop expects.
+	if Game.touch_mode and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED \
+			and get_viewport().gui_get_hovered_control() != null:
+		return false
+	return true
 
 
 func add_look(delta_px: Vector2) -> void:

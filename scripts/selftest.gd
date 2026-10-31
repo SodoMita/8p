@@ -238,6 +238,22 @@ func _run() -> void:
 			print("[selftest]   %s has %d inverted triangles" % [file, bad])
 	check("mesh_normals_outward", mesh_ok)
 
+	# Keep the approved rind/stem material and its companion mesh labels together.
+	var pumpkin_material: Material = world.map_builder._mats["pumpkin"]
+	check("pumpkin_uses_rind_stem_shader", pumpkin_material is ShaderMaterial and pumpkin_material.shader.resource_path == "res://shaders/pumpkin_skin.gdshader")
+	var pumpkin_masks_ok := true
+	for mesh in world.map_builder._pumpkin_meshes:
+		var arrays: Array = mesh.surface_get_arrays(0)
+		var colors = arrays[Mesh.ARRAY_COLOR]
+		var has_rind := false
+		var has_stem := false
+		if colors != null:
+			for color in colors:
+				has_rind = has_rind or color.a > 0.5
+				has_stem = has_stem or color.a < 0.5
+		pumpkin_masks_ok = pumpkin_masks_ok and has_rind and has_stem
+	check("pumpkin_meshes_have_rind_stem_masks", pumpkin_masks_ok)
+
 	# pumpkins and dead bushes must actually be in the world
 	check("pumpkins_present", world.map_builder.pumpkin_count() > 8,
 		str(world.map_builder.pumpkin_count()))
@@ -512,7 +528,7 @@ func _run() -> void:
 	var flick := InputEventMouseMotion.new()
 	flick.relative = Vector2(240, 0)
 	var yaw_before_flick: float = player.rotation.y
-	player._unhandled_input(flick)
+	player._input(flick)
 	check("plain_mouse_looks_in_touch_mode",
 		absf(player.rotation.y - yaw_before_flick) > 0.1,
 		"%.3f rad" % (player.rotation.y - yaw_before_flick))
@@ -521,7 +537,7 @@ func _run() -> void:
 	var yaw_before_twin: float = player.rotation.y
 	var twin := InputEventMouseMotion.new()
 	twin.relative = Vector2(240, 0)
-	player._unhandled_input(twin)
+	player._input(twin)
 	check("finger_down_blocks_mouse_look",
 		absf(player.rotation.y - yaw_before_twin) < 0.001,
 		"%.3f rad" % (player.rotation.y - yaw_before_twin))
@@ -531,7 +547,7 @@ func _run() -> void:
 	drag.relative = Vector2(240, 0)
 	drag.button_mask = MOUSE_BUTTON_MASK_LEFT
 	var yaw_before_drag: float = player.rotation.y
-	player._unhandled_input(drag)
+	player._input(drag)
 	check("mouse_drag_reaches_player", absf(player.rotation.y - yaw_before_drag) > 0.1,
 		"%.3f rad" % (player.rotation.y - yaw_before_drag))
 	# a finger's emulated mouse motion never looks twice: touch_controls owns it
@@ -540,7 +556,7 @@ func _run() -> void:
 	emulated.button_mask = MOUSE_BUTTON_MASK_LEFT
 	emulated.device = InputEvent.DEVICE_ID_EMULATION
 	var yaw_before_emu: float = player.rotation.y
-	player._unhandled_input(emulated)
+	player._input(emulated)
 	check("emulated_mouse_ignored", absf(player.rotation.y - yaw_before_emu) < 0.001,
 		"%.3f rad" % (player.rotation.y - yaw_before_emu))
 	Game.touch_mode = was_touch

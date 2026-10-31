@@ -136,6 +136,7 @@ add the page to the home screen for a full-screen, no-browser-chrome experience.
 | Flashlight / IR lamp | `F` — swaps the warm spot for the camcorder's IR lamp | **LIGHT** button |
 | Take page | `E` (or simply walk into it) | **TAKE** button (auto-pickup also works) |
 | Pause | `Esc` | **II** in the top-right corner |
+| Input diagnostics | `F3` | — |
 | Dismiss a note | any of the above keys | it fades on its own |
 
 Touch mode is detected automatically on mobile, Android/iOS web builds and any
@@ -155,6 +156,14 @@ look on touch mode is what made the camera impossible to turn on those machines.
 A click on the world captures the pointer so aim is unbounded and so the web build
 recovers pointer-lock after an alt-tab (browsers only grant it on a gesture).
 
+Mouse look is read in `_input`, **not** `_unhandled_input`, on purpose: Godot's GUI
+layer runs first and marks a mouse motion as handled whenever a `Control` with
+`mouse_filter = STOP` is under the pointer — and a captured pointer sits at the
+dead centre of the screen. That is exactly how the camera once went dead (a 4x4
+crosshair dot with the default STOP filter). The fix is two-fold: the crosshair
+is IGNORE, and look is read before the GUI can consume it. `tools/mouse_live_test.sh`
+exists for a genuine X11 pointer, but it is not part of `test_all.sh`: the suite
+is run inside sway, as required, so a real pointer is covered there instead.
 A finger is never a mouse: `emulate_mouse_from_touch` turns every screen drag into
 a mouse motion as well, so the player ignores motion tagged with the emulation
 device and any motion at all while a finger is on the glass — that twin is what
@@ -238,9 +247,9 @@ eight_pages/
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 53 world assertions
+│   ├── selftest.gd          # 66 world assertions
 │   ├── camera_test.gd       # 30 assertions on the handheld camera rig
-│   ├── controls_test.gd     # 23 assertions on the control paths
+│   ├── controls_test.gd     # 25 assertions on the control paths
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
 ├── shaders/
 │   ├── camcorder.gdshader   # the whole video-camera post chain, one pass
@@ -275,7 +284,7 @@ eight_pages/
 Everything below runs headless — no physical display required.
 
 ```bash
-tools/test_all.sh                  # 53 world + 30 rig + 23 control checks + scripted runs in sway
+tools/test_all.sh                  # 66 world + 30 rig + 25 control checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 

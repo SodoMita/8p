@@ -38,7 +38,7 @@ Godot 4.7.2 · GL Compatibility · GDScript
      already on main (5 batched surfaces, 2.26 m hips, IK deformation through
      slender_motion.gdshader). Its animation is the same algorithm already
      retargeted to anny; merging it would replace the reviewed asset work.
-     64 world + 30 rig + 23 control checks.
+     66 world + 30 rig + 25 control checks.
 1.5.2 fence orientation + bark at glancing light.
      * fence panels and gate leaves were rotated 90 degrees: the yaw put the
        plane's WIDTH along the outward normal, so every bay stood sideways to the
@@ -72,29 +72,6 @@ Godot 4.7.2 · GL Compatibility · GDScript
        both point out of the wall, asserted per page in world space.
      * map_builder: page spots carry a normal; a wall page used to be invisible
        from the front because the visible face was a back face.
-1.5  the map is closed and the world outside it keeps going.
-     * boundary: a real chain-link fence, built the way one is built — 3 m
-       mesh bays, galvanised posts, top rail, bottom tension wire, and a
-       two-leaf gate standing open at the east side. 325 colliders on the
-       ring, checked arithmetically (ring closure, per-run coverage, gate
-       clearance) instead of by walking a character into it.
-     * outside: endless procedural forest streamed in 32 m chunks around the
-       player, plus a crowned dirt road that leaves through the gate and
-       wanders to the horizon. A 4 km floor slab means there is no edge to
-       fall off even if you go over the wire.
-     * pages are verlet cloth now: 7x9 pinned grid, fixed 60 Hz, shear links,
-       smoothed live normals, light coming through the sheet — and they carry
-       no light of their own.
-     * concrete/stone moved to world-space triplanar at 1.2 m per repeat:
-       2048² maps at ~1700 px/m on every face, no stretch (was up to 46:1),
-       isotropically rebuilt maps (runoff streaks and the per-tile moss band
-       removed, aggregate-led tone), mipmapped.
-     * tree normals re-verified the hard way: every triangle is wound with
-       its vertex normals, and every sampled face passes a step-out-and-shoot
-       -back test; the black caps at trunk bases were the downward-facing base
-       fans showing above ground, so trees now sit 12 cm into the soil.
-     * two deepseek audit agents ran in parallel during this cycle; all eleven
-       of their cloth/terrain findings are fixed. 38 selftest checks.
 1.5  the map is closed and the world outside it keeps going.
      * boundary: a real chain-link fence, built the way one is built — 3 m
        mesh bays, galvanised posts, top rail, bottom tension wire, and a

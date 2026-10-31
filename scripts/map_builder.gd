@@ -189,7 +189,10 @@ func _make_materials() -> void:
 	_mats["wood"] = _pbr("bark", 1.0, 1.0, 0.65)
 	_mats["wood"].albedo_color = Color(1.42, 1.38, 1.31)
 	_mats["wood"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
-	_mats["pumpkin"] = _procedural_surface("pumpkin_skin")
+	# approved pumpkin rind from the restore branch (its own shader material)
+	var pumpkin_skin := ShaderMaterial.new()
+	pumpkin_skin.shader = load("res://shaders/pumpkin_skin.gdshader")
+	_mats["pumpkin"] = pumpkin_skin
 	_mats["lamp"] = _flat(Color(0.42, 0.39, 0.28), 0.24, 0.15)
 	# the labyrinth's industrial dressing
 	_mats["lab_wall"] = _triplanar("stone", 0.9, 0.96, 1.35)

@@ -26,6 +26,7 @@ var objective: Label
 var note_root: Control
 var note_body: Label
 var flash_rect: ColorRect
+var diag_label: Label
 var pause_root: Control
 var end_root: Control
 var end_title: Label
@@ -155,6 +156,19 @@ func _build() -> void:
 	fade_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(fade_rect)
 
+	# --- input diagnostics (F3) -------------------------------------------
+	# A player's "the mouse does not turn the camera" is impossible to diagnose
+	# from a screenshot. This shows the numbers instead: pointer mode, whether a
+	# finger is on the glass, and how many motion events arrived versus how many
+	# actually turned the view. Events climbing with looks stuck at 0 means
+	# something is eating them; no events at all means the pointer is not
+	# reaching the game (focus, capture, driver).
+	diag_label = _label("", 14, Color(0.7, 0.95, 0.7))
+	diag_label.position = Vector2(30, 640)
+	diag_label.visible = false
+	diag_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(diag_label)
+
 	# --- crosshair --------------------------------------------------------
 	crosshair = Control.new()
 	crosshair.set_anchors_preset(Control.PRESET_CENTER)
@@ -163,6 +177,11 @@ func _build() -> void:
 	dot.color = Color(0.85, 0.85, 0.82, 0.55)
 	dot.size = Vector2(4, 4)
 	dot.position = Vector2(-2, -2)
+	# Control.mouse_filter defaults to STOP and this 4x4 rect sits at the exact
+	# centre of the screen, which is where a captured pointer lives: the GUI then
+	# reported it as hovered and marked every mouse motion as handled, so
+	# _unhandled_input never saw a single one and the camera could not be turned.
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	crosshair.add_child(dot)
 	root.add_child(crosshair)
 
@@ -430,7 +449,34 @@ func _build_end() -> void:
 # --------------------------------------------------------------------------- #
 # runtime API
 # --------------------------------------------------------------------------- #
+func _process_diag(delta: float) -> void:
+	if diag_label == null or not diag_label.visible:
+		return
+	var p = get_parent().get("player") if get_parent() != null else null
+	if p == null:
+		p = get_tree().get_first_node_in_group("player")
+	if p == null:
+		return
+	var modes: Array[String] = ["VISIBLE", "HIDDEN", "CAPTURED", "CONFINED"]
+	var mode: String = modes[clampi(Input.mouse_mode, 0, 3)]
+	diag_label.text = "F3  pointer=%s  touch_mode=%s  finger=%s\n" % [
+		mode, str(Game.touch_mode), str(p.finger_down)] \
+		+ "motion events %d (%.0f px, last %s dev %d)  looks applied %d\n" % [
+			p.diag_motion_events, p.diag_motion_px.length(), str(p.diag_last_relative),
+			p.diag_last_device, p.diag_looks_applied] \
+		+ "sens %.2f  invert_y %s  rig %s  camcorder %s" % [
+			Settings.mouse_sensitivity, str(Settings.invert_y),
+			str(Settings.camcorder_physics), str(Settings.camcorder)]
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	# F3 is a diagnostic, never gameplay: show what the input path is doing
+	if event is InputEventKey and event.pressed and not event.echo \
+			and (event as InputEventKey).keycode == KEY_F3:
+		if diag_label != null:
+			diag_label.visible = not diag_label.visible
+		get_viewport().set_input_as_handled()
+		return
 	# a note never traps you: any button dismisses it instantly
 	if note_root.modulate.a > 0.05:
 		if event.is_action_pressed("interact") or event.is_action_pressed("sprint") or event.is_action_pressed("pause") or event.is_action_pressed("flashlight"):
@@ -453,6 +499,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	_process_diag(delta)
 	if rotate_hint != null:
 		var portrait := Game.is_portrait()
 		rotate_hint.visible = Game.touch_mode and portrait and not _end_visible and not pause_root.visible
