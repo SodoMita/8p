@@ -122,6 +122,19 @@ func _run() -> void:
 		aud_dir.list_dir_end()
 	check("ogg_audio_only", ogg_ok)
 
+	# a real heart, not a metronome: two pulses (rest and running), both looped,
+	# and the fast one has to actually be faster per beat than the resting one
+	var hb_slow: AudioStream = Sfx.stream("heartbeat_loop")
+	var hb_fast: AudioStream = Sfx.stream("heartbeat_fast_loop")
+	var hb_ok := hb_slow is AudioStreamOggVorbis and hb_fast is AudioStreamOggVorbis
+	if hb_ok:
+		hb_ok = (hb_slow as AudioStreamOggVorbis).loop and (hb_fast as AudioStreamOggVorbis).loop
+		hb_ok = hb_ok and (hb_fast as AudioStreamOggVorbis).get_length() < (hb_slow as AudioStreamOggVorbis).get_length()
+	check("heartbeat_two_pulses", hb_ok,
+		"rest=%.2fs fast=%.2fs" % [
+			(hb_slow as AudioStreamOggVorbis).get_length() if hb_slow is AudioStreamOggVorbis else -1.0,
+			(hb_fast as AudioStreamOggVorbis).get_length() if hb_fast is AudioStreamOggVorbis else -1.0])
+
 	# verify Slender's BFS corridor steering reaches the Central Sanctum from an outer gate
 	var nav_ok := false
 	var ent_cells_chk: Array = lab.get("entrance_cells", [])

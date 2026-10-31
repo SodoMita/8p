@@ -407,25 +407,60 @@ def fade(x, a=0.003, b=0.05, sr=SR):
     return x
 
 
-def limit(x, drive=1.0, peak=0.97):
+def limit(x, drive=1.0, peak=0.92):
     x = np.tanh(x * drive)
     return normalise(x, peak)
 
 
-def crossfade_loop(x, sr=SR, fade_s=1.5):
+def close_loop(x, sr=SR, fade_s=1.5):
+    """Wrap a generated bed into a loop that is sample-continuous at the seam.
+
+    The old crossfade blended the tail into the head and then *also* kept the
+    head, so the wrap jumped from the end of the blend to the start of the
+    unblended head: an audible tick every time the loop went round. Here the
+    last `fade_s` seconds are cross-faded into the head and then cut away, so
+    the final sample of the file is the sample that preceded the first one in
+    the original render. Value and slope both match, and an equal-power
+    (sin/cos) ramp keeps the level constant through the join.
+    """
+    # DC first, while the wrap point is still continuous: filtering a closed
+    # loop afterwards would put the filter's start-up transient exactly at the
+    # seam, which is the tick we are trying to remove.
+    x = hp(np.asarray(x, dtype=np.float32), 18.0, 2, sr)
     n = int(fade_s * sr)
     if n * 2 >= len(x):
         return x
-    head = x[:n].copy()
-    tail = x[-n:].copy()
-    ramp = np.linspace(0, 1, n, dtype=np.float32)
+    ramp = np.linspace(0.0, 1.0, n, dtype=np.float32)
+    fade_in = np.cos(ramp * math.pi * 0.5) ** 2.0   # 1 -> 0
+    fade_out = np.sin(ramp * math.pi * 0.5) ** 2.0  # 0 -> 1
     y = x[:-n].copy()
-    y[:n] = tail * (1 - ramp) + head * ramp
+    y[:n] = x[:n] * fade_out + x[-n:] * fade_in
     return y
 
 
+# kept for callers outside this file
+crossfade_loop = close_loop
+
+
 def write_ogg(path, data, sr=SR):
-    data = np.clip(np.asarray(data, dtype=np.float32), -1, 1)
+    data = np.asarray(data, dtype=np.float32)
+    looping = os.path.basename(path).endswith("_loop.ogg")
+    # One choke point for DC removal: a valve, a boot or a transformer must sit
+    # around zero. An offset eats headroom, thumps when a one-shot starts and
+    # stops, and makes the Master limiter clamp the offset instead of the cue.
+    # 18 Hz is below every sound in this project, so nothing real is lost.
+    if not looping:
+        if data.ndim == 1:
+            data = hp(data, 18.0, 2, sr)
+        else:
+            for c in range(data.shape[1]):
+                data[:, c] = hp(data[:, c], 18.0, 2, sr)
+    # true-peak guard: a one-shot may not touch full scale, or the Master
+    # limiter has nothing left to work with when a second cue lands on it
+    peak = float(np.max(np.abs(data)) + 1e-9)
+    if peak > 0.89:
+        data = data * (0.89 / peak)
+    data = np.clip(data, -1, 1)
     if data.ndim == 2 and data.shape[1] == 1:
         data = data[:, 0]
     sf.write(path, data, sr, format="OGG", subtype="VORBIS", compression_level=0.25)
@@ -536,22 +571,114 @@ def bed_static(sr=SR, seed=3):
     return crossfade_loop(out, sr, 0.5)
 
 
-def bed_heartbeat(sr=SR, seed=4):
-    """Two visceral lub-dub cardiac valve thumps (pure membrane/blood-column modes)."""
-    n = sr * 2
-    beat = np.zeros(n, dtype=np.float32)
-    for start, amp, pitch in [(0.02, 1.0, 48.0), (0.315, 0.62, 43.0)]:
-        i0 = int(start * sr)
-        ln = min(int(0.30 * sr), n - i0)
-        tt = np.arange(ln) / sr
-        f_inst = pitch + 26.0 * np.exp(-tt * 28.0)
-        ph = 2 * math.pi * np.cumsum(f_inst) / sr
-        thump = np.sin(ph) * np.exp(-tt * 14.0)
-        thump += 0.38 * np.sin(ph * 1.82 + 0.4) * np.exp(-tt * 24.0)
-        thump += 0.22 * np.sin(2 * math.pi * 27.5 * tt) * np.exp(-tt * 26.0)
-        beat[i0:i0 + ln] += (np.tanh(thump * 1.25) * amp).astype(np.float32)[:ln]
-    beat = lp(beat, 260)
-    return normalise(beat, 0.85)
+def _cardiac_sound(kind, sr, rng, scale=1.0, exertion=0.0):
+    """One heart sound: S1 ("lub") or S2 ("dub").
+
+    A heart sound is not a sine thump. It is the slamming shut of a valve: the
+    leaflets snap, the blood column behind them rings, and a short turbulent jet
+    squirts through the closing orifice. So each sound here is a bank of damped
+    physical eigenmodes (leaflet + blood column, 55-240 Hz) excited by a
+    pressure step, plus noise pushed through those *same* modes so the
+    turbulence carries the valve's resonance instead of being white hiss.
+
+    S1 = mitral + tricuspid closure (low, wide, 0.26 s).
+    S2 = aortic + pulmonary closure (higher, tighter, 0.19 s, quieter).
+    """
+    if kind == 1:
+        dur = 0.26
+        modes = [(56.0, 17.0, 1.00), (82.0, 21.0, 0.72), (114.0, 27.0, 0.44),
+                 (149.0, 33.0, 0.26), (192.0, 44.0, 0.14), (238.0, 58.0, 0.08)]
+        turb_band, turb_gain, onset = (150.0, 900.0), 0.16, 0.008
+    else:
+        dur = 0.19
+        modes = [(72.0, 19.0, 1.00), (104.0, 23.0, 0.78), (143.0, 28.0, 0.46),
+                 (187.0, 36.0, 0.24), (241.0, 50.0, 0.11)]
+        turb_band, turb_gain, onset = (220.0, 1400.0), 0.20, 0.005
+    n = int(dur * sr)
+    t = np.arange(n) / sr
+    y = np.zeros(n, dtype=np.float64)
+    for f, dec, amp in modes:
+        # the pitch of a closing valve collapses as the pressure gradient does
+        f_inst = f * scale * (1.0 + 0.18 * np.exp(-t * 90.0))
+        ph = 2.0 * math.pi * np.cumsum(f_inst) / sr
+        y += amp * np.sin(ph) * np.exp(-t * dec) * np.clip(t / onset, 0, 1)
+    nz = noise(n, rng)
+    jet = np.zeros(n, dtype=np.float64)
+    for f, dec, amp in modes[:3]:
+        jet += amp * resonator(nz, f * scale, dec * 2.2, sr) * np.exp(-t * dec * 2.4)
+    jet = bp(jet, turb_band[0], turb_band[1], 2, sr)
+    # a working heart ejects faster: the jet is louder and the valves slam
+    # harder, which is why a racing pulse is brighter as well as quicker
+    y = y + jet * turb_gain * (1.0 + 0.75 * exertion)
+    y = y * (1.0 + 0.18 * exertion)
+    return y.astype(np.float32)
+
+
+def _chest_wall(y, sr=SR):
+    """Thoracic conduction: a resonant low-pass with its peak near 68 Hz.
+
+    This is the transfer function that turns valve clicks into the dull,
+    closed 'lub-dub' you hear from inside your own chest. Without it a
+    synthetic heartbeat is a bass sine; with it the snap survives as weight
+    rather than as a click.
+    """
+    body = lp(y, 250.0, 2, sr)
+    body = body + 0.50 * resonator(body, 68.0, 34.0, sr)
+    body = body + 0.18 * resonator(body, 112.0, 52.0, sr)
+    return hp(body, 24.0, 2, sr)
+
+
+def bed_heartbeat(sr=SR, seed=4, bpm=68.0, exertion=0.0, beats=6):
+    """One cardiac cycle pattern, heard from inside the chest.
+
+    Scheduled physiologically rather than as a metronome:
+    * S1 -> S2 is the systolic interval, and it shortens as the rate rises
+      (315 ms at rest, 235 ms at 124 bpm);
+    * RR intervals follow respiratory sinus arrhythmia - they shorten on
+      inspiration and lengthen on expiration, and the breathing rate itself
+      rises with exertion;
+    * the whole pattern is amplitude-modulated by the breathing cycle, because
+      the heart sits closer to the chest wall when the lungs are empty;
+    * a quiet S3 (early diastolic filling) appears on the long beats at rest,
+      and a quiet S4 (atrial kick) appears before S1 when the heart is working.
+    Every sound is rendered from scratch with its own valve and turbulence
+    phase, so no two beats are identical and the loop never sounds canned.
+    """
+    rng = np.random.default_rng(seed)
+    ex = float(np.clip(exertion, 0.0, 1.0))
+    beat_period = 60.0 / max(40.0, bpm)
+    breath_hz = 0.227 + 0.28 * ex                     # 13.6 -> 30 breaths/min
+    rr_shape = [1.000, 0.952, 1.048, 0.972, 1.012, 0.965, 0.988]
+    rr = [beat_period * rr_shape[k % len(rr_shape)] * (1.0 + 0.012 * rng.normal())
+          for k in range(beats)]
+    lead = 0.16
+    n = int((lead + sum(rr) + 0.55) * sr)
+    out = np.zeros(n, dtype=np.float32)
+    t0 = lead
+    for k, gap in enumerate(rr):
+        breath = math.sin(2.0 * math.pi * breath_hz * t0 + 0.5)
+        amp = (0.90 + 0.10 * breath) * (0.96 + 0.08 * rng.random())
+        s1 = _cardiac_sound(1, sr, rng, 1.0 + 0.018 * breath + 0.02 * ex, ex)
+        s2 = _cardiac_sound(2, sr, rng, 1.0 + 0.022 * breath + 0.03 * ex, ex)
+        add_at(out, s1, int(t0 * sr), amp)
+        systole = (0.315 - 0.080 * ex) + 0.014 * breath
+        # the semilunar valves close harder than the AV valves once you are
+        # running, so S2 catches S1 up instead of staying a soft echo
+        add_at(out, s2, int((t0 + systole) * sr), amp * (0.64 + 0.22 * ex))
+        if gap > beat_period * 1.02:                  # long diastole -> S3
+            s3 = _cardiac_sound(1, sr, rng, 0.62, 0.0)
+            add_at(out, lp(s3, 120.0), int((t0 + systole + 0.155) * sr), amp * 0.11)
+        if ex > 0.25 and gap > beat_period * 0.97:     # atrial kick before S1
+            s4 = _cardiac_sound(1, sr, rng, 0.55, 0.0)
+            add_at(out, lp(s4, 95.0), int((t0 - 0.105) * sr), amp * 0.07 * ex)
+        t0 += gap
+    out = _chest_wall(out, sr)
+    # this bed is not wrapped by close_loop (it is silent at both ends), so it
+    # has to remove its own DC before write_ogg sees it
+    out = hp(out, 18.0, 2, sr)
+    out = normalise(np.tanh(out * (1.15 + 0.35 * ex)), 0.86)
+    fade(out, 0.002, 0.010, sr)
+    return out
 
 
 def bed_wire_hum(sr=SR, seed=10):
@@ -1109,7 +1236,8 @@ def generate(audio_dir=AUDIO, sr=SR):
     write_ogg(p("wind_loop.ogg"), bed_wind(sr))
     write_ogg(p("drone_loop.ogg"), bed_drone(sr))
     write_ogg(p("static_loop.ogg"), bed_static(sr))
-    write_ogg(p("heartbeat_loop.ogg"), bed_heartbeat(sr))
+    write_ogg(p("heartbeat_loop.ogg"), bed_heartbeat(sr, 4, 68.0, 0.0))
+    write_ogg(p("heartbeat_fast_loop.ogg"), bed_heartbeat(sr, 14, 124.0, 1.0, 7))
     write_ogg(p("breath_loop.ogg"), make_breath_loop(sr))
     write_ogg(p("wire_hum_loop.ogg"), bed_wire_hum(sr))
 

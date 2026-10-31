@@ -33,8 +33,8 @@ func _ready() -> void:
 	_rng.randomize()
 	_setup_buses()
 	for file in [
-		"wind_loop", "drone_loop", "static_loop", "heartbeat_loop", "breath_loop",
-		"wire_hum_loop",
+		"wind_loop", "drone_loop", "static_loop", "heartbeat_loop",
+		"heartbeat_fast_loop", "breath_loop", "wire_hum_loop",
 		"step_0", "step_1", "step_2", "step_3",
 		"stone_step_0", "stone_step_1", "stone_step_2", "stone_step_3",
 		"page", "appear_near", "chase",
@@ -46,8 +46,9 @@ func _ready() -> void:
 			_streams[file] = load(path)
 		else:
 			push_warning("Missing sound: " + path)
-	if _streams.get("wire_hum_loop") is AudioStreamOggVorbis:
-		(_streams["wire_hum_loop"] as AudioStreamOggVorbis).loop = true
+	for lp in ["wire_hum_loop", "heartbeat_loop", "heartbeat_fast_loop"]:
+		if _streams.get(lp) is AudioStreamOggVorbis:
+			(_streams[lp] as AudioStreamOggVorbis).loop = true
 	for i in ONE_SHOTS:
 		var p := AudioStreamPlayer.new()
 		p.bus = WORLD_BUS
@@ -62,8 +63,20 @@ func _ready() -> void:
 	_start_loop("drone_loop", "Master")
 	_start_loop("static_loop", "Master")
 	_start_loop("heartbeat_loop", "Master")
+	_start_loop("heartbeat_fast_loop", "Master")
 	_start_loop("breath_loop", WORLD_BUS)
 	set_reverb(0.0)
+
+
+
+## Two pulses, one heart. The resting heartbeat tracks how close he is; as the
+## dread rises the strained 124 bpm pulse fades in and the resting one ducks
+## under it, so the player hears their own heart starting to run rather than two
+## loops playing at once.
+func set_heartbeat(dread: float, base_db: float) -> void:
+	var d := clampf(dread, 0.0, 1.0)
+	set_loop_volume("heartbeat_loop", base_db - 26.0 * d * d)
+	set_loop_volume("heartbeat_fast_loop", lerpf(-60.0, -7.0, d * d))
 
 
 func _ensure_bus(bus_name: String, send_to := "Master") -> int:

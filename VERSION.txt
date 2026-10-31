@@ -121,3 +121,27 @@ Godot 4.7.2 · GL Compatibility · GDScript
 1.1  realistic pass: bare procedural trees, PBR ground, rendered menu backdrop
 1.0  procedural runs, full test suite, web + Android + Linux exports
 tests: tools/test_all.sh     exports: build/web, build/android
+
+1.5.3-labyrinth  audio: a real heart, and two audit rounds over every stream.
+     * heartbeat rebuilt from cardiac physiology (tools/gen_sfx.py): S1 = AV
+       valve closure, S2 = semilunar closure, each a bank of damped leaflet and
+       blood-column modes excited by a pressure step plus a turbulent jet
+       pushed through those same modes, conducted through a chest wall that
+       resonates at 68 Hz. S1->S2 is 319 ms at rest and 244 ms running; RR
+       intervals wander +-3.9% (respiratory sinus arrhythmia); S3 on long
+       beats, S4 before S1 when the heart is working. Rest loop 6.8 s at 68 bpm,
+       strained loop 4.0 s at 125 bpm; they crossfade on dread or an empty
+       stamina bar (Sfx.set_heartbeat).
+     * every stream is DC-blocked at 18 Hz in write_ogg (footsteps had 0.009-
+       0.011 of offset: headroom spent on a constant plus a thump at both ends);
+       loops are closed with close_loop, whose tail-into-head crossfade is cut
+       away so the wrap is sample-continuous (wind 0.30 -> 0.07, wire hum
+       12.4 -> 0.38); everything is held under -1 dBFS before encoding
+       (jumpscare was touching 0 dBFS).
+     * tools/audio_audit.py: objective gate for all 25 streams (SFM, tonal,
+       centroid, crest, kurtosis, envelope CV, DC, loop seam, loudness range)
+       plus a cardiac physiology report. 25 streams, 0 flagged.
+     * merged origin/main 1.5.2: camcorder pass, physics handheld rig, pinned
+       cloth pages, 3.68 m Anny Slender, triplanar 2048 px concrete, endless
+       exterior terrain and the control fixes all live alongside the labyrinth.
+       64 selftest + 30 rig + 20 control checks green.

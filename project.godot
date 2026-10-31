@@ -7,7 +7,7 @@ config_version=5
 
 config/name="Eight Pages"
 config/description="Collect 8 pages in a dark forest. Do not look at him for too long."
-config/version="1.5.2"
+config/version="1.5.3"
 run/main_scene="res://scenes/Title.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.png"

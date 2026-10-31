@@ -78,7 +78,7 @@ func _ready() -> void:
 
 	Sfx.resume_ambience()
 	Sfx.set_loop_volume("static_loop", -60.0)
-	Sfx.set_loop_volume("heartbeat_loop", -60.0)
+	Sfx.set_heartbeat(0.0, -60.0)
 
 	if Game.autotest:
 		var mode := ""
@@ -261,13 +261,21 @@ func _update_feedback(delta: float) -> void:
 	hud.set_dread(dread)
 	hud.set_camcorder_ir(not player.flashlight_on)
 
-	# audio: heartbeat + static + drone get louder as he closes in
+	# audio: heartbeat + static + drone get louder as he closes in. The pulse
+	# itself is driven by the body, not only by him: sprinting empties the
+	# stamina bar, and an empty bar is a running heart whether or not anything
+	# is chasing you.
 	var heartbeat := -60.0
 	if slender.visible and dist < 34.0:
 		heartbeat = lerpf(-40.0, -6.0, clampf(1.0 - dist / 34.0, 0.0, 1.0))
 	if slender.mode == slender.Mode.CHASE:
 		heartbeat = -4.0
-	Sfx.set_loop_volume("heartbeat_loop", heartbeat)
+	var exertion := clampf(1.0 - player.stamina / player.STAMINA_MAX, 0.0, 1.0)
+	var pulse := maxf(dread, exertion * 0.8)
+	if exertion > 0.15 and heartbeat < -40.0:
+		# being winded is audible on its own, quietly, at the bottom of the mix
+		heartbeat = lerpf(-46.0, -26.0, exertion)
+	Sfx.set_heartbeat(pulse, heartbeat)
 	Sfx.set_loop_volume("static_loop", -60.0 + 52.0 * clampf(intensity, 0.0, 1.0))
 	Sfx.set_loop_volume("drone_loop", -18.0 + 9.0 * diff)
 
@@ -414,7 +422,7 @@ func _on_caught() -> void:
 	Sfx.fade_loop("wind_loop", -34.0, 0.20)
 	Sfx.fade_loop("drone_loop", -34.0, 0.20)
 	Sfx.play("jumpscare", -4.0)
-	Sfx.set_loop_volume("heartbeat_loop", -6.0)
+	Sfx.set_heartbeat(1.0, -6.0)
 	Sfx.set_loop_volume("static_loop", -12.0)
 
 	await get_tree().create_timer(1.7).timeout
@@ -435,7 +443,7 @@ func _win() -> void:
 	slender.deactivate()
 	hud.show_toast("EIGHT PAGES", 2.0)
 	Sfx.play("win", -9.0)
-	Sfx.set_loop_volume("heartbeat_loop", -60.0)
+	Sfx.set_heartbeat(0.0, -60.0)
 	Sfx.set_loop_volume("static_loop", -6.0)
 	hud.set_static(0.8)
 
