@@ -1,4 +1,5 @@
 shader_type spatial;
+render_mode cull_disabled;
 // World-space corrosion: consistent texel density across differently sized props.
 uniform vec4 paint_color : source_color = vec4(0.16, 0.19, 0.17, 1.0);
 uniform vec4 rust_color : source_color = vec4(0.28, 0.105, 0.038, 1.0);

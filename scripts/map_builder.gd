@@ -91,7 +91,7 @@ func _load_meshes() -> void:
 # --------------------------------------------------------------------------- #
 # materials — albedo + normal + roughness (PBR), shared across instances
 # --------------------------------------------------------------------------- #
-func _pbr(name: String, uv_scale := 1.0, rough := 1.0, normal_scale := 1.0) -> StandardMaterial3D:
+func _pbr(name: String, repeats_per_metre := 1.0, rough := 1.0, normal_scale := 1.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = load("res://assets/textures/%s_albedo.png" % name)
 	m.normal_enabled = true
@@ -101,23 +101,29 @@ func _pbr(name: String, uv_scale := 1.0, rough := 1.0, normal_scale := 1.0) -> S
 	m.roughness = rough
 	m.metallic = 0.0
 	m.metallic_specular = 0.35
-	m.uv1_scale = Vector3(uv_scale, uv_scale, 1.0)
+	# All PBR channels use the same world-space projection, including normals.
+	# UV scale is repeats per world metre, not repeats per mesh UV island.
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_triplanar_sharpness = 4.0
+	m.uv1_scale = Vector3.ONE * repeats_per_metre
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	m.texture_repeat = true
 	return m
 
 
 func _make_materials() -> void:
-	# trees use world-space UVs baked in the mesh generator, so scale 1
-	_mats["bark"] = _pbr("bark", 1.0, 1.0, 1.15)
+	# World-anchored projection: object/parent/MultiMesh scale cannot stretch texels.
+	_mats["bark"] = _pbr("bark", 1.0 / 0.55, 1.0, 1.15)
 	_mats["bark_coll"] = _mats["bark"]
-	_mats["ground"] = _pbr("ground", 26.0, 1.0, 1.0)
+	_mats["ground"] = _pbr("ground", 26.0 / (HALF * 2.0), 1.0, 1.0)
 	_mats["stone"] = _pbr("stone", 1.6, 0.95, 1.0)
 	_mats["concrete"] = _procedural_surface("weathered_concrete")
 	_mats["metal"] = _weathered_metal(Color(0.19, 0.23, 0.20), 0.46)
 	_mats["rust"] = _weathered_metal(Color(0.22, 0.18, 0.14), 0.78)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
-	_mats["wood"] = _pbr("bark", 1.0, 1.0, 1.0)
+	_mats["wood"] = _pbr("bark", 1.0 / 0.55, 1.0, 1.0)
 	_mats["pumpkin"] = _procedural_surface("pumpkin_skin")
 	_mats["lamp"] = _flat(Color(0.42, 0.39, 0.28), 0.24, 0.15)
 	_mats["fabric"] = _flat(Color(0.16, 0.15, 0.13), 1.0, 0.0)
