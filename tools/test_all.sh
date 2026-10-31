@@ -48,6 +48,16 @@ n_ctl_gl=$(grep -cE '^\[controls\] PASS' "$OUT/controls_gl.log")
 grep -q 'RESULT [0-9]\+ passed, 0 failed' "$OUT/controls_gl.log" \
   && ok "controls on a display ($n_ctl_gl checks incl. pointer capture)" || bad "controls on a display"
 
+# The real-pointer stage. An injected event is not a real one: it carries position
+# (0,0) and never meets the GUI hover code, which is precisely how a HUD widget
+# swallowed every genuine mouse motion while the suite stayed green.
+log "3b/9 real pointer end-to-end (Xvfb + xdotool, optional)"
+run mouse_live bash tools/mouse_live_test.sh --quality=1
+grep -E '^(PASS|FAIL|SKIP) mouse_live|real pointer:' "$OUT/mouse_live.log"
+if grep -q '^FAIL mouse_live' "$OUT/mouse_live.log"; then bad "real pointer"
+elif grep -q '^SKIP mouse_live' "$OUT/mouse_live.log"; then ok "real pointer (skipped: no Xvfb/xdotool)"
+else ok "real pointer (a genuine X11 pointer move turns the camera)"; fi
+
 log "4/9 full play-through: collect 8 pages -> win screen (headless)"
 run win "$GODOT" --headless --path . res://scenes/World.tscn -- --autotest=win
 grep -E '^\[autotest\]' "$OUT/win.log" | tail -4
