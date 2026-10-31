@@ -45,11 +45,28 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUDIO = os.path.join(ROOT, "assets", "audio")
 
 # cues that are allowed to be noisy by nature, and how noisy they may be
+GRANULAR = {
+    # leaf litter, grit and gravel are thousands of broadband micro-fractures:
+    # a step *should* be spectrally flat and un-pitched. What it must never be
+    # is a handful of narrow resonant modes (that is a woodblock / plastic
+    # brick), so the rule here is a tonal ceiling plus a graininess floor.
+    "step_0.ogg": {"sfm_max": 0.58, "tonal_max": 0.35, "grain_min": 1.3},
+    "step_1.ogg": {"sfm_max": 0.58, "tonal_max": 0.35, "grain_min": 1.3},
+    "step_2.ogg": {"sfm_max": 0.58, "tonal_max": 0.35, "grain_min": 1.3},
+    "step_3.ogg": {"sfm_max": 0.58, "tonal_max": 0.35, "grain_min": 1.3},
+    "stone_step_0.ogg": {"sfm_max": 0.58, "tonal_max": 0.38, "grain_min": 1.4},
+    "stone_step_1.ogg": {"sfm_max": 0.58, "tonal_max": 0.38, "grain_min": 1.4},
+    "stone_step_2.ogg": {"sfm_max": 0.58, "tonal_max": 0.38, "grain_min": 1.4},
+    "stone_step_3.ogg": {"sfm_max": 0.58, "tonal_max": 0.38, "grain_min": 1.4},
+}
 NOISE_OK = {
     # interference on a camcorder tape is the one cue that *is* noise - but even
     # it must be modulated (structured dropouts), never a stationary hiss
     "static_loop.ogg": {"sfm_max": 0.85, "env_cv_min": 0.12},
 }
+# everything a listener would call "a physical object" gets a tonal ceiling
+for _k in GRANULAR:
+    NOISE_OK.setdefault(_k, {}).update(GRANULAR[_k])
 # everything else is an object, a body, an instrument or an electrical machine
 SFM_MAX_DEFAULT = 0.45
 # looping beds must wrap without a click
@@ -110,8 +127,18 @@ def analyse(path: str) -> dict:
     typical = float(np.mean(d) + 1e-9)
     seam = float(abs(mono[0] - mono[-1]) / typical)
 
+    # graininess: how deeply the 1.2-8 kHz envelope chops. A smooth hiss has a
+    # low CV; a leaf crunch, grit under a sole or gravel has a high one.
+    from scipy.signal import butter as _bt, sosfilt as _sf
+    _sos = _bt(4, [1200.0 / (sr / 2), min(0.95, 8000.0 / (sr / 2))], btype="band", output="sos")
+    _hi = np.abs(_sf(_sos, mono))
+    _hop = max(1, int(0.001 * sr))
+    _env = _hi[:(len(_hi) // _hop) * _hop].reshape(-1, _hop).max(axis=1)
+    grain_cv = float(np.std(_env) / (np.mean(_env) + 1e-9))
+
     return {
         "file": os.path.basename(path),
+        "grain_cv": round(grain_cv, 2),
         "dur": round(n / sr, 2),
         "peak_dbfs": round(20 * np.log10(peak), 1),
         "rms_dbfs": round(20 * np.log10(rms), 1),
@@ -193,6 +220,10 @@ def verdict(r: dict) -> list[str]:
     sfm_max = rule.get("sfm_max", SFM_MAX_DEFAULT)
     if r["sfm"] > sfm_max:
         out.append("noisy(SFM %.2f > %.2f)" % (r["sfm"], sfm_max))
+    if "tonal_max" in rule and r["tonal"] > rule["tonal_max"]:
+        out.append("pitched(TONAL %.2f > %.2f)" % (r["tonal"], rule["tonal_max"]))
+    if "grain_min" in rule and r["grain_cv"] < rule["grain_min"]:
+        out.append("smooth(GRAIN %.2f)" % r["grain_cv"])
     if "env_cv_min" in rule and r["env_cv"] < rule["env_cv_min"]:
         out.append("stationary(ENV_CV %.2f)" % r["env_cv"])
     if abs(r["dc"]) > 1e-3:
@@ -220,17 +251,17 @@ def main() -> int:
     rows = [analyse(p) for p in files]
     bad = 0
     if not args.quiet:
-        hdr = ("file", "dur", "rms", "crest", "lra", "SFM", "tonal", "cent", "kurt", "envCV", "seam", "notes")
-        print("%-19s %5s %6s %6s %5s %6s %6s %6s %6s %6s %5s  %s" % hdr)
-        print("-" * 118)
+        hdr = ("file", "dur", "rms", "crest", "lra", "SFM", "tonal", "cent", "kurt", "envCV", "grain", "seam", "notes")
+        print("%-19s %5s %6s %6s %5s %6s %6s %6s %6s %6s %6s %5s  %s" % hdr)
+        print("-" * 128)
         for r in rows:
             v = verdict(r)
             bad += 1 if v else 0
-            print("%-19s %5.2f %6.1f %6.1f %5.1f %6.3f %6.3f %6.0f %6.1f %6.2f %5.2f  %s"
+            print("%-19s %5.2f %6.1f %6.1f %5.1f %6.3f %6.3f %6.0f %6.1f %6.2f %6.2f %5.2f  %s"
                   % (r["file"], r["dur"], r["rms_dbfs"], r["crest_db"], r["lra_db"],
                      r["sfm"], r["tonal"], r["centroid_hz"], r["kurt"], r["env_cv"],
-                     r["seam"], ", ".join(v)))
-        print("-" * 118)
+                     r["grain_cv"], r["seam"], ", ".join(v)))
+        print("-" * 128)
         print("%d streams, %d flagged" % (len(rows), bad))
         for p in files:
             if "heartbeat" in os.path.basename(p):
