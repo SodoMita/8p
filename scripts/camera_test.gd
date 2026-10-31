@@ -128,6 +128,26 @@ func _run() -> void:
 	await _frames(2)
 	check("snap_follows_teleport", aim_error() < 0.08, "%.3f rad" % aim_error())
 
+	# a 180 deg flip is still a cut: folding the quaternion angle would hide it
+	player.rotation.y += PI
+	await _frames(2)
+	check("half_turn_resyncs", aim_error() < 0.08, "%.3f rad" % aim_error())
+
+	# a stalled tick (breakpoint, compile hitch) must not teleport the rig
+	player.rotation.y += deg_to_rad(40.0)
+	handle._drive_physics(0.0)      # zero-length tick
+	handle._drive_physics(2.5)      # two and a half seconds in one call
+	await _frames(2)
+	var stalled_offset := cam_offset()
+	await _wait(0.8)
+	# the tick is clamped, so the rig keeps trailing normally and then settles
+	# instead of being flung (or dividing by zero) on the resume frame
+	check("stall_is_clamped", cam_offset() < 0.5 and stalled_offset < 0.5,
+		"immediate %.3f m, later %.3f m" % [stalled_offset, cam_offset()])
+	check("stall_recovers", aim_error() < 0.05, "%.3f rad" % aim_error())
+	handle.snap()
+	await _frames(2)
+
 	# ------------------------------------------------------------- walk shake
 	player.set_touch_move(Vector2(0, -1))
 	var max_offset := 0.0

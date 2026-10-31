@@ -40,7 +40,8 @@ const RESEAT_DISTANCE := 0.75     # the body escaped its tether: put it back
 const TELEPORT_ANGLE := 1.0       # rad in a single tick — only a cut can do that
 const TELEPORT_DISTANCE := 0.75   # metres in a single tick
 const TRAVEL := 0.115             # metres of slack, mirrors the joint's limits
-const STUCK_TIME := 0.45          # seconds of sustained aim error before resync
+const STUCK_ANGLE := 1.2          # rad of sustained error that counts as stuck
+const STUCK_TIME := 0.45          # seconds of it before we resync
 
 @export var physics_mode := true
 @export var follow_damp := 8.5     # 1/s — how quickly the rig matches the head
@@ -124,6 +125,9 @@ func snap() -> void:
 	_cur_xform = target
 	_fallback_xform = target
 	_anchor_prev = target.origin
+	_last_head_basis = target.basis.orthonormalized()
+	_last_head_origin = target.origin
+	_stuck = 0.0
 	_has_last = false
 	# teleport the body itself, not just the picture: the solver works from the
 	# body's real transform, so a cached transform alone would leave it behind
@@ -157,7 +161,10 @@ func _physics_process(delta: float) -> void:
 		_drive_fallback(delta)
 
 
-func _drive_physics(delta: float) -> void:
+func _drive_physics(delta_in: float) -> void:
+	# a stall (breakpoint, shader compile, window drag) can hand us a huge delta:
+	# integrate it as one short tick instead of teleporting the rig on resume
+	var delta := clampf(delta_in, 0.0001, 0.05)
 	var head_basis := head.global_transform.basis.orthonormalized()
 	var head_origin := head.global_position
 
@@ -165,7 +172,7 @@ func _drive_physics(delta: float) -> void:
 	# move it. Detecting it from the *delta* (not from the absolute error)
 	# keeps fast mouse flicks — which produce a big temporary error — intact.
 	if _has_last:
-		if _angle_between(head_basis, _last_head_basis) > TELEPORT_ANGLE \
+		if _angle_signed(head_basis, _last_head_basis) > TELEPORT_ANGLE \
 				or head_origin.distance_to(_last_head_origin) > TELEPORT_DISTANCE:
 			_last_head_basis = head_basis
 			_last_head_origin = head_origin
@@ -201,7 +208,7 @@ func _drive_physics(delta: float) -> void:
 	if q.w < 0.0:
 		q = -q
 	var angle := 2.0 * acos(clampf(q.w, -1.0, 1.0))
-	if angle > STUCK_TIME * 4.0:
+	if angle > STUCK_ANGLE:
 		# the rig has been grossly out of alignment; give up gracefully instead
 		# of spinning forever (can only happen if a sync was missed)
 		_stuck += delta
@@ -246,12 +253,24 @@ func _drive_fallback(delta: float) -> void:
 	_cur_xform = f
 
 
+## Shortest-path angle between two bases (0..PI). Fine for "how far off am I".
 func _angle_between(a: Basis, b: Basis) -> float:
 	var q := (a * b.transposed()).get_rotation_quaternion()
 	return 2.0 * acos(clampf(absf(q.w), -1.0, 1.0))
 
 
+## Unfolded angle (0..2PI): a 180 deg flip is 3.14 rad here, not 0. Teleport
+## detection needs this, otherwise the biggest possible cut looks like no move.
+func _angle_signed(a: Basis, b: Basis) -> float:
+	var q := (a * b.transposed()).get_rotation_quaternion()
+	if q.w < 0.0:
+		q = -q
+	return 2.0 * acos(clampf(q.w, -1.0, 1.0))
+
+
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
+	if not physics_mode or freeze:
+		return
 	# the transform the physics solver actually produced this tick
 	_prev_xform = _cur_xform
 	_cur_xform = state.transform.orthonormalized()

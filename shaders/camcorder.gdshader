@@ -110,7 +110,8 @@ vec3 render_frame(vec2 uv_in, vec2 px, float t) {
 	vec3 col;
 	if (quality >= 1 && ca > 0.01) {
 		vec2 dir = wuv - 0.5;
-		vec2 off = dir * ca * px * (1.0 + 2.0 * ir);
+		// bounded so a pathological ca/ir can never sample off the frame
+		vec2 off = clamp(dir * ca * px * (1.0 + 2.0 * ir), vec2(-0.02), vec2(0.02));
 		col.r = sample_screen(wuv + off).r;
 		col.g = sample_screen(wuv).g;
 		col.b = sample_screen(wuv - off).b;
@@ -230,7 +231,8 @@ vec3 render_frame(vec2 uv_in, vec2 px, float t) {
 }
 
 void fragment() {
-	vec2 px = SCREEN_PIXEL_SIZE;
+	// some Compatibility backends can hand us a zero/degenerate pixel size
+	vec2 px = max(SCREEN_PIXEL_SIZE, vec2(1e-6));
 	float t = TIME * time_scale;
 	if (debug_mode == 1) {
 		COLOR = vec4(texture(screen_tex, SCREEN_UV).rgb, 1.0);

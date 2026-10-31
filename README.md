@@ -163,7 +163,7 @@ eight_pages/
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
 │   ├── selftest.gd          # 32 functional assertions
-│   ├── camera_test.gd       # 27 assertions on the handheld camera rig
+│   ├── camera_test.gd       # 30 assertions on the handheld camera rig
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
 ├── shaders/
 │   ├── camcorder.gdshader   # the whole video-camera post chain, one pass
@@ -197,7 +197,7 @@ eight_pages/
 Everything below runs headless — no physical display required.
 
 ```bash
-tools/test_all.sh                  # 32 unit checks + 27 rig checks + scripted runs in sway
+tools/test_all.sh                  # 32 unit checks + 30 rig checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 
@@ -205,7 +205,7 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 
 | Check | What it proves |
 |---|---|
-| `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports/cuts resync, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
+| `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports and 180° cuts resync, a stalled tick is clamped, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
 | `selftest` | **every mesh triangle is wound to match its vertex normals** (the inverted-normal guard), pumpkins and bushes present, world builds, 8 distinct pages in bounds, **procedural layouts differ between seeds**, landmarks spread ≥18 m, every page spot walkable, boundary fence is a real ring, win bookkeeping saves a best time, walking/sprinting numbers, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD counter → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |
 | `death path` | Slender catches the player, jumpscare, death screen shown |
