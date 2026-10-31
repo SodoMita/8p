@@ -157,7 +157,9 @@ func _make_materials() -> void:
 	_mats["wood"] = _pbr("bark", 1.0, 1.0, 0.65)
 	_mats["wood"].albedo_color = Color(1.42, 1.38, 1.31)
 	_mats["wood"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
-	_mats["pumpkin"] = _pbr("pumpkin", 1.0, 1.0, 1.35)
+	var pumpkin_skin := ShaderMaterial.new()
+	pumpkin_skin.shader = load("res://shaders/pumpkin_skin.gdshader")
+	_mats["pumpkin"] = pumpkin_skin
 
 	var link := StandardMaterial3D.new()
 	link.albedo_texture = load("res://assets/textures/chainlink.png")

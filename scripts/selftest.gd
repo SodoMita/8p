@@ -140,6 +140,22 @@ func _run() -> void:
 			print("[selftest]   %s has %d inverted triangles" % [file, bad])
 	check("mesh_normals_outward", mesh_ok)
 
+	# Keep the approved rind/stem material and its companion mesh labels together.
+	var pumpkin_material: Material = world.map_builder._mats["pumpkin"]
+	check("pumpkin_uses_rind_stem_shader", pumpkin_material is ShaderMaterial and pumpkin_material.shader.resource_path == "res://shaders/pumpkin_skin.gdshader")
+	var pumpkin_masks_ok := true
+	for mesh in world.map_builder._pumpkin_meshes:
+		var arrays: Array = mesh.surface_get_arrays(0)
+		var colors = arrays[Mesh.ARRAY_COLOR]
+		var has_rind := false
+		var has_stem := false
+		if colors != null:
+			for color in colors:
+				has_rind = has_rind or color.a > 0.5
+				has_stem = has_stem or color.a < 0.5
+		pumpkin_masks_ok = pumpkin_masks_ok and has_rind and has_stem
+	check("pumpkin_meshes_have_rind_stem_masks", pumpkin_masks_ok)
+
 	# pumpkins and dead bushes must actually be in the world
 	check("pumpkins_present", world.map_builder.pumpkin_count() > 8,
 		str(world.map_builder.pumpkin_count()))
