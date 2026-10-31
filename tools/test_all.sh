@@ -17,35 +17,41 @@ run() { # run <tag> <cmd...>
   "$@" >"$OUT/$tag.log" 2>&1
 }
 
-log "1/7 functional self-test (headless)"
+log "1/8 functional self-test (headless)"
 run selftest "$GODOT" --headless --path . res://scenes/World.tscn -- --autotest=selftest
 grep -E '^\[selftest\] (PASS|FAIL)' "$OUT/selftest.log" | tail -25
 n_checks=$(grep -oE 'RESULT [0-9]+ passed, 0 failed' "$OUT/selftest.log" | grep -oE '[0-9]+' | head -1)
 grep -q 'RESULT [0-9]\+ passed, 0 failed' "$OUT/selftest.log" && ok "selftest ($n_checks checks)" || bad "selftest"
 
-log "2/7 full play-through: collect 8 pages -> win screen (headless)"
+log "2/8 handheld camera rig (headless)"
+run camtest "$GODOT" --headless --path . res://scenes/World.tscn -- --autotest=camtest
+grep -E '^\[camtest\] (PASS|FAIL)' "$OUT/camtest.log" | grep FAIL
+n_rig=$(grep -cE '^\[camtest\] PASS' "$OUT/camtest.log")
+grep -q 'RESULT [0-9]\+ passed, 0 failed' "$OUT/camtest.log" && ok "camera rig ($n_rig checks)" || bad "camera rig"
+
+log "3/8 full play-through: collect 8 pages -> win screen (headless)"
 run win "$GODOT" --headless --path . res://scenes/World.tscn -- --autotest=win
 grep -E '^\[autotest\]' "$OUT/win.log" | tail -4
 grep -q 'win screen visible=true' "$OUT/win.log" && ok "win path" || bad "win path"
 
-log "3/7 death path: chase -> jumpscare -> death screen (headless)"
+log "4/8 death path: chase -> jumpscare -> death screen (headless)"
 run lose "$GODOT" --headless --path . res://scenes/World.tscn -- --autotest
 grep -E 'dead=|lose path' "$OUT/lose.log" | tail -2
 grep -q 'autotest lose path OK' "$OUT/lose.log" && ok "death path" || bad "death path"
 
-log "4/7 title -> BEGIN -> world -> pause -> pickup (sway / Wayland)"
+log "5/8 title -> BEGIN -> world -> pause -> pickup (sway / Wayland)"
 run flow bash tools/run_sway.sh res://scenes/Title.tscn -- --flow --quality=1
 grep -E '^\[flow\]' "$OUT/flow.log"
 grep -q 'RESULT PASS' "$OUT/flow.log" && ok "flow" || bad "flow"
 
-log "5/7 screenshot tour inside sway (desktop)"
+log "6/8 screenshot tour inside sway (desktop)"
 rm -rf /tmp/eight_verify/desktop
 run shots env EIGHT_PAGES_SHOTS=/tmp/eight_verify/desktop \
   bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=1
 n_frames=$(grep -c '^\[autotest\] shot' "$OUT/shots.log")
 grep -q 'shots done' "$OUT/shots.log" && ok "desktop shots ($n_frames frames)" || bad "desktop shots"
 
-log "6/7 phone resolution + touch controls inside sway"
+log "7/8 phone resolution + touch controls inside sway"
 rm -rf /tmp/eight_verify/mobile
 run mobile env EIGHT_PAGES_SHOTS=/tmp/eight_verify/mobile \
   bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=0 --touch
@@ -53,7 +59,7 @@ grep -E 'touch stick vector' "$OUT/mobile.log"
 grep -q 'shots done' "$OUT/mobile.log" && ok "mobile shots" || bad "mobile shots"
 grep -q 'touch stick vector=(0.1' "$OUT/mobile.log" && ok "virtual stick input" || bad "virtual stick input"
 
-log "7/7 endings: pause menu, jumpscare, death screen, win screen (sway)"
+log "8/8 endings: pause menu, jumpscare, death screen, win screen (sway)"
 rm -rf /tmp/eight_verify/endings
 run endings env EIGHT_PAGES_SHOTS=/tmp/eight_verify/endings \
   bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=endings --quality=1
