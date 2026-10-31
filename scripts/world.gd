@@ -94,6 +94,8 @@ func _ready() -> void:
 				script_path = "res://scripts/selftest.gd"
 			elif mode == "camtest":
 				script_path = "res://scripts/camera_test.gd"
+			elif mode == "mouselive":
+				script_path = "res://scripts/mouse_live.gd"
 			elif mode == "controls":
 				script_path = "res://scripts/controls_test.gd"
 			_autotest = load(script_path).new()

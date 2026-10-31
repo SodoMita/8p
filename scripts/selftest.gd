@@ -414,7 +414,7 @@ func _run() -> void:
 	var flick := InputEventMouseMotion.new()
 	flick.relative = Vector2(240, 0)
 	var yaw_before_flick: float = player.rotation.y
-	player._unhandled_input(flick)
+	player._input(flick)
 	check("plain_mouse_looks_in_touch_mode",
 		absf(player.rotation.y - yaw_before_flick) > 0.1,
 		"%.3f rad" % (player.rotation.y - yaw_before_flick))
@@ -423,7 +423,7 @@ func _run() -> void:
 	var yaw_before_twin: float = player.rotation.y
 	var twin := InputEventMouseMotion.new()
 	twin.relative = Vector2(240, 0)
-	player._unhandled_input(twin)
+	player._input(twin)
 	check("finger_down_blocks_mouse_look",
 		absf(player.rotation.y - yaw_before_twin) < 0.001,
 		"%.3f rad" % (player.rotation.y - yaw_before_twin))
@@ -433,7 +433,7 @@ func _run() -> void:
 	drag.relative = Vector2(240, 0)
 	drag.button_mask = MOUSE_BUTTON_MASK_LEFT
 	var yaw_before_drag: float = player.rotation.y
-	player._unhandled_input(drag)
+	player._input(drag)
 	check("mouse_drag_reaches_player", absf(player.rotation.y - yaw_before_drag) > 0.1,
 		"%.3f rad" % (player.rotation.y - yaw_before_drag))
 	# a finger's emulated mouse motion never looks twice: touch_controls owns it
@@ -442,7 +442,7 @@ func _run() -> void:
 	emulated.button_mask = MOUSE_BUTTON_MASK_LEFT
 	emulated.device = InputEvent.DEVICE_ID_EMULATION
 	var yaw_before_emu: float = player.rotation.y
-	player._unhandled_input(emulated)
+	player._input(emulated)
 	check("emulated_mouse_ignored", absf(player.rotation.y - yaw_before_emu) < 0.001,
 		"%.3f rad" % (player.rotation.y - yaw_before_emu))
 	Game.touch_mode = was_touch

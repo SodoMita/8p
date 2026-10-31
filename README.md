@@ -136,6 +136,7 @@ add the page to the home screen for a full-screen, no-browser-chrome experience.
 | Flashlight / IR lamp | `F` — swaps the warm spot for the camcorder's IR lamp | **LIGHT** button |
 | Take page | `E` (or simply walk into it) | **TAKE** button (auto-pickup also works) |
 | Pause | `Esc` | **II** in the top-right corner |
+| Input diagnostics | `F3` | — |
 | Dismiss a note | any of the above keys | it fades on its own |
 
 Touch mode is detected automatically on mobile, Android/iOS web builds and any
@@ -154,6 +155,19 @@ browser that reports `navigator.maxTouchPoints > 0`, still has a mouse, and gati
 look on touch mode is what made the camera impossible to turn on those machines.
 A click on the world captures the pointer so aim is unbounded and so the web build
 recovers pointer-lock after an alt-tab (browsers only grant it on a gesture).
+
+Mouse look is read in `_input`, **not** `_unhandled_input`, on purpose: Godot's GUI
+layer runs first and marks a mouse motion as handled whenever a `Control` with
+`mouse_filter = STOP` is under the pointer — and a captured pointer sits at the
+dead centre of the screen. That is exactly how the camera once went dead (a 4x4
+crosshair dot with the default STOP filter), and `tools/mouse_live_test.sh` now
+drives a genuine X11 pointer to prove it cannot happen again.
+
+Press **F3** in game to see the input path live: pointer mode, whether a finger is
+down, how many motion events arrived, how much the pointer moved, and how many of
+them actually turned the camera. Events climbing while `looks applied` stays at 0
+means something is eating them; no events at all means the pointer is not reaching
+the game.
 
 A finger is never a mouse: `emulate_mouse_from_touch` turns every screen drag into
 a mouse motion as well, so the player ignores motion tagged with the emulation
