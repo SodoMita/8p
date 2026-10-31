@@ -6,7 +6,7 @@ extends SceneTree
 ## gravity bend and irregular forks) so the forest never repeats a silhouette.
 
 const OUT_DIR := "res://assets/models"
-const RADIAL_TRUNK := 10
+const RADIAL_TRUNK := 14
 const RADIAL_BRANCH := 6
 const BARK_TILE := 0.55   # metres of bark per texture repeat (world-space UVs)
 
@@ -116,6 +116,16 @@ func _grow_tree(rng: RandomNumberGenerator, cfg: Dictionary) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_grow(st, rng, Vector3.ZERO, Vector3.UP, cfg["trunk_h"], cfg["trunk_r"], 0, cfg)
+	# Ground-hugging buttress roots anchor the trunk rather than ending as a pipe.
+	for root in 6:
+		var a := root * TAU / 6.0 + rng.randf_range(-0.2, 0.2)
+		var outward := Vector3(cos(a), 0, sin(a))
+		var r: float = cfg["trunk_r"]
+		var reach := r * rng.randf_range(2.0, 3.2)
+		_tube(st, [outward * r * 0.35 + Vector3.UP * 0.36,
+			outward * reach * 0.55 + Vector3.UP * 0.12,
+			outward * reach + Vector3.DOWN * 0.025], [r * 0.35, r * 0.20, 0.015], 6, true)
+
 	return _commit(st)
 
 
@@ -125,7 +135,7 @@ func _grow(st: SurfaceTool, rng: RandomNumberGenerator, origin: Vector3, dir: Ve
 	var lean := Vector3(rng.randf_range(-0.12, 0.12), 0.0, rng.randf_range(-0.12, 0.12))
 	if depth == 0:
 		lean *= 3.0  # trunks are visibly crooked
-	var segs := 4 if depth == 0 else 2
+	var segs := 7 if depth == 0 else 3
 	var pts: Array[Vector3] = [origin]
 	var radii: Array[float] = [radius]
 	var p := origin
@@ -136,7 +146,7 @@ func _grow(st: SurfaceTool, rng: RandomNumberGenerator, origin: Vector3, dir: Ve
 		d = (d + lean * 0.35 + Vector3.DOWN * (0.05 if depth > 0 else 0.015)).normalized()
 		p = p + d * (length / segs)
 		pts.append(p)
-		radii.append(radius * (1.0 - 0.42 * t))
+		radii.append(radius * (1.0 - 0.42 * t) * (1.0 + 0.35 * exp(-t * 12.0) if depth == 0 else 1.0))
 	_tube(st, pts, radii, RADIAL_TRUNK if depth == 0 else RADIAL_BRANCH, depth == 0)
 
 	if depth >= max_depth:

@@ -114,11 +114,12 @@ func _make_materials() -> void:
 	_mats["ground"] = _pbr("ground", 26.0, 1.0, 1.0)
 	_mats["stone"] = _pbr("stone", 1.6, 0.95, 1.0)
 	_mats["concrete"] = _pbr("stone", 1.45, 1.0, 0.85)
-	_mats["metal"] = _flat(Color(0.13, 0.135, 0.14), 0.42, 0.65)
-	_mats["rust"] = _flat(Color(0.30, 0.17, 0.10), 0.85, 0.3)
+	_mats["metal"] = _weathered_metal(Color(0.19, 0.23, 0.20), 0.46)
+	_mats["rust"] = _weathered_metal(Color(0.22, 0.18, 0.14), 0.78)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
 	_mats["wood"] = _pbr("bark", 1.0, 1.0, 1.0)
 	_mats["pumpkin"] = _pbr("pumpkin", 1.0, 1.0, 1.35)
+	_mats["lamp"] = _flat(Color(0.42, 0.39, 0.28), 0.24, 0.15)
 	_mats["fabric"] = _flat(Color(0.16, 0.15, 0.13), 1.0, 0.0)
 
 	var grass := StandardMaterial3D.new()
@@ -145,6 +146,14 @@ func _make_materials() -> void:
 
 	for key in ["bark", "wood"]:
 		_mats[key].vertex_color_use_as_albedo = true
+
+
+func _weathered_metal(paint: Color, corrosion: float) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/weathered_metal.gdshader")
+	mat.set_shader_parameter("paint_color", paint)
+	mat.set_shader_parameter("corrosion", corrosion)
+	return mat
 
 
 func _flat(color: Color, rough := 0.8, metallic := 0.0) -> StandardMaterial3D:
@@ -401,6 +410,18 @@ func _silo(xf: Transform3D) -> void:
 	_cyl(xf, Vector3(0, h + 0.35, 0), r * 1.06, 0.6, _mats["metal"], r * 0.2)
 	_cyl(xf, Vector3(0, h + 0.7, 0), r * 0.3, 0.5, _mats["rust"])
 	_box(xf, Vector3(0, 0.28, r + 0.9), Vector3(1.7, 0.55, 1.6), _mats["concrete"])
+	# Rolled sheet-metal bands break up the smooth primitive silhouette.
+	for band in range(1, int(h / 1.15)):
+		var ring := MeshInstance3D.new()
+		var torus := TorusMesh.new()
+		torus.inner_radius = r - 0.018
+		torus.outer_radius = r + 0.035
+		torus.rings = 32
+		torus.ring_segments = 6
+		ring.mesh = torus
+		ring.material_override = _mats["rust"]
+		ring.transform = xf * Transform3D(Basis(), Vector3(0, band * 1.15, 0))
+		add_child(ring)
 	# ladder up the side + a rusted hatch
 	_box(xf, Vector3(-0.5, h * 0.45, r + 0.06), Vector3(0.09, h * 0.85, 0.09), _mats["rust"], Vector3.ZERO, false)
 	_box(xf, Vector3(0.5, h * 0.45, r + 0.06), Vector3(0.09, h * 0.85, 0.09), _mats["rust"], Vector3.ZERO, false)
@@ -410,16 +431,76 @@ func _silo(xf: Transform3D) -> void:
 
 
 func _truck(xf: Transform3D) -> void:
-	var m: Material = _mats["metal"]
+	var detail_start := get_child_count()
+	# Separate chassis, cab and open bed rather than one solid toy-like block.
+	var metal: Material = _mats["metal"]
+	var rust: Material = _mats["rust"]
+	var dark: Material = _mats["dark"]
 	var ln := rng.randf_range(4.6, 6.0)
-	_box(xf, Vector3(0, 1.15, 0), Vector3(2.25, 1.65, ln), m)
-	_box(xf, Vector3(0, 2.3, ln * 0.34), Vector3(2.15, 1.1, 1.6), m)
-	_box(xf, Vector3(0, 2.32, ln * 0.34 + 0.81), Vector3(1.9, 0.7, 0.05), _mats["dark"], Vector3.ZERO, false)
-	# cargo bed walls
-	_box(xf, Vector3(0, 2.05, -ln * 0.12), Vector3(2.3, 0.12, ln * 0.52), _mats["rust"], Vector3.ZERO, false)
+	var cab_z := ln * 0.34
+	_box(xf, Vector3(0, 0.72, 0), Vector3(1.8, 0.24, ln), rust)
+	_box(xf, Vector3(0, 1.28, cab_z), Vector3(2.15, 0.9, 1.7), metal)
+	_box(xf, Vector3(0, 1.65, cab_z + 1.03), Vector3(2.08, 0.2, 0.7), metal)
+	_box(xf, Vector3(0, 2.55, cab_z), Vector3(2.23, 0.12, 1.83), metal)
+	# Recessed glazing, pillars, windshield divider, door seams and handles.
+	_box(xf, Vector3(0, 2.13, cab_z + 0.82), Vector3(1.91, 0.72, 0.035), dark, Vector3(-0.10, 0, 0), false)
+	for side in [-1.0, 1.0]:
+		_box(xf, Vector3(side * 1.04, 2.12, cab_z), Vector3(0.035, 0.70, 1.36), dark, Vector3.ZERO, false)
+		for dz in [-0.81, 0.81]:
+			_box(xf, Vector3(side * 1.05, 2.12, cab_z + dz), Vector3(0.09, 0.88, 0.09), metal, Vector3.ZERO, false)
+		_box(xf, Vector3(side * 1.083, 1.62, cab_z - 0.35), Vector3(0.035, 0.045, 0.22), rust, Vector3.ZERO, false)
+		_box(xf, Vector3(side * 1.24, 2.14, cab_z + 0.65), Vector3(0.21, 0.27, 0.10), metal, Vector3.ZERO, false)
+	_box(xf, Vector3(0, 2.12, cab_z + 0.85), Vector3(0.055, 0.76, 0.05), metal, Vector3.ZERO, false)
+	# Cargo bed: visibly hollow, with raised side rails and a tailgate.
+	var bed_len := ln * 0.53
+	var bed_z := -ln * 0.19
+	_box(xf, Vector3(0, 1.0, bed_z), Vector3(2.25, 0.16, bed_len), rust)
+	for side in [-1.0, 1.0]:
+		_box(xf, Vector3(side * 1.08, 1.47, bed_z), Vector3(0.12, 0.85, bed_len), metal)
+		for rib in 4:
+			_box(xf, Vector3(side * 1.15, 1.47, bed_z - bed_len * 0.4 + rib * bed_len * 0.26), Vector3(0.06, 0.9, 0.065), rust, Vector3.ZERO, false)
+	_box(xf, Vector3(0, 1.47, bed_z - bed_len * 0.5), Vector3(2.25, 0.85, 0.12), metal)
+	# Wheels rotate about Z so their axle is X (old wheels stood vertically).
 	for wx in [-1.12, 1.12]:
 		for wz in [-ln * 0.32, -ln * 0.06, ln * 0.3]:
-			_cyl(xf, Vector3(wx, 0.5, wz), 0.5, 0.34, _mats["dark"])
+			var wheel := _cyl(xf, Vector3(wx, 0.53, wz), 0.53, 0.32, dark, -1.0, false)
+			wheel.transform.basis = xf.basis * Basis(Vector3.FORWARD, PI * 0.5)
+			var hub := _cyl(xf, Vector3(wx + signf(wx) * 0.18, 0.53, wz), 0.27, 0.045, rust, -1.0, false)
+			hub.transform.basis = wheel.transform.basis
+	_box(xf, Vector3(0, 0.88, cab_z + 1.4), Vector3(2.35, 0.18, 0.18), rust, Vector3.ZERO, false)
+	_box(xf, Vector3(0, 1.3, cab_z + 1.39), Vector3(1.12, 0.35, 0.025), dark, Vector3.ZERO, false)
+	for side in [-1.0, 1.0]:
+		_box(xf, Vector3(side * 0.81, 1.4, cab_z + 1.4), Vector3(0.30, 0.24, 0.03), _mats["lamp"], Vector3.ZERO, false)
+
+	_batch_prop_details(detail_start)
+
+
+func _batch_prop_details(first_child: int) -> void:
+	# Cosmetic parts share a handful of material draw calls; collision stays simple.
+	var batches := {}
+	var remove: Array[Node] = []
+	for i in range(first_child, get_child_count()):
+		var node := get_child(i)
+		if node is StaticBody3D or not node is Node3D or node.get_child_count() != 1:
+			continue
+		var mi := node.get_child(0) as MeshInstance3D
+		if mi == null:
+			continue
+		var mat := mi.material_override
+		if not batches.has(mat):
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			batches[mat] = surface
+		batches[mat].append_from(mi.mesh, 0, node.transform * mi.transform)
+		remove.append(node)
+	for node in remove:
+		node.free()
+	for mat in batches:
+		var mi := MeshInstance3D.new()
+		mi.mesh = batches[mat].commit()
+		mi.material_override = mat
+		mi.name = "TruckDetailBatch"
+		add_child(mi)
 
 
 func _shed(xf: Transform3D) -> void:
@@ -452,9 +533,41 @@ func _rock_circle(xf: Transform3D) -> void:
 		var hh := rng.randf_range(1.0, 2.2)
 		var rad := rng.randf_range(0.45, 0.75)
 		var body := _cyl(xf, p + Vector3(0, hh * 0.5, 0), rad, hh, _mats["stone"], rad * 0.55)
+		(body.get_child(0) as MeshInstance3D).mesh = _weathered_rock(rad, hh, i)
 		body.rotation = xf.basis.get_rotation_quaternion().get_euler() + Vector3(rng.randf_range(-0.08, 0.08), rng.randf() * 0.6, rng.randf_range(-0.08, 0.08))
 	# toppled stone in the middle
 	_box(xf, Vector3(rng.randf_range(-0.8, 0.8), 0.4, rng.randf_range(-0.8, 0.8)), Vector3(1.5, 0.8, 0.9), _mats["stone"], Vector3(0.3, rng.randf() * TAU, 0.2))
+
+
+func _weathered_rock(radius: float, height: float, variant: int) -> ArrayMesh:
+	# Ring-correlated erosion creates fractured strata, not perfect columns.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rings: Array[PackedVector3Array] = []
+	const SIDES := 9
+	for j in 5:
+		var row := PackedVector3Array()
+		var t := j / 4.0
+		for k in SIDES:
+			var angle := TAU * k / SIDES
+			var erosion := 1.0 + 0.16 * sin(k * 2.73 + variant * 1.7) + 0.075 * cos(j * 4.1 + k)
+			var r := radius * erosion * (1.0 - 0.43 * t)
+			row.append(Vector3(cos(angle) * r + t * 0.09, (t - 0.5) * height + sin(k * 3.4 + variant) * 0.09 * t, sin(angle) * r))
+		rings.append(row)
+	for j in 4:
+		for k in SIDES:
+			var n := (k + 1) % SIDES
+			for v in [rings[j][k], rings[j + 1][n], rings[j + 1][k], rings[j][k], rings[j][n], rings[j + 1][n]]:
+				st.set_uv(Vector2(v.x + v.z * 0.4, v.y) * 0.6)
+				st.add_vertex(v)
+	for k in SIDES:
+		for v in [Vector3(0.09, height * 0.5, 0), rings[4][k], rings[4][(k + 1) % SIDES]]:
+			st.set_uv(Vector2(v.x, v.z))
+			st.add_vertex(v)
+	st.generate_normals()
+	st.generate_tangents()
+	st.index()
+	return st.commit()
 
 
 func _bathroom(xf: Transform3D) -> void:

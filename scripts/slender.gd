@@ -62,15 +62,95 @@ func _add_part(mesh: Mesh, mat: Material, pos: Vector3, rot := Vector3.ZERO) -> 
 	return mi
 
 
+func _add_box(size: Vector3, mat: Material, pos: Vector3, rot := Vector3.ZERO) -> MeshInstance3D:
+	var b := BoxMesh.new()
+	b.size = size
+	return _add_part(b, mat, pos, rot)
+
+
+func _add_hand(side: float, pale: Material) -> void:
+	_add_box(Vector3(0.085, 0.17, 0.05), pale,
+		Vector3(0.39 * side, 0.95, 0.03), Vector3(0.0, 0.0, 0.12 * side))
+	for f in 3:
+		var finger := CylinderMesh.new()
+		finger.bottom_radius = 0.009
+		finger.top_radius = 0.012
+		finger.height = 0.15
+		finger.radial_segments = 5
+		_add_part(finger, pale,
+			Vector3((0.39 + (f - 1) * 0.028) * side, 0.84, 0.045),
+			Vector3(0.0, 0.0, 0.12 * side + (f - 1) * 0.05 * side))
+
+
+func _add_tendril(rng: RandomNumberGenerator, origin: Vector3, mat: Material) -> void:
+	var dir := Vector3(rng.randf_range(-0.35, 0.35), 1.0, rng.randf_range(-0.5, 0.1)).normalized()
+	var pos := origin
+	var thick := rng.randf_range(0.032, 0.05)
+	for i in rng.randi_range(4, 5):
+		var bend := Vector3(rng.randf_range(-0.5, 0.5), rng.randf_range(-0.05, 0.18), rng.randf_range(-0.45, 0.35))
+		dir = (dir + bend * (0.15 if i == 0 else 0.35)).normalized()
+		dir.y = maxf(dir.y, 0.2)
+		dir = dir.normalized()
+		var length := rng.randf_range(0.12, 0.22)
+		var nxt := pos + dir * length
+		var seg := CylinderMesh.new()
+		seg.top_radius = thick * 0.72
+		seg.bottom_radius = thick
+		seg.height = length
+		seg.radial_segments = 5
+		_add_part(seg, mat, (pos + nxt) * 0.5, Quaternion(Vector3.UP, dir).get_euler())
+		pos = nxt
+		thick *= rng.randf_range(0.72, 0.84)
+
+
 func _build_model() -> void:
 	# faint self-illumination keeps the silhouette readable against the fog
 	var suit := _make_material(Color(0.075, 0.072, 0.08), 0.05)
+	var lapel_mat := _make_material(Color(0.055, 0.053, 0.06), 0.04)
+	var shirt := _make_material(Color(0.82, 0.82, 0.8), 0.12)
 	var pale := _make_material(Color(0.88, 0.87, 0.82), 0.5)
+	var shoe := _make_material(Color(0.04, 0.04, 0.045), 0.02)
 
-	var torso := CapsuleMesh.new()
-	torso.radius = 0.23
-	torso.height = 1.45
-	_add_part(torso, suit, Vector3(0, 1.62, 0))
+	# narrow tailored torso: tapered, slightly flattened front-to-back
+	var torso := CylinderMesh.new()
+	torso.top_radius = 0.2
+	torso.bottom_radius = 0.155
+	torso.height = 1.28
+	torso.radial_segments = 10
+	var torso_mi := _add_part(torso, suit, Vector3(0, 1.62, 0))
+	torso_mi.scale.z = 0.82
+
+	# shoulder silhouette
+	var shoulders := CapsuleMesh.new()
+	shoulders.radius = 0.085
+	shoulders.height = 0.6
+	_add_part(shoulders, suit, Vector3(0, 2.17, 0), Vector3(0, 0, PI * 0.5))
+
+	# shirt collar band and points
+	var collar := CylinderMesh.new()
+	collar.bottom_radius = 0.08
+	collar.top_radius = 0.075
+	collar.height = 0.07
+	collar.radial_segments = 10
+	_add_part(collar, shirt, Vector3(0, 2.28, 0))
+	for side in [-1.0, 1.0]:
+		_add_box(Vector3(0.09, 0.06, 0.02), shirt,
+			Vector3(0.055 * side, 2.24, 0.135), Vector3(0.0, 0.0, 0.4 * side))
+
+	# lapels forming a V above the tie
+	for side in [-1.0, 1.0]:
+		_add_box(Vector3(0.075, 0.36, 0.018), lapel_mat,
+			Vector3(0.07 * side, 2.02, 0.152), Vector3(0.0, 0.0, -0.28 * side))
+
+	# pointed tie
+	_add_box(Vector3(0.055, 0.055, 0.03), lapel_mat, Vector3(0, 2.18, 0.16))
+	var tie := CylinderMesh.new()
+	tie.top_radius = 0.045
+	tie.bottom_radius = 0.003
+	tie.height = 0.36
+	tie.radial_segments = 4
+	_add_part(tie, _make_material(Color(0.32, 0.32, 0.34), 0.02),
+		Vector3(0, 1.98, 0.17), Vector3(0, PI * 0.25, 0))
 
 	for side in [-1.0, 1.0]:
 		var leg := CylinderMesh.new()
@@ -79,45 +159,57 @@ func _build_model() -> void:
 		leg.height = 1.15
 		leg.radial_segments = 6
 		_add_part(leg, suit, Vector3(0.13 * side, 0.58, 0.0))
+		_add_box(Vector3(0.13, 0.09, 0.26), shoe, Vector3(0.13 * side, 0.05, 0.06))
 		var arm := CylinderMesh.new()
 		arm.bottom_radius = 0.055
 		arm.top_radius = 0.08
-		arm.height = 1.5
+		arm.height = 1.22
 		arm.radial_segments = 6
-		_add_part(arm, suit, Vector3(0.3 * side, 1.72, 0.02), Vector3(0.0, 0.0, 0.12 * side))
-
-	var tie := BoxMesh.new()
-	tie.size = Vector3(0.05, 0.34, 0.02)
-	_add_part(tie, _make_material(Color(0.32, 0.32, 0.34), 0.02), Vector3(0, 2.02, 0.19))
+		_add_part(arm, suit, Vector3(0.32 * side, 1.56, 0.02), Vector3(0.0, 0.0, 0.12 * side))
+		_add_hand(side, pale)
 
 	var neck := CylinderMesh.new()
 	neck.bottom_radius = 0.06
 	neck.top_radius = 0.06
 	neck.height = 0.16
-	neck.radial_segments = 6
+	neck.radial_segments = 10
 	_add_part(neck, pale, Vector3(0, 2.36, 0))
 
 	var head := SphereMesh.new()
 	head.radius = 0.19
 	head.height = 0.42
-	head.radial_segments = 12
-	head.rings = 8
+	head.radial_segments = 24
+	head.rings = 16
 	_add_part(head, pale, Vector3(0, 2.56, 0.01))
 
-	# the tendrils
+	# the tendrils: curved and segmented
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1337
 	for i in 7:
-		var t := CylinderMesh.new()
-		t.bottom_radius = 0.012
-		t.top_radius = 0.045
-		t.height = rng.randf_range(0.9, 1.7)
-		t.radial_segments = 4
-		var ang := rng.randf_range(-1.0, 1.0)
-		_add_part(t, suit,
-			Vector3(rng.randf_range(-0.18, 0.18), rng.randf_range(1.2, 1.9), -0.2),
-			Vector3(rng.randf_range(-0.5, 0.5), 0, ang))
+		_add_tendril(rng,
+			Vector3(rng.randf_range(-0.2, 0.2), rng.randf_range(1.35, 1.75), rng.randf_range(-0.2, -0.1)),
+			suit)
 	_meshes[0].position = Vector3(0, 1.62, 0)
+	_batch_model_details()
+
+
+func _batch_model_details() -> void:
+	# Keep the torso first for existing sway code, merge all rigid detail by material.
+	var batches := {}
+	var torso := _meshes[0]
+	for i in range(1, _meshes.size()):
+		var mi := _meshes[i]
+		var mat := mi.material_override
+		if not batches.has(mat):
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			batches[mat] = st
+		batches[mat].append_from(mi.mesh, 0, mi.transform)
+		mi.free()
+	_meshes.clear()
+	_meshes.append(torso)
+	for mat in batches:
+		_add_part(batches[mat].commit(), mat, Vector3.ZERO)
 
 
 # --------------------------------------------------------------------------- #
