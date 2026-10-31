@@ -34,6 +34,8 @@ func _ready() -> void:
 		_run_flow()
 	elif mode == "demo":
 		_run_demo()
+	elif mode == "perf":
+		_run_perf()
 	else:
 		_run_play()
 
@@ -120,6 +122,44 @@ func _run_winscreen() -> void:
 	await _shot("win_screen")
 	_log_line("win screen visible=%s" % str(world.hud.end_root.visible))
 	get_tree().quit(0)
+
+
+## Frame-time budget for the camcorder pass and the camera rig.
+## Reports average frame time with each feature on and off, on this machine.
+func _run_perf() -> void:
+	await _wait(2.0)
+	world.autotest_no_pickup = true
+	await _set_camera(Vector3(0, 0, 2), Vector3(0, 1.4, -14))
+	await _wait(1.0)
+	var cam = world.hud.camcorder
+	var handle = world.player.handle
+
+	var on := await _measure(90)
+	cam.set_enabled(false)
+	var off := await _measure(90)
+	cam.set_enabled(true)
+	handle.set_physics_mode(false)
+	var proc := await _measure(90)
+	handle.set_physics_mode(true)
+	var back := await _measure(90)
+	_log_line("perf camcorder_on=%.2fms off=%.2fms (%.1f%%)" % [on, off, (on / off - 1.0) * 100.0])
+	_log_line("perf rig_physics=%.2fms rig_procedural=%.2fms" % [back, proc])
+	_log_line("perf draw_calls=%d objects=%d" % [
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME)])
+	_log_line("perf done")
+	get_tree().quit(0)
+
+
+func _measure(frames: int) -> float:
+	# discard a few frames so shader/pipeline warm-up is not in the average
+	for i in 10:
+		await RenderingServer.frame_post_draw
+	var t0 := Time.get_ticks_usec()
+	for i in frames:
+		await RenderingServer.frame_post_draw
+	var dt := float(Time.get_ticks_usec() - t0) / float(frames) / 1000.0
+	return dt
 
 
 func _run_endings() -> void:
@@ -295,6 +335,48 @@ func _run_shots() -> void:
 		await _shot("pumpkins")
 		_log_line("pumpkins=%d bushes=%d" % [world.map_builder.pumpkin_count(), world.map_builder.bush_count()])
 
+	# 2b2) bark close up, torch on a trunk at a steep angle of incidence
+	var trees_at: Node3D = world.map_builder.get_node_or_null("Trees_0")
+	if trees_at != null and trees_at.multimesh.instance_count > 0:
+		var tx: Transform3D = trees_at.multimesh.get_instance_transform(0)
+		var tp: Vector3 = tx.origin
+		var side := Vector3(1, 0, 0.35).normalized()
+		await _set_camera(tp + side * 2.6 + Vector3(0, 0.0, 0), tp + Vector3(0, 1.35, 0))
+		await _wait(0.6)
+		await _shot("bark_detail")
+
+	# 2c) a page close up: the sheet is a live cloth grid with no light of its own
+	if world.pages.size() > 0:
+		var pnode: Node3D = world.pages[0]["node"]
+		var pp: Vector3 = pnode.global_position
+		# stand along the sheet's own +Z normal, or the shot is a paper edge
+		var face: Vector3 = (world.pages[0]["normal"] as Vector3).normalized()
+		await _set_camera(pp + face * 0.62 + Vector3(0.0, -0.28, 0.0), pp + Vector3(0.0, -0.32, 0.0))
+		await _wait(1.4)
+		print("[dbg] page shot cam=", world.player.camera.global_position,
+			" page=", pp, " torch=", world.player.flashlight_on,
+			" flash_energy=", world.player.flashlight.light_energy,
+			" visible=", world.player.flashlight.visible,
+			" spot_angle=", world.player.flashlight.spot_angle)
+		await _shot("page_cloth")
+		# same frame with the torch off: the page must be as black as the wall
+		world.player.flashlight_on = false
+		await _wait(0.7)
+		await _shot("page_in_the_dark")
+		world.player.flashlight_on = true
+
+	# 2d) concrete close up: texel density / stretching check
+	var cw: Dictionary = {}
+	for lm in world.map_builder.landmarks:
+		if lm["name"] == "walls" or lm["name"] == "tower":
+			cw = lm
+			break
+	if not cw.is_empty():
+		var base: Vector3 = cw["pos"]
+		await _set_camera(base + Vector3(9.5, 1.7, 9.5), base + Vector3(0.0, 1.2, 0.0))
+		await _wait(0.6)
+		await _shot("concrete_detail")
+
 	# 3) Slender in the treeline, lit by the flashlight
 	var pl: Node3D = world.player
 	await _set_camera(Vector3(0, 0, 6), Vector3(0, 1.4, -20))
@@ -313,6 +395,21 @@ func _run_shots() -> void:
 	world.hud.static_burst(0.8)
 	await _wait(0.35)
 	await _shot("slender_close")
+
+	# 4b) the camcorder's own night-vision lamp: torch off, IR on
+	world.player.toggle_flashlight()   # torch -> IR lamp
+	world.hud.set_static(0.12)
+	world.hud.set_dread(0.35)
+	await _set_camera(Vector3(0, 0, 8), Vector3(0, 1.6, -12))
+	await _wait(1.2)
+	await _shot("night_vision")
+	# and the same spot with the tape tearing itself apart
+	world.hud.camcorder_glitch(1.0)
+	world.hud.set_dread(1.0)
+	await _wait(0.25)
+	await _shot("signal_loss")
+	world.hud.set_dread(0.0)
+	world.player.toggle_flashlight()   # back to the torch
 
 	# 5) HUD with some pages collected, framed on the spawn clearing
 	sl.visible = false
@@ -347,6 +444,20 @@ func _run_shots() -> void:
 	_touch_up(0, stick)
 	_touch_up(1, Vector2(vp.x * 0.8, vp.y * 0.5))
 	_log_line("touch stick vector=%s yaw=%.3f" % [str(move_vec), yaw])
+
+	# 5) the gate, the road leaving through it, and the fence running away
+	world.hud.note_root.modulate.a = 0.0
+	world.hud.show_prompt("")
+	var gate: Vector3 = world.map_builder.gate_centre
+	await _set_camera(gate + Vector3(-2.2, 0.05, 2.6), gate + Vector3(26.0, -1.2, -1.0))
+	await _wait(0.8)
+	await _shot("gate_road")
+	await _set_camera(gate + Vector3(14.0, 0.05, 1.2), gate + Vector3(-24.0, -1.4, -0.6))
+	await _wait(0.8)
+	await _shot("gate_from_outside")
+	await _set_camera(gate + Vector3(-9.0, 0.05, -3.0), gate + Vector3(30.0, -1.4, 14.0))
+	await _wait(0.8)
+	await _shot("fence_line")
 	_log_line("autotest shots done")
 	get_tree().quit(0)
 

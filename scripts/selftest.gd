@@ -174,12 +174,29 @@ func _run() -> void:
 			break
 	check("labyrinth_trees_excluded", trees_clear_of_lab)
 
+	# Reachability, tested the way it actually matters: is there room to stand in
+	# front of the page? A capsule cast against real collision, not the scattering
+	# radius that `_point_inside_prop` uses for trees and props.
 	var all_reachable := true
+	var stand_space: PhysicsDirectSpaceState3D = world.get_world_3d().direct_space_state
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.3
+	cap.height = 1.6
 	for spot in world.map_builder.page_spots:
-		var sp: Vector3 = spot["pos"]
-		if not world.map_builder.is_walkable(sp, 0.35):
+		var sp: Vector3 = spot["pos"] + (spot.get("normal", Vector3(0, 0, 1)) as Vector3) * 1.1
+		sp.y = 0.0
+		if Vector2(sp.x, sp.z).length() > world.map_builder.HALF - 2.0:
 			all_reachable = false
-			print("[selftest]   page blocked at ", sp)
+			print("[selftest]   page spot outside the map at ", sp)
+			continue
+		var qs := PhysicsShapeQueryParameters3D.new()
+		qs.shape = cap
+		qs.collision_mask = 1
+		qs.transform = Transform3D(Basis(), sp + Vector3(0, 0.95, 0))
+		var hits := stand_space.intersect_shape(qs, 1)
+		if hits.size() > 0:
+			all_reachable = false
+			print("[selftest]   nowhere to stand at ", sp)
 	check("pages_reachable", all_reachable)
 	var landmark_spread := _min_landmark_distance(world.map_builder)
 	# the algorithm targets >= 24 m centre-to-centre; 18 m still guarantees the
@@ -227,37 +244,200 @@ func _run() -> void:
 	check("bushes_present", world.map_builder.bush_count() > 60,
 		str(world.map_builder.bush_count()))
 
-	# boundary must be a ring of thin slabs on the edges, not plates across the map
+	# --- boundary fence: pure geometry, no physics stepping ------------------
+	# every fabric/pole collider must sit ON one of the four fence lines at the
+	# right height, its long axis must run along the fence, and the ring must be
+	# closed except for the gate opening
 	var fence_ok := true
-	var fence: Node = world.find_child("BoundaryFence", true, false)
+	var fence: Node = world.map_builder.find_child("FenceBody", true, false)
+	var fabric_spans: Array[float] = []
+	var gate_gap := 0.0
 	if fence == null:
 		fence_ok = false
+		print("[selftest]   no FenceBody")
 	else:
-		var slab_count := 0
+		var on_line := 0
+		var bad := 0
 		for c in fence.get_children():
 			if c is not CollisionShape3D:
 				continue
 			var cs: CollisionShape3D = c
-			var box: BoxShape3D = cs.shape
-			var ext := box.size
-			var thin := minf(ext.x, ext.z)
-			var long_side := maxf(ext.x, ext.z)
-			var ctr := cs.global_position
-			var on_edge := absf(absf(ctr.x) - 61.0) < 2.0 or absf(absf(ctr.z) - 61.0) < 2.0
-			if thin > 2.0 or long_side < 100.0 or not on_edge:
-				fence_ok = false
-				print("[selftest]   bad fence slab at ", ctr)
-			slab_count += 1
-		if slab_count != 4:
+			var p := cs.global_position
+			# gate leaves hang off the line on purpose, swung open into the forest
+			var near_gate := absf(p.x - 61.0) < 2.6 and absf(p.z) < 6.5
+			var dist := minf(minf(absf(absf(p.x) - 61.0), absf(absf(p.z) - 61.0)), 1.0)
+			var on_fence := dist < 0.35 or near_gate
+			var in_terrain := p.y > -1.0 and p.y < 3.0
+			if on_fence and in_terrain:
+				on_line += 1
+				if cs.shape is BoxShape3D:
+					var box := cs.shape as BoxShape3D
+					var long_axis := maxf(box.size.x, box.size.z)
+					# the long axis must point along the fence, not through it
+					var x_axis := (cs.global_transform.basis * Vector3.RIGHT).normalized()
+					var along_x := absf(absf(x_axis.x) - 1.0) < 0.2
+					var along_z := absf(absf(x_axis.z) - 1.0) < 0.2
+					# a run sitting at z = +-61 stretches along X, and vice versa
+					var run_at_z := absf(absf(p.z) - 61.0) < 0.35
+					if long_axis < 2.0 or (not near_gate and not (along_x if run_at_z else along_z)):
+						bad += 1
+					else:
+						fabric_spans.append(long_axis)
+			else:
+				bad += 1
+				print("[selftest]   fence collider off-line at ", p)
+		if on_line < 100 or bad > 0:
 			fence_ok = false
+		print("[selftest]   fence: %d colliders on the ring, %d bad" % [on_line, bad])
+		# total fabric length vs the perimeter minus the 5 m gate opening
+		var covered := 0.0
+		for span in fabric_spans:
+			covered += span
+		# four 120 m runs, less the 5 m gate opening (one 3 m bay is skipped)
+		var expected := 4.0 * 120.0 - 3.0
+		if absf(covered - expected) > 12.0:
+			fence_ok = false
+			print("[selftest]   fence covers %.1f m, expected ~%.1f" % [covered, expected])
 	check("boundary_fence_ring", fence_ok)
+	# the gate must actually be an opening you can drive a road through
+	var gate: Vector3 = world.map_builder.gate_centre
+	var gate_clear := true
+	for c in fence.get_children() if fence != null else []:
+		if c is CollisionShape3D:
+			var gp: Vector3 = (c as CollisionShape3D).global_position
+			if absf(gp.x - gate.x) < 0.4 and absf(gp.z) < 2.2 and gp.y > 0.5:
+				gate_clear = false
+	# the panels must SPAN the run: their local X has to lie along the fence line
+	# and their local Y has to be up. Hand-derived yaw maths got this 90 degrees
+	# wrong once already, and it showed up as a fence standing sideways.
+	var panels_ok := true
+	var worst := 1.0
+	for node_name in ["FencePanels", "FenceRails"]:
+		var mmi: MultiMeshInstance3D = world.map_builder.get_node_or_null(node_name)
+		if mmi == null:
+			continue
+		var mm: MultiMesh = mmi.multimesh
+		for k in mm.instance_count:
+			var t3: Transform3D = mm.get_instance_transform(k)
+			var xaxis: Vector3 = t3.basis.x.normalized()
+			var yaxis: Vector3 = t3.basis.y.normalized()
+			var p := t3.origin
+			# outward direction of the nearest side of the square ring
+			var outd: Vector3 = (Vector3(p.x, 0, 0) if absf(p.x) > absf(p.z) else Vector3(0, 0, p.z)).normalized()
+			var flat := absf(xaxis.dot(outd))
+			worst = maxf(worst, flat) if not panels_ok else flat
+			if flat > 0.15 or absf(yaxis.dot(Vector3.UP)) < 0.95:
+				panels_ok = false
+				print("[selftest]   panel ", k, " spans the normal: |x.out|=", flat)
+	check("fence_panels_follow_the_line", panels_ok)
+
+	check("gate_is_open", gate_clear, str(gate))
+
+	# --- pages: nailed to real surfaces, dark, and carrying their message -----
+	var pages_list: Array = world.pages
+	var cloth_ok: bool = pages_list.size() >= 8
+	var light_free := cloth_ok
+	var dark := cloth_ok
+	var texted := cloth_ok
+	var sags := cloth_ok
+	var anchored := cloth_ok
+	var space: PhysicsDirectSpaceState3D = world.get_world_3d().direct_space_state
+	for p in pages_list:
+		var sheet: Node3D = p.get("cloth")
+		if sheet == null or sheet.vertex_count() != 63:
+			cloth_ok = false
+			continue
+		if sheet.has_light():
+			light_free = false
+		if sheet.is_emissive():
+			dark = false
+		if not sheet.note_is_visible():
+			texted = false
+		# the page must have a solid surface right behind it: shoot a short ray
+		# through the sheet and expect to hit the wall/panel it is nailed to
+		var node: Node3D = p["node"]
+		var nrm: Vector3 = p["normal"]
+		# start outside and cast in: a ray that begins inside the wall reports no
+		# hit at all, because only entry faces are detected
+		var from: Vector3 = node.global_position + nrm * 0.30
+		var to: Vector3 = node.global_position - nrm * 0.30
+		var q := PhysicsRayQueryParameters3D.create(from, to)
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			anchored = false
+		for k in 90:
+			sheet._simulate(1.0 / 60.0)
+		var after: PackedVector3Array = sheet.snapshot()
+		var top_y: float = after[0].y
+		var drop: float = top_y - after[63 - 1].y
+		# hangs at least 85% of its length below the nail, and stays finite
+		if drop < 0.49 or after[63 - 1].length() > 20.0:
+			sags = false
+		for v in after:
+			if v.z < 0.005:
+				sags = false
+				break
+	check("pages_are_cloth", cloth_ok, "%d pages" % pages_list.size())
+	check("pages_have_no_light", light_free)
+	check("pages_are_not_emissive", dark)
+	check("pages_show_their_note", texted)
+	check("pages_pinned_to_surface", anchored, "%d pages" % pages_list.size())
+	# the sheet's normals must face OUT of the wall it hangs on. This is the check
+	# that catches the inversion: measured in world space against the surface
+	# normal the landmark reported, not against the sheet's own winding.
+	var facing := cloth_ok
+	for p in pages_list:
+		var sheet2: Node3D = p.get("cloth")
+		var node2: Node3D = p["node"]
+		if sheet2 == null:
+			continue
+		# no extra simulation here: _rebuild() recomputes normals from the live
+		# geometry, and stepping the solver would move the sheet away from the
+		# frame the rest of the test measured
+		sheet2._rebuild()
+		var ns: PackedVector3Array = sheet2.surface_normals()
+		if ns.size() == 0:
+			facing = false
+			continue
+		var acc2 := Vector3.ZERO
+		for nv in ns:
+			acc2 += nv
+		var world_avg: Vector3 = (node2.global_transform.basis * (acc2 / float(ns.size()))).normalized()
+		var surface_n: Vector3 = (p["normal"] as Vector3).normalized()
+		if world_avg.dot(surface_n) < 0.9:
+			facing = false
+			print("[selftest]   page normals face the wall at ", p.get("landmark"), " dot=", world_avg.dot(surface_n))
+	check("page_normals_face_outward", facing)
+
+	check("page_cloth_sags", sags)
+	var height_ok := true
+	for p in pages_list:
+		var y: float = (p["node"] as Node3D).global_position.y
+		if y < 1.1 or y > 1.9:
+			height_ok = false
+	check("pages_at_hand_height", height_ok)
+
+	# --- outside the fence: endless terrain + the road out of the gate --------
+	var st: Dictionary = world.terrain.stats() if world.terrain != null else {}
+	var terrain_ok: bool = not st.is_empty() and int(st.get("chunks", 0)) >= 9
+	check("terrain_chunks", terrain_ok, str(st.get("chunks", 0)))
+	check("terrain_has_trees", int(st.get("trees", 0)) > 300, str(st.get("trees", 0)))
+	check("road_out_of_gate", bool(st.get("road", false)))
+	var floor_ok := false
+	for c in world.terrain.get_children() if world.terrain != null else []:
+		if c is StaticBody3D and c.name == "WorldFloor":
+			for s2 in c.get_children():
+				if s2 is CollisionShape3D and (s2 as CollisionShape3D).shape is BoxShape3D:
+					var box := (s2 as CollisionShape3D).shape as BoxShape3D
+					floor_ok = box.size.x >= 1000.0 and box.size.z >= 1000.0
+	check("outer_floor_covers_world", floor_ok)
 
 	check("landmarks_count", world.map_builder.landmarks.size() == 8, str(world.map_builder.landmarks.size()))
 	check("page_spots_count", world.map_builder.page_spots.size() == 8)
 	check("tree_count", world.map_builder.tree_count() > 400, str(world.map_builder.tree_count()))
 	check("pages_spawned", world.pages.size() == 8)
 	var all_inside := true
-	for p in world.pages:
+	for p in pages_list:
 		var pos: Vector3 = (p["node"] as Node3D).global_position
 		if Vector2(pos.x, pos.z).length() > 59.0:
 			all_inside = false
@@ -309,6 +489,50 @@ func _run() -> void:
 	check("sprint_faster_than_walk", sprinted > walked * 1.3, "%.2f m vs %.2f m" % [sprinted, walked])
 	check("sprint_drains_stamina", stamina_used > 5.0, "%.1f" % stamina_used)
 
+	# ---- input independence: keyboard/mouse must work in touch mode too ----
+	# (the human reported "on PC mouse controls don't work"; the cause was the
+	#  touch-mode early-outs, so prove both paths are live simultaneously)
+	var was_touch: bool = Game.touch_mode
+	Game.touch_mode = true
+	player.rotation.y = 0.0
+	player.add_look(Vector2(180, 0))
+	check("mouse_look_in_touch_mode", absf(player.rotation.y) > 0.1,
+		"%.3f rad" % player.rotation.y)
+	player.frozen = false
+	var start_touch := player.global_position
+	Input.action_press("move_forward")
+	await _wait(0.5)
+	Input.action_release("move_forward")
+	var walked_keys: float = (player.global_position - start_touch).length()
+	check("keyboard_moves_in_touch_mode", walked_keys > 0.4, "%.2f m" % walked_keys)
+	# with the cursor free (touch mode), a plain pointer move must not turn the
+	# camera: the cursor belongs to the stick and the menus
+	var flick := InputEventMouseMotion.new()
+	flick.relative = Vector2(240, 0)
+	var yaw_before_flick: float = player.rotation.y
+	player._unhandled_input(flick)
+	check("plain_mouse_ignored_in_touch_mode",
+		absf(player.rotation.y - yaw_before_flick) < 0.001,
+		"%.3f rad" % (player.rotation.y - yaw_before_flick))
+	# ... holding a button is drag-look, and that does turn the camera
+	var drag := InputEventMouseMotion.new()
+	drag.relative = Vector2(240, 0)
+	drag.button_mask = MOUSE_BUTTON_MASK_LEFT
+	var yaw_before_drag: float = player.rotation.y
+	player._unhandled_input(drag)
+	check("mouse_drag_reaches_player", absf(player.rotation.y - yaw_before_drag) > 0.1,
+		"%.3f rad" % (player.rotation.y - yaw_before_drag))
+	# a finger's emulated mouse motion never looks twice: touch_controls owns it
+	var emulated := InputEventMouseMotion.new()
+	emulated.relative = Vector2(240, 0)
+	emulated.button_mask = MOUSE_BUTTON_MASK_LEFT
+	emulated.device = InputEvent.DEVICE_ID_EMULATION
+	var yaw_before_emu: float = player.rotation.y
+	player._unhandled_input(emulated)
+	check("emulated_mouse_ignored", absf(player.rotation.y - yaw_before_emu) < 0.001,
+		"%.3f rad" % (player.rotation.y - yaw_before_emu))
+	Game.touch_mode = was_touch
+
 	# look control (touch swipe path and mouse path share add_look)
 	var yaw_before: float = player.rotation.y
 	player.add_look(Vector2(200, 0))
@@ -355,7 +579,9 @@ func _run() -> void:
 	# ---------------------------------------------------------------- pickups
 	world.autotest_no_pickup = false
 	var target: Vector3 = (world.pages[0]["node"] as Node3D).global_position
-	player.global_position = Vector3(target.x, 0.15, target.z + 1.0)
+	var tnrm: Vector3 = world.pages[0]["normal"]
+	var stand: Vector3 = target + tnrm * 1.1
+	player.global_position = Vector3(stand.x, 0.15, stand.z)
 	await _wait(0.5)
 	check("page_pickup", Game.pages_collected == 1, "collected=%d" % Game.pages_collected)
 	check("hud_page_counter", world.hud.pages_label.text == "1 / 8", world.hud.pages_label.text)
@@ -363,7 +589,9 @@ func _run() -> void:
 	check("slender_woken", sl.cooldown < 16.0, "cooldown=%.1f" % sl.cooldown)
 
 	# ------------------------------------------------------------------ AI
-	# unoccluded in front of the camera -> seen; behind -> unseen
+	# unoccluded in front of the camera -> seen; behind -> unseen.
+	# The forest is procedural, so a fixed heading can end up behind a trunk:
+	# turn until the sight line is genuinely clear, then assert the mechanism.
 	sl.set_process(false)
 	sl.visible = true
 	var cam: Camera3D = player.camera
@@ -371,15 +599,49 @@ func _run() -> void:
 	player.rotation.y = 0.0
 	player.head.rotation.x = 0.0
 	await _wait(0.3)
-	sl.global_position = Vector3(0, 0, -2.5)
-	await _wait(0.2)
+	var sight_space: PhysicsDirectSpaceState3D = get_viewport().world_3d.direct_space_state
+	var clear_dir := Vector3(0, 0, -1)
+	for k in 24:
+		var a := TAU * float(k) / 24.0
+		var d := Vector3(sin(a), 0, -cos(a))
+		sl.global_position = player.global_position + d * 8.0
+		var q := PhysicsRayQueryParameters3D.create(cam.global_position, sl.global_position + Vector3(0, 2.2, 0), 1)
+		if sight_space.intersect_ray(q).is_empty():
+			clear_dir = d
+			break
+	sl.global_position = player.global_position + clear_dir * 8.0
+	player.rotation.y = atan2(-clear_dir.x, -clear_dir.z)
+	await _wait(0.3)
 	check("slender_seen_in_front", sl._is_seen_by_player(),
-		"cam=%s sl=%s frustum=%s" % [str(cam.global_position), str(sl.global_position), str(cam.is_position_in_frustum(sl.global_position + Vector3(0, 2.2, 0)))])
-	sl.global_position = player.global_position + Vector3(0, 0, 10)
+		"dir=%s frustum=%s" % [str(clear_dir), str(cam.is_position_in_frustum(sl.global_position + Vector3(0, 2.2, 0)))])
+	sl.global_position = player.global_position + clear_dir * -8.0
 	await _wait(0.2)
 	check("slender_unseen_behind", not sl._is_seen_by_player())
 	sl.set_process(true)
 	sl.visible = false
+
+	# ------------------------------------------------- post-effects are intact
+	# #28 /re 21: the camcorder pass had quietly turned the old grain overlay off
+	# and halved the vignette. Both are back, stacked over the tape, so assert the
+	# composites exist at full strength whatever the camcorder is doing.
+	var hud: Node = world.hud
+	check("hud_static_overlay_present", hud.static_rect != null and hud.static_mat != null)
+	check("hud_static_overlay_visible", hud.static_rect.visible)
+	var vig_strength: float = float(hud.vignette_mat.get_shader_parameter("strength"))
+	check("hud_vignette_full_strength", is_equal_approx(vig_strength, 0.92),
+		"%.2f" % vig_strength)
+	var cam_on: bool = Settings.camcorder
+	Settings.camcorder = not cam_on
+	hud.refresh_camcorder()
+	await _wait(0.1)
+	check("hud_effects_survive_camcorder_toggle",
+		hud.static_rect.visible and is_equal_approx(
+			float(hud.vignette_mat.get_shader_parameter("strength")), 0.92),
+		"static=%s vig=%.2f" % [str(hud.static_rect.visible),
+			float(hud.vignette_mat.get_shader_parameter("strength"))])
+	Settings.camcorder = cam_on
+	hud.refresh_camcorder()
+	await _wait(0.1)
 
 	# ------------------------------------------------------------- death flow
 	sl.visible = true

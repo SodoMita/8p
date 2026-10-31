@@ -10,10 +10,17 @@ var master_volume := 0.9
 var best_time := -1.0
 var best_pages := 0
 var flash_warning_seen := false
+var camcorder := true          # the video-camera post stack + viewfinder
+var camcorder_physics := true  # camera on the joint-driven handheld rig
 
 
 func _ready() -> void:
 	load_settings()
+	# test hooks: A/B the video look without touching user://settings.cfg
+	if OS.get_environment("EIGHT_PAGES_NO_CAMCORDER") == "1":
+		camcorder = false
+	if OS.get_environment("EIGHT_PAGES_PROC_CAM") == "1":
+		camcorder_physics = false
 
 
 func load_settings() -> void:
@@ -27,6 +34,8 @@ func load_settings() -> void:
 	best_time = cfg.get_value("stats", "best_time", -1.0)
 	best_pages = cfg.get_value("stats", "best_pages", 0)
 	flash_warning_seen = cfg.get_value("misc", "flash_warning_seen", false)
+	camcorder = cfg.get_value("video", "camcorder", true)
+	camcorder_physics = cfg.get_value("video", "camcorder_physics", true)
 	apply_volume()
 
 
@@ -39,6 +48,8 @@ func save_settings() -> void:
 	cfg.set_value("stats", "best_time", best_time)
 	cfg.set_value("stats", "best_pages", best_pages)
 	cfg.set_value("misc", "flash_warning_seen", flash_warning_seen)
+	cfg.set_value("video", "camcorder", camcorder)
+	cfg.set_value("video", "camcorder_physics", camcorder_physics)
 	cfg.save(PATH)
 	apply_volume()
 

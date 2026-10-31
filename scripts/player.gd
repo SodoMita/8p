@@ -1,5 +1,10 @@
 extends CharacterBody3D
 ## First person controller: WASD + mouse on desktop, virtual stick + swipe on touch.
+##
+## The render camera does not sit directly on the head any more: it hangs off the
+## "Handle" rigid body (see camera_handle.gd), which is tethered to the head with
+## a Generic6DOFJoint3D. Aiming therefore drives the *head*, and the rig swings
+## after it like a camcorder held in two hands.
 
 const WALK_SPEED := 3.15
 const SPRINT_SPEED := 6.1
@@ -9,10 +14,18 @@ const MOUSE_SENS := 0.0021
 const STAMINA_MAX := 100.0
 const STAMINA_DRAIN := 17.0
 const STAMINA_REGEN := 13.0
+const BUMP_SPEED := 2.6      # m/s of horizontal speed that registers as a knock
+
+# the camcorder's night-vision lamp: the same cone as the torch, but dimmer and
+# pushed towards the near IR, which is why the world goes almost monochrome
+const IR_ENERGY := 13.0
+const IR_RANGE := 26.0
+const IR_ANGLE := 36.0
 
 @onready var head: Node3D = $Head
-@onready var camera: Camera3D = $Head/Camera
-@onready var flashlight: SpotLight3D = $Head/Camera/Flashlight
+@onready var handle: RigidBody3D = $Head/Handle
+@onready var camera: Camera3D = $Head/Handle/CameraMount/Camera
+@onready var flashlight: SpotLight3D = $Head/Handle/CameraMount/Camera/Flashlight
 @onready var fill_light: OmniLight3D = $Head/Fill
 
 var pitch := 0.0
@@ -20,6 +33,7 @@ var stamina := STAMINA_MAX
 var sprinting := false
 var frozen := false
 var flashlight_on := true
+var ir_lamp := false
 var flicker := 0.0
 var shake_amount := 0.0
 
@@ -33,29 +47,72 @@ var _stamina_delay := 0.0
 var _base_head := Vector3(0, 1.58, 0)
 var _breath_time := 0.0
 var _noise_world: Node = null
+var _last_hit := 0.0
 
 
 func _ready() -> void:
+	_apply_lamp()
 	add_to_group("player")
 	_base_head = head.position
 	_noise_world = get_tree().get_first_node_in_group("world")
 	if Game.quality < 1:
 		fill_light.visible = false
-	flashlight.visible = flashlight_on
+	# low quality falls back to the procedural spring; the joint rig is cheap
+	# but it is one more body for the solver on very weak hardware
+	var use_physics := Settings.camcorder_physics and Game.quality >= 1
+	if Game.autotest and OS.get_environment("EIGHT_PAGES_FORCE_PROC_CAM") == "1":
+		use_physics = false
+	handle.set_physics_mode(use_physics)
+	handle.impact_gain = 1.0
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if Game.touch_mode or frozen:
+	if frozen:
 		return
-	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+	# --- mouse look -------------------------------------------------------
+	# Desktop: the pointer is captured, every motion is a look.
+	# Touch mode: the cursor stays visible so the on-screen stick and menus work,
+	# so plain motion must NOT spin the camera (moving the pointer over the RUN
+	# button would turn you around). There, hold a mouse button to drag-look.
+	# Either way the keyboard is live: touch mode adds controls, it never takes
+	# the desktop ones away.
+	if event is InputEventMouseMotion and _mouse_look_allowed(event):
 		add_look(event.relative)
+	# A real mouse click on the world captures the pointer: that is how you get
+	# full mouse look on a hybrid device whose touch mode is on, and it is also
+	# how the web build recovers pointer-lock after an alt-tab (browsers refuse
+	# to lock the pointer without a gesture). Fingers are excluded: their
+	# emulated clicks must never steal the cursor from the on-screen controls.
+	if event is InputEventMouseButton and event.pressed \
+			and event.device != InputEvent.DEVICE_ID_EMULATION \
+			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	# keyboard actions are never disabled by touch mode either
 	if event.is_action_pressed("flashlight"):
 		toggle_flashlight()
 	if event.is_action_pressed("interact"):
 		interact()
 
 
+func _mouse_look_allowed(event: InputEventMouseMotion) -> bool:
+	# pointing/emulate_mouse_from_touch makes every finger emit a mouse motion
+	# too, with the emulation device id. touch_controls already turns that finger
+	# into look, so counting it again made the touch camera ~1.7x too fast.
+	if event.device == InputEvent.DEVICE_ID_EMULATION:
+		return false
+	if Game.touch_mode:
+		# Touch mode keeps the cursor usable for the on-screen stick and menus, so
+		# a plain pointer move is just a pointer move; hold a button to drag-look,
+		# or click once (below) to capture the pointer and get full mouse look.
+		return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or event.button_mask != 0
+	return true
+
+
 func add_look(delta_px: Vector2) -> void:
+	# one choke point for mouse, trackpad and finger: a frozen player (death,
+	# win, cutscene) and a paused tree must not be able to look around
+	if frozen or get_tree().paused:
+		return
 	var s := MOUSE_SENS * Settings.mouse_sensitivity
 	rotate_y(-delta_px.x * s)
 	var dy := delta_px.y * s
@@ -67,8 +124,33 @@ func add_look(delta_px: Vector2) -> void:
 
 func toggle_flashlight() -> void:
 	flashlight_on = not flashlight_on
-	flashlight.visible = flashlight_on
+	_apply_lamp()
 	Sfx.play("ui_click", -22.0, 1.4)
+
+
+## The torch has two modes: the warm spot, and the camcorder's IR lamp.
+func _apply_lamp() -> void:
+	if flashlight == null:
+		return
+	# both modes are "the lamp is on": F swaps the warm torch for the camcorder's
+	# IR spot, it no longer turns the light off entirely
+	if flashlight_on:
+		flashlight.visible = true
+	ir_lamp = not flashlight_on
+	if ir_lamp:
+		flashlight.visible = true if Settings.camcorder else false
+		flashlight.light_color = Color(0.62, 0.7, 1.0)
+		flashlight.light_energy = IR_ENERGY
+		flashlight.spot_range = IR_RANGE
+		flashlight.spot_angle = IR_ANGLE
+	else:
+		flashlight.light_color = Color(1, 0.94, 0.78)
+		flashlight.light_energy = 11.5
+		flashlight.spot_range = 30.0
+		flashlight.spot_angle = 30.0
+	# a hair of fill so the lamp's own spill is visible on the ground at your feet
+	fill_light.light_color = Color(0.55, 0.66, 0.85) if not ir_lamp else Color(0.5, 0.62, 0.9)
+	fill_light.light_energy = 0.34 if not ir_lamp else 0.22
 
 
 func interact() -> void:
@@ -83,13 +165,12 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		return
 
-	var input := Vector2.ZERO
-	if not Game.touch_mode:
-		input = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	# WASD/arrows are always read; the virtual stick adds to them
+	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	input += touch_move
 	input = input.limit_length(1.0)
 
-	var want_sprint := (Input.is_action_pressed("sprint") and not Game.touch_mode) or touch_sprint
+	var want_sprint := Input.is_action_pressed("sprint") or touch_sprint
 	var moving_forward := input.y < -0.12
 	var has_speed := Vector2(velocity.x, velocity.z).length() > 0.6
 	sprinting = want_sprint and moving_forward and has_speed and stamina > 0.5
@@ -122,29 +203,52 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= GRAVITY * delta
 	move_and_slide()
 
+	_update_bumps(delta, horiz.length())
 	_update_bob(delta, horiz.length())
 	_update_footsteps(delta, horiz.length())
 	_update_breathing(delta)
 
 
+## Running into a tree shoves the camera rig: the joint does the rest.
+func _update_bumps(delta: float, speed: float) -> void:
+	_last_hit = maxf(0.0, _last_hit - delta)
+	if speed < BUMP_SPEED or _last_hit > 0.0:
+		return
+	for i in get_slide_collision_count():
+		var c := get_slide_collision(i)
+		if c == null:
+			continue
+		var n := c.get_normal()
+		if absf(n.y) > 0.6:
+			continue
+		var strength := clampf((speed - BUMP_SPEED) / SPRINT_SPEED, 0.0, 1.0) * 2.2
+		if strength > 0.02:
+			handle.impact(-n, strength)
+			handle.shake = maxf(handle.shake, strength * 0.05)
+			shake_amount = maxf(shake_amount, strength * 0.012)
+			_last_hit = 0.35
+			Sfx.play("branch", -26.0 + strength * 8.0, randf_range(0.9, 1.1))
+		return
+
+
 func _update_bob(delta: float, speed: float) -> void:
 	var speed_ratio := clampf(speed / SPRINT_SPEED, 0.0, 1.0)
 	_bob_phase += delta * (5.2 + 4.5 * speed_ratio) * speed_ratio
-	var amp := 0.028 * speed_ratio
+	var amp := 0.030 * speed_ratio
 	var y := sin(_bob_phase * 2.0) * amp
 	var x := cos(_bob_phase) * amp * 0.8
-	head.position = head.position.lerp(_base_head + Vector3(x, y, 0.0), delta * 12.0)
-	# idle breathing sway
+	# the head bobs; the joint drags the camera along behind it
 	_breath_time += delta
 	var idle := (1.0 - speed_ratio) * 0.012
-	camera.position.y = sin(_breath_time * 1.5) * idle
-	var tilt := -cos(_bob_phase) * 0.012 * speed_ratio
-	camera.rotation.z = lerp_angle(camera.rotation.z, tilt, delta * 8.0)
-	# damage / jumpscare shake
+	var sway := sin(_breath_time * 1.5) * idle
+	head.position = head.position.lerp(_base_head + Vector3(x, y + sway, 0.0), delta * 12.0)
+	# the camera itself only carries the roll of the swing
+	var tilt := -cos(_bob_phase) * 0.016 * speed_ratio
+	tilt += sin(_breath_time * 0.7) * 0.004 * (1.0 - speed_ratio)
+	handle.roll_target = tilt
+	# damage / jumpscare shake rides on the rig as well
+	handle.shake = maxf(shake_amount, 0.0)
 	if shake_amount > 0.001:
-		var s := shake_amount
-		camera.rotation.z += randf_range(-s, s)
-		camera.rotation.x += randf_range(-s, s) * 0.5
 		shake_amount = move_toward(shake_amount, 0.0, delta * 1.4)
 
 
@@ -155,6 +259,7 @@ func _update_footsteps(delta: float, speed: float) -> void:
 	var stride := 0.9 if not sprinting else 1.35
 	if _step_accum >= stride:
 		_step_accum = 0.0
+		handle.footstep(1.4 if sprinting else 1.0)
 		Sfx.footstep(sprinting)
 		if _noise_world != null:
 			_noise_world.noise_emitted(position, 14.0 if sprinting else 6.0)
@@ -162,11 +267,9 @@ func _update_footsteps(delta: float, speed: float) -> void:
 
 func _update_breathing(delta: float) -> void:
 	var exertion := 1.0 - stamina / STAMINA_MAX
-	# the loop itself is mastered loud (it is a real strained breath now), so the
-	# fader range sits lower: inaudible at rest, close and ragged when spent
-	var target := -74.0 + 42.0 * exertion
-	target += -9.0 * clampf(flicker, 0.0, 1.0)
-	Sfx.set_loop_volume("breath_loop", maxf(target, -80.0))
+	var target := -60.0 + 42.0 * exertion
+	target += -10.0 * clampf(flicker, 0.0, 1.0)
+	Sfx.set_loop_volume("breath_loop", maxf(target, -60.0))
 
 
 func _process(delta: float) -> void:
@@ -178,7 +281,7 @@ func _process(delta: float) -> void:
 	camera.fov = lerp(camera.fov, target_fov, delta * 4.0)
 
 	# flashlight flicker driven by the world (Slender proximity / static)
-	var base_energy := 11.5
+	var base_energy := IR_ENERGY if ir_lamp else 11.5
 	if flicker > 0.01:
 		var f := 1.0 - flicker * randf_range(0.2, 1.0)
 		flashlight.light_energy = base_energy * clampf(f, 0.05, 1.0)
@@ -210,6 +313,9 @@ func look_at_point(point: Vector3) -> void:
 	rotation.y = atan2(to.x, to.z) + PI
 	head.rotation.x = atan2(to.y, flat)
 	pitch = head.rotation.x
+	# a snap this large is a cut, not a turn: put the rig straight there
+	if handle != null:
+		handle.snap()
 
 
 func set_touch_move(v: Vector2) -> void:
@@ -218,3 +324,8 @@ func set_touch_move(v: Vector2) -> void:
 
 func set_touch_sprint(v: bool) -> void:
 	touch_sprint = v
+
+
+## True when the camera is being carried by the physics rig.
+func handheld() -> bool:
+	return handle != null and handle.physics_mode

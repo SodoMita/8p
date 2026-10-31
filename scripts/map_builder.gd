@@ -26,6 +26,9 @@ signal built
 
 var rng := RandomNumberGenerator.new()
 var page_spots: Array[Dictionary] = []
+# set by each landmark builder: a surface point (landmark-local) and its outward
+# normal, so a page is pinned to something real instead of floating in a clearing
+var _attach_hint: Dictionary = {}
 var tree_positions: PackedVector3Array = PackedVector3Array()
 var landmarks: Array[Dictionary] = []
 var labyrinth: Dictionary = {}
@@ -115,25 +118,73 @@ func _pbr(name: String, uv_scale := 1.0, rough := 1.0, normal_scale := 1.0) -> S
 	m.uv1_scale = Vector3(uv_scale, uv_scale, 1.0)
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	m.texture_repeat = true
+	# every surface in this wood is double sided: the walls are broken, the
+	# truck's bed is open and the shed's planks are single quads, so a culled
+	# back face reads as a hole straight into the fog
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
+
+
+## World-space triplanar PBR: the texture is projected in metres on all three
+## axes, so a 2048 px map at `metres_per_repeat` gives the same texel density on
+## a 1 m pillar and a 20 m wall - nothing stretches, nothing looks low-res.
+func _triplanar(tex: String, metres_per_repeat: float, rough: float, normal_scale: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load("res://assets/textures/%s_albedo.png" % tex)
+	m.normal_enabled = true
+	m.normal_texture = load("res://assets/textures/%s_normal.png" % tex)
+	m.normal_scale = normal_scale
+	m.roughness_texture = load("res://assets/textures/%s_rough.png" % tex)
+	m.roughness = rough
+	m.metallic = 0.0
+	m.metallic_specular = 0.35
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3.ONE * (1.0 / maxf(metres_per_repeat, 0.05))
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	m.texture_repeat = true
 	return m
 
 
 func _make_materials() -> void:
 	# trees use world-space UVs baked in the mesh generator, so scale 1
-	_mats["bark"] = _pbr("bark", 1.0, 1.0, 1.15)
+	# Bark is dark to begin with (albedo mean 0.20 linear) and the normal map is
+	# steep (18 deg mean tilt), so at grazing angles a lit trunk fell to nothing
+	# but a few highlights. Lift the albedo, soften the relief and use a wrapped
+	# diffuse term so the terminator does not go black.
+	_mats["bark"] = _pbr("bark", 1.0, 1.0, 0.75)
+	_mats["bark"].albedo_color = Color(1.55, 1.50, 1.42)
+	_mats["bark"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
 	_mats["bark_coll"] = _mats["bark"]
-	_mats["ground"] = _pbr("ground", 26.0, 1.0, 1.0)
-	_mats["stone"] = _pbr("stone", 1.6, 0.95, 1.0)
-	_mats["concrete"] = _pbr("stone", 1.45, 1.0, 0.85)
-	_mats["lab_wall"] = _pbr("stone", 1.0, 0.96, 1.35)
-	_mats["lab_floor"] = _pbr("stone", 1.0, 0.98, 1.15)
+	# 2048 px over 2 m -> ~1000 px/m of dirt detail everywhere
+	_mats["ground"] = _triplanar("ground", 2.0, 1.0, 1.0)
+	# 2048 px over 1.2 m -> ~1700 px/m on every concrete and stone face,
+	# independent of how big the surface is
+	_mats["stone"] = _triplanar("stone", 1.2, 0.95, 1.0)
+	_mats["concrete"] = _triplanar("stone", 1.2, 1.0, 0.85)
+	_mats["lab_wall"] = _triplanar("stone", 1.2, 0.96, 1.35)
+	_mats["lab_floor"] = _triplanar("stone", 1.15, 0.98, 1.15)
 	_mats["lab_metal"] = _flat(Color(1.0, 1.0, 1.0), 0.46, 0.72)
 	_mats["lab_wire"] = _flat(Color(1.0, 1.0, 1.0), 0.40, 0.22)
 	_mats["metal"] = _flat(Color(0.13, 0.135, 0.14), 0.42, 0.65)
 	_mats["rust"] = _flat(Color(0.30, 0.17, 0.10), 0.85, 0.3)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
-	_mats["wood"] = _pbr("bark", 1.0, 1.0, 1.0)
+	_mats["wood"] = _pbr("bark", 1.0, 1.0, 0.65)
+	_mats["wood"].albedo_color = Color(1.42, 1.38, 1.31)
+	_mats["wood"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
 	_mats["pumpkin"] = _pbr("pumpkin", 1.0, 1.0, 1.35)
+
+	var link := StandardMaterial3D.new()
+	link.albedo_texture = load("res://assets/textures/chainlink.png")
+	link.albedo_color = Color(0.72, 0.74, 0.78)
+	link.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	link.alpha_scissor_threshold = 0.42
+	link.cull_mode = BaseMaterial3D.CULL_DISABLED
+	link.metallic = 0.55
+	link.roughness = 0.62
+	link.uv1_scale = Vector3(6.0, 4.2, 1.0)   # ~5 cm diamonds on a 3 m panel
+	link.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	_mats["chainlink"] = link
 	_mats["fabric"] = _flat(Color(0.16, 0.15, 0.13), 1.0, 0.0)
 
 	var grass := StandardMaterial3D.new()
@@ -168,6 +219,7 @@ func _flat(color: Color, rough := 0.8, metallic := 0.0) -> StandardMaterial3D:
 	m.roughness = rough
 	m.metallic = metallic
 	m.metallic_specular = 0.4
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 
 
@@ -196,22 +248,140 @@ func _ground() -> void:
 	add_child(floor_body)
 
 
+# --------------------------------------------------------------------------- #
+# boundary: a real chain-link fence — posts, fabric panels, rails and a gate
+# --------------------------------------------------------------------------- #
+const FENCE_SIDE := 61.0        # distance of each fence run from the centre
+const PANEL_WIDTH := 3.0        # one fabric panel / one post spacing, metres
+const POST_HEIGHT := 2.35
+const FENCE_FABRIC_H := 2.05
+const GATE_HALF := 2.5          # half the opening, metres
+
+var gate_centre := Vector3(FENCE_SIDE, 0.0, 0.0)
+
+
 func _boundary() -> void:
-	# invisible square fence so you cannot leave the forest
-	var fence := StaticBody3D.new()
-	fence.name = "BoundaryFence"
-	var span := (HALF + 1.0) * 2.0
-	for i in 4:
+	var body := StaticBody3D.new()
+	body.name = "FenceBody"
+	add_child(body)
+
+	# --- shared meshes -----------------------------------------------------
+	var post_mesh := CylinderMesh.new()
+	post_mesh.top_radius = 0.042
+	post_mesh.bottom_radius = 0.052
+	post_mesh.height = POST_HEIGHT
+	post_mesh.radial_segments = 6
+	post_mesh.rings = 1
+
+	var rail_mesh := BoxMesh.new()
+	rail_mesh.size = Vector3(PANEL_WIDTH, 0.05, 0.05)
+
+	var panel_mesh := PlaneMesh.new()
+	panel_mesh.size = Vector2(PANEL_WIDTH, FENCE_FABRIC_H)
+	panel_mesh.orientation = PlaneMesh.FACE_Z
+
+	var posts: Array = []
+	var rails: Array = []
+	var panels: Array = []
+
+	# four runs; side 0 (+X) carries the gate
+	for side in 4:
+		var ang := TAU * float(side) / 4.0
+		var out := Vector3(cos(ang), 0.0, sin(ang))
+		var along := Vector3(-sin(ang), 0.0, cos(ang))
+		var run_length := PANEL_WIDTH * 2.0 * float(int(FENCE_SIDE / PANEL_WIDTH))
+		var bays := int(run_length / PANEL_WIDTH)
+		for bay in bays:
+			# panel centre, measured along the run
+			var t := (float(bay) + 0.5) / float(bays) - 0.5
+			var centre: Vector3 = out * FENCE_SIDE + along * (t * run_length)
+			var in_gate := side == 0 and absf(t * run_length) < GATE_HALF
+			if in_gate:
+				continue
+			# the panel spans the run, not the outward normal
+			var b := _along_basis(along)
+			panels.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)))
+			# top rail, same direction as the fabric it clamps
+			rails.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
+			# one fabric collider per panel: thin slab exactly on the fence line
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(PANEL_WIDTH, FENCE_FABRIC_H, 0.1)
+			var col := CollisionShape3D.new()
+			col.shape = shape
+			col.transform = Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0))
+			body.add_child(col)
+		# posts between bays (shared, so bays + 1)
+		for p_i in bays + 1:
+			var t2 := float(p_i) / float(bays) - 0.5
+			var ppos: Vector3 = out * FENCE_SIDE + along * (t2 * run_length)
+			if side == 0 and absf(t2 * run_length) <= GATE_HALF + 0.01:
+				continue
+			# sunk 0.35 m into the ground so the fence sits IN the terrain
+			posts.append(Transform3D(Basis.IDENTITY, ppos + Vector3(0, POST_HEIGHT * 0.5 - 0.35, 0)))
+			var pshape := CylinderShape3D.new()
+			pshape.radius = 0.09
+			pshape.height = POST_HEIGHT + 0.7
+			var pcol := CollisionShape3D.new()
+			pcol.shape = pshape
+			pcol.position = ppos + Vector3(0, POST_HEIGHT * 0.5 - 0.35, 0)
+			body.add_child(pcol)
+		if side == 0:
+			_gate_leaves(body, panels, rails)
+
+	_add_multimesh(panel_mesh, _mats["chainlink"], panels, _blank_tints(panels.size()), "FencePanels")
+	_add_multimesh(post_mesh, _mats["metal"], posts, _blank_tints(posts.size()), "FencePosts")
+	_add_multimesh(rail_mesh, _mats["metal"], rails, _blank_tints(rails.size()), "FenceRails")
+
+
+## A basis for a flat panel that spans `dir` and stands upright.
+## Local X becomes the panel's length, local Y is up, local Z is the face normal.
+## Deriving the yaw by hand is what put the fence panels at 90 degrees: the old
+## `face_yaw` pointed the panel's *width* along the outward normal.
+func _along_basis(dir: Vector3) -> Basis:
+	var x := Vector3(dir.x, 0.0, dir.z).normalized()
+	if x.length() < 0.5:
+		x = Vector3.RIGHT
+	var z := x.cross(Vector3.UP).normalized()
+	var y := z.cross(x).normalized()
+	return Basis(x, y, z)
+
+
+func _blank_tints(n: int) -> Array:
+	var out: Array = []
+	for i in n:
+		out.append(Color(1, 1, 1))
+	return out
+
+
+func _gate_leaves(body: StaticBody3D, panels: Array, rails: Array) -> void:
+	# two leaves hinged on the gate posts, swung open into the forest
+	gate_centre = Vector3(FENCE_SIDE, 0.0, 0.0)
+	var out := Vector3(1, 0, 0)
+	for sgn_f in [-1.0, 1.0]:
+		var sgn: float = sgn_f
+		var hinge: Vector3 = gate_centre + Vector3(0, 0, sgn * GATE_HALF)
+		var swing: float = 0.62 * sgn     # radians, opening inward
+		var yaw: float = swing
+		var leaf_w := GATE_HALF - 0.1
+		var leaf_dir: Vector3 = Vector3(cos(yaw), 0, sin(yaw)) * sgn
+		var centre: Vector3 = hinge + leaf_dir * (leaf_w * 0.5)
+		var b := _along_basis(leaf_dir)
+		panels.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)))
+		rails.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
 		var shape := BoxShape3D.new()
-		shape.size = Vector3(span, 24.0, 1.0)
+		shape.size = Vector3(leaf_w, FENCE_FABRIC_H, 0.1)
 		var col := CollisionShape3D.new()
 		col.shape = shape
-		var ang := TAU * float(i) / 4.0
-		col.position = Vector3(cos(ang), 6.0, sin(ang)) * (HALF + 1.0)
-		# thin axis must point radially outward, long axis along the edge
-		col.rotation.y = PI / 2.0 - ang
-		fence.add_child(col)
-	add_child(fence)
+		col.transform = Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0))
+		body.add_child(col)
+		# gate post
+		var pshape := CylinderShape3D.new()
+		pshape.radius = 0.1
+		pshape.height = POST_HEIGHT + 0.7
+		var pcol := CollisionShape3D.new()
+		pcol.shape = pshape
+		pcol.position = hinge + Vector3(0, POST_HEIGHT * 0.5 - 0.35, 0)
+		body.add_child(pcol)
 
 
 # --------------------------------------------------------------------------- #
@@ -303,23 +473,17 @@ func _build_landmark(type: String, base: Vector3, rot: float, s: float) -> void:
 
 
 func _add_page_spot(type: String, xf: Transform3D) -> void:
-	# candidate offsets in landmark-local space; pick one that is clear
-	var candidates := [
-		Vector3(0, 0, 5.0), Vector3(3.0, 0, 4.0), Vector3(-3.0, 0, 4.0),
-		Vector3(5.0, 0, 0.0), Vector3(-5.0, 0, -1.0), Vector3(0, 0, -5.0),
-		Vector3(4.0, 0, -4.0), Vector3(-4.0, 0, -4.5),
-		Vector3(0, 0, 6.8), Vector3(0, 0, -6.8), Vector3(6.8, 0, 0.0), Vector3(-6.8, 0, 0.0),
-	]
-	_shuffle(candidates)
-	for c in candidates:
-		var world: Vector3 = xf * c
-		if Vector2(world.x, world.z).length() > HALF - 6.0:
-			continue
-		if _point_inside_prop(world):
-			continue
-		page_spots.append({"pos": world, "name": type})
+	# The landmark told us where its surface is, so the page is pinned to it:
+	# the spot is a point on that surface and the normal points out of it.
+	if _attach_hint.is_empty():
+		# no hint (should not happen): keep the old open-air fallback, but low
+		page_spots.append({"pos": xf * Vector3(0, 1.45, 5.0), "name": type,
+			"normal": (xf.basis * Vector3(0, 0, 1)).normalized()})
 		return
-	page_spots.append({"pos": xf * Vector3(0, 0, 6.5), "name": type})
+	var p: Vector3 = xf * (_attach_hint["pos"] as Vector3)
+	var n: Vector3 = (xf.basis * (_attach_hint["n"] as Vector3)).normalized()
+	_attach_hint = {}
+	page_spots.append({"pos": p, "normal": n, "name": type})
 
 
 # --------------------------------------------------------------------------- #
@@ -607,7 +771,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 			if not _lab_h_wall[cz][cx]:
 				continue
 			var x := _lab_cell_coord(cx)
-			var h := rng.randf_range(3.62, 3.96) if is_outer else rng.randf_range(3.30, 3.66)
+			var h := rng.randf_range(4.25, 4.58) if is_outer else rng.randf_range(3.95, 4.28)
 			var shade := rng.randf_range(0.58, 0.88)
 			var col := Color(shade * 0.93, shade * 0.97, shade)
 			wall_count += 1
@@ -695,7 +859,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 				continue
 			var is_outer := (cx == 0 or cx == LAB_CELLS)
 			var x := _lab_grid_coord(cx)
-			var h := rng.randf_range(3.62, 3.96) if is_outer else rng.randf_range(3.30, 3.66)
+			var h := rng.randf_range(4.25, 4.58) if is_outer else rng.randf_range(3.95, 4.28)
 			var shade := rng.randf_range(0.58, 0.88)
 			var col := Color(shade * 0.93, shade * 0.97, shade)
 			wall_count += 1
@@ -787,7 +951,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 				continue
 			var px := _lab_grid_coord(gx)
 			var pz := _lab_grid_coord(gz)
-			var ph := rng.randf_range(3.75, 4.12)
+			var ph := rng.randf_range(4.42, 4.78)
 			var pcol := Color(0.66, 0.69, 0.73).darkened(rng.randf_range(0.0, 0.24))
 			_st_add_box(st_wall, Vector3(px, 0.22, pz), Vector3(0.58, 0.44, 0.58), pcol.darkened(0.16))
 			var psz := Vector3(0.48, ph, 0.48)
@@ -800,7 +964,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 		var ap: Vector3 = arch["pos"]
 		var horiz: bool = arch["horiz"]
 		var outer: bool = arch["outer"]
-		var post_h := 4.30 if outer else 4.02
+		var post_h := 4.88 if outer else 4.62
 		var span := LAB_CELL
 		var pcol := Color(0.74, 0.75, 0.79) if outer else Color(0.66, 0.68, 0.73)
 		var off := Vector3(span * 0.5, 0.0, 0.0) if horiz else Vector3(0.0, 0.0, span * 0.5)
@@ -813,24 +977,32 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 			_st_add_box(st_wall, jp, post_sz, pcol)
 			_lab_add_collider(body, jp, post_sz, true)
 			# stone corbel bracket supporting the lintel
-			var corb_off := off * (s_f * 0.72) + Vector3(0.0, 2.94, 0.0)
+			var corb_off := off * (s_f * 0.72) + Vector3(0.0, 3.72, 0.0)
 			var corb_sz := Vector3(0.34, 0.26, 0.54) if horiz else Vector3(0.54, 0.26, 0.34)
 			_st_add_box(st_wall, ap + corb_off, corb_sz, pcol.darkened(0.10), Vector3.ZERO, true)
 		var lintel_sz := Vector3(span + 0.70, 0.52, 0.66) if horiz else Vector3(0.66, 0.52, span + 0.70)
 		var crown_sz := Vector3(span + 0.84, 0.18, 0.78) if horiz else Vector3(0.78, 0.18, span + 0.84)
-		var lp_pos := ap + Vector3(0.0, 3.30, 0.0)
+		var lp_pos := ap + Vector3(0.0, 4.08, 0.0)
 		_st_add_box(st_wall, lp_pos, lintel_sz, pcol.darkened(0.08), Vector3.ZERO, true)
-		_st_add_box(st_wall, ap + Vector3(0.0, 3.65, 0.0), crown_sz, pcol, Vector3.ZERO, true)
+		_st_add_box(st_wall, ap + Vector3(0.0, 4.43, 0.0), crown_sz, pcol, Vector3.ZERO, true)
 		# iron tie-beam strapped across the lintel
 		var strap_sz := Vector3(span + 0.72, 0.10, 0.70) if horiz else Vector3(0.70, 0.10, span + 0.72)
-		_st_add_box(st_metal, ap + Vector3(0.0, 3.12, 0.0), strap_sz, metal_rust, Vector3.ZERO, true)
+		_st_add_box(st_metal, ap + Vector3(0.0, 3.90, 0.0), strap_sz, metal_rust, Vector3.ZERO, true)
 		_lab_add_collider(body, lp_pos, lintel_sz, false)
 
-	# --- 7e) Central Sanctum: stepped dais, 4 corner obelisks, collector hub --
+	# --- 7e) Central Sanctum: stepped dais, altar monolith, 4 corner obelisks --
 	_st_add_box(st_wall, Vector3(0.0, 0.045, 0.0), Vector3(2.25, 0.09, 2.25), Color(0.52, 0.54, 0.58))
 	_st_add_box(st_wall, Vector3(0.0, 0.105, 0.0), Vector3(1.52, 0.09, 1.52), Color(0.62, 0.64, 0.68))
 
-	var sanctum_hub := Vector3(0.0, 3.42, 0.0)
+	# Carved stone Sanctum Altar Monolith — real solid surface for the nailed cloth page
+	_st_add_box(st_wall, Vector3(0.0, 0.25, 0.0), Vector3(0.84, 0.22, 0.52), Color(0.54, 0.56, 0.60))
+	var altar_sz := Vector3(0.68, 2.12, 0.36)
+	_st_add_box(st_wall, Vector3(0.0, 1.06, 0.0), altar_sz, Color(0.70, 0.72, 0.76))
+	_st_add_box(st_wall, Vector3(0.0, 2.18, 0.0), Vector3(0.78, 0.14, 0.46), Color(0.76, 0.78, 0.82), Vector3.ZERO, true)
+	_st_add_box(st_metal, Vector3(0.0, 1.92, 0.0), Vector3(0.72, 0.05, 0.40), metal_rust, Vector3.ZERO, true)
+	_lab_add_collider(body, Vector3(0.0, 1.06, 0.0), altar_sz, true)
+
+	var sanctum_hub := Vector3(0.0, 4.12, 0.0)
 	_st_add_box(st_metal, sanctum_hub, Vector3(4.50, 0.10, 0.12), metal_dark, Vector3.ZERO, true)
 	_st_add_box(st_metal, sanctum_hub, Vector3(0.12, 0.10, 4.50), metal_dark, Vector3.ZERO, true)
 	_st_add_box(st_metal, sanctum_hub + Vector3(0.0, -0.08, 0.0), Vector3(0.68, 0.16, 0.68), metal_rust, Vector3.ZERO, true)
@@ -840,7 +1012,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 		for sz_c in [-1.72, 1.72]:
 			var sx_f := float(sx)
 			var sz_f := float(sz_c)
-			var sh := rng.randf_range(2.90, 3.22)
+			var sh := rng.randf_range(3.55, 3.88)
 			_st_add_box(st_wall, Vector3(sx_f, 0.20, sz_f), Vector3(0.60, 0.40, 0.60), Color(0.54, 0.56, 0.60))
 			var st_sz := Vector3(0.46, sh, 0.46)
 			var spos := Vector3(sx_f, sh * 0.5, sz_f)
@@ -866,7 +1038,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 			var cell_z := _lab_cell_coord(cz)
 			# orient crossbar between whichever opposing walls are closed (prefer N-S vs E-W)
 			var ew_walls: bool = bool(_lab_v_wall[cz][cx]) and bool(_lab_v_wall[cz][cx + 1])
-			var beam_y := 3.22
+			var beam_y := 3.92
 			var pins: Array[Vector3] = []
 			if ew_walls or (not (_lab_h_wall[cz][cx] and _lab_h_wall[cz + 1][cx]) and rng.randf() < 0.5):
 				_st_add_box(st_metal, Vector3(cell_x, beam_y, cell_z),
@@ -1140,8 +1312,8 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 	# 8) Spatial ReverbZone covering the stone labyrinth interior.
 	var rzone: Area3D = load("res://scripts/reverb_zone.gd").new()
 	rzone.name = "LabyrinthReverbZone"
-	rzone.transform = Transform3D(xf.basis, base + Vector3(0.0, 2.2, 0.0))
-	rzone.setup(Vector3(LAB_HALF + 0.45, 2.6, LAB_HALF + 0.45), 2.4)
+	rzone.transform = Transform3D(xf.basis, base + Vector3(0.0, 2.55, 0.0))
+	rzone.setup(Vector3(LAB_HALF + 0.45, 2.95, LAB_HALF + 0.45), 2.4)
 	rzone.substation_lights = substation_lights
 	add_child(rzone)
 
@@ -1157,8 +1329,10 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 		min_path = mini(min_path, d)
 		max_path = maxi(max_path, d)
 
-	var sanctum_page := xf * Vector3.ZERO
-	page_spots.append({"pos": sanctum_page, "name": "labyrinth"})
+	var sanctum_page := xf * Vector3(0.0, 1.48, 0.18)
+	var sanctum_norm := (xf.basis * Vector3(0.0, 0.0, 1.0)).normalized()
+	var sanctum_stand := xf * Vector3(0.0, 0.0, 1.15)
+	page_spots.append({"pos": sanctum_page, "normal": sanctum_norm, "name": "labyrinth"})
 	landmarks.append({"name": "labyrinth", "pos": base, "radius": 16.4, "rot": rot, "scale": 1.0})
 
 	labyrinth = {
@@ -1176,7 +1350,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 		"dead_ends": dead_ends.size(),
 		"entrances": entrance_world,
 		"entrance_cells": entrance_cells,
-		"sanctum_pos": sanctum_page,
+		"sanctum_pos": sanctum_stand,
 		"shortest_path": min_path,
 		"longest_path": max_path,
 		"signature": _lab_signature(),
@@ -1484,6 +1658,8 @@ func _concrete_walls(xf: Transform3D) -> void:
 		# collapsed slab leaning on the wall
 		_box(xf, Vector3(2.0, 1.1, 0.4), Vector3(4.0, 0.28, 3.0), m, Vector3(rng.randf_range(-0.2, 0.2), rng.randf_range(-0.4, 0.4), 0.55))
 		_box(xf, Vector3(-3.2, 0.2, 1.0), Vector3(1.6, 0.35, 1.2), m, Vector3(0.1, 0.8, 0))
+	# the near face of the long wall, at chest height
+	_attach_hint = {"pos": Vector3(gap - span * 0.75, 1.45, -3.0 + 0.16), "n": Vector3(0, 0, 1)}
 
 
 func _tunnel(xf: Transform3D) -> void:
@@ -1496,6 +1672,7 @@ func _tunnel(xf: Transform3D) -> void:
 	# both ends are broken open with random rubble
 	_box(xf, Vector3(rng.randf_range(-1.4, 1.4), h * 0.5, ln * 0.5), Vector3(rng.randf_range(1.6, 3.4), h, 0.35), m)
 	_box(xf, Vector3(rng.randf_range(-1.4, 1.4), h * 0.42, -ln * 0.5), Vector3(rng.randf_range(1.4, 3.0), h * 0.85, 0.35), m)
+	_attach_hint = {"pos": Vector3(-2.2 + 0.225, 1.45, 0.0), "n": Vector3(1, 0, 0)}
 	# spilled rubble outside
 	for i in rng.randi_range(3, 6):
 		_box(xf, Vector3(rng.randf_range(-3.5, 3.5), 0.16, rng.randf_range(ln * 0.5, ln * 0.5 + 2.5)),
@@ -1515,6 +1692,9 @@ func _silo(xf: Transform3D) -> void:
 	for i in int(h / 0.7):
 		_box(xf, Vector3(0, 0.6 + i * 0.7, r + 0.06), Vector3(1.05, 0.05, 0.05), _mats["rust"], Vector3.ZERO, false)
 	_box(xf, Vector3(0, 1.0, r + 0.09), Vector3(1.0, 1.9, 0.05), _mats["dark"], Vector3.ZERO, false)
+	# on the shell, away from the ladder and the hatch
+	var sa := 0.85
+	_attach_hint = {"pos": Vector3(cos(sa) * r, 1.45, sin(sa) * r), "n": Vector3(cos(sa), 0.0, sin(sa))}
 
 
 func _truck(xf: Transform3D) -> void:
@@ -1528,6 +1708,7 @@ func _truck(xf: Transform3D) -> void:
 	for wx in [-1.12, 1.12]:
 		for wz in [-ln * 0.32, -ln * 0.06, ln * 0.3]:
 			_cyl(xf, Vector3(wx, 0.5, wz), 0.5, 0.34, _mats["dark"])
+	_attach_hint = {"pos": Vector3(1.125, 1.55, 0.0), "n": Vector3(1, 0, 0)}
 
 
 func _shed(xf: Transform3D) -> void:
@@ -1548,11 +1729,13 @@ func _shed(xf: Transform3D) -> void:
 	_box(xf, Vector3(0, h + 0.09, 0), Vector3(w + 0.7, 0.16, d + 0.7), _mats["dark"], Vector3(rng.randf_range(-0.03, 0.03), 0, rng.randf_range(-0.04, 0.04)))
 	# broken plank leaning by the door
 	_box(xf, Vector3(door_x + door_w, 0.9, d * 0.5 + 0.6), Vector3(0.9, 1.6, 0.08), m, Vector3(0.15, rng.randf_range(-0.3, 0.3), 0.35), false)
+	_attach_hint = {"pos": Vector3(0.0, 1.45, -d * 0.5 - 0.12), "n": Vector3(0, 0, -1)}
 
 
 func _rock_circle(xf: Transform3D) -> void:
 	var n := rng.randi_range(7, 11)
 	var radius := rng.randf_range(2.8, 4.0)
+	var stone_hint := {}
 	for i in n:
 		var a := TAU * float(i) / n + rng.randf_range(-0.15, 0.15)
 		var rr := radius * rng.randf_range(0.9, 1.12)
@@ -1561,8 +1744,13 @@ func _rock_circle(xf: Transform3D) -> void:
 		var rad := rng.randf_range(0.45, 0.75)
 		var body := _cyl(xf, p + Vector3(0, hh * 0.5, 0), rad, hh, _mats["stone"], rad * 0.55)
 		body.rotation = xf.basis.get_rotation_quaternion().get_euler() + Vector3(rng.randf_range(-0.08, 0.08), rng.randf() * 0.6, rng.randf_range(-0.08, 0.08))
+		if stone_hint.is_empty() and hh >= 1.7 and rad >= 0.55:
+			var dir := Vector3(cos(a), 0.0, sin(a))
+			stone_hint = {"pos": p + dir * rad * 0.96 + Vector3(0, 1.45, 0), "n": dir}
 	# toppled stone in the middle
 	_box(xf, Vector3(rng.randf_range(-0.8, 0.8), 0.4, rng.randf_range(-0.8, 0.8)), Vector3(1.5, 0.8, 0.9), _mats["stone"], Vector3(0.3, rng.randf() * TAU, 0.2))
+	if not stone_hint.is_empty():
+		_attach_hint = stone_hint
 
 
 func _bathroom(xf: Transform3D) -> void:
@@ -1579,10 +1767,17 @@ func _bathroom(xf: Transform3D) -> void:
 	_box(xf, Vector3(-w * 0.5 + 0.5, h * 0.5, d * 0.5), Vector3(1.0, h, 0.28), m)
 	_box(xf, Vector3(0, h * 0.5, d * 0.5), Vector3(0.6, h, 0.28), m)
 	_box(xf, Vector3(w * 0.5 - 0.5, h * 0.5, d * 0.5), Vector3(1.0, h, 0.28), m)
-	# stall dividers inside
+	# stall dividers inside: partial partitions growing in from each side wall.
+	# They used to be full-width slabs at random x, which walled the room into
+	# lanes and left nowhere to stand in front of the page nailed to the back
+	# wall (caught by the pages_reachable capsule cast).
 	for i in 2:
-		_box(xf, Vector3(rng.randf_range(-1.2, 1.2), 1.0, -d * 0.5 + 1.4 + i * 1.5), Vector3(w - 0.7, 2.0, 0.12), m)
+		var side_f := -1.0 if i == 0 else 1.0
+		var part_w := w * 0.44
+		_box(xf, Vector3(side_f * (w * 0.5 - part_w * 0.5), 1.0, -d * 0.5 + 1.4 + i * 1.5),
+			Vector3(part_w, 2.0, 0.12), m)
 	_box(xf, Vector3(0, 0.45, d * 0.5 + 0.4), Vector3(0.6, 0.5, 0.5), _mats["dark"])  # drain
+	_attach_hint = {"pos": Vector3(0.0, 1.45, -d * 0.5 + 0.14), "n": Vector3(0, 0, 1)}
 
 
 func _tower(xf: Transform3D) -> void:
@@ -1604,6 +1799,9 @@ func _tower(xf: Transform3D) -> void:
 		_box(xf, Vector3(0, top + 0.75, dz), Vector3(half_w * 2.6, 0.06, 0.06), m, Vector3.ZERO, false)
 	for dx in [-half_w, half_w]:
 		_box(xf, Vector3(dx, top + 0.75, 0), Vector3(0.06, 0.06, half_w * 2.6), m, Vector3.ZERO, false)
+	# a scrap board nailed across the legs, so the page here has something to hang on
+	_box(xf, Vector3(0, 1.45, half_w + 0.02), Vector3(half_w * 1.7, 0.46, 0.05), _mats["wood"], Vector3.ZERO, true)
+	_attach_hint = {"pos": Vector3(0.0, 1.45, half_w + 0.065), "n": Vector3(0, 0, 1)}
 
 
 # --------------------------------------------------------------------------- #
@@ -2035,7 +2233,27 @@ func labyrinth_flow_dir(from_pos: Vector3, to_pos: Vector3) -> Vector3:
 	if src == dst or (_lab_is_sanctum(src.x, src.y) and _lab_is_sanctum(dst.x, dst.y)):
 		var direct := to_pos - from_pos
 		direct.y = 0.0
-		return direct.normalized() if direct.length() > 0.25 else Vector3.ZERO
+		if direct.length() <= 0.25:
+			return Vector3.ZERO
+		if _lab_is_sanctum(src.x, src.y):
+			var lp_from := _lab_xf.affine_inverse() * from_pos
+			var lp_to := _lab_xf.affine_inverse() * to_pos
+			var a2 := Vector2(lp_from.x, lp_from.z)
+			var b2 := Vector2(lp_to.x, lp_to.z)
+			var ab := b2 - a2
+			var ab_len2 := ab.length_squared()
+			if ab_len2 > 1e-4:
+				var t_proj := clampf((-a2).dot(ab) / ab_len2, 0.0, 1.0)
+				var closest := a2 + ab * t_proj
+				if closest.length() < 0.72 and a2.length() > 0.05:
+					var tang := Vector2(-a2.y, a2.x).normalized()
+					if tang.dot(ab) < 0.0:
+						tang = -tang
+					var steer_local := (ab.normalized() * 0.45 + tang * 0.95).normalized()
+					var steer_w := _lab_xf.basis * Vector3(steer_local.x, 0.0, steer_local.y)
+					steer_w.y = 0.0
+					return steer_w.normalized()
+		return direct.normalized()
 
 	# Backwards BFS from `dst` across the 64-cell maze.
 	var dist := {dst: 0}

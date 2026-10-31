@@ -17,6 +17,7 @@ const PAGE_NOTES := [
 ]
 
 @onready var map_builder: Node3D = $MapBuilder
+var terrain: Node3D = null
 @onready var player: CharacterBody3D = $Player
 @onready var slender: Node3D = $Slender
 @onready var hud: CanvasLayer = $HUD
@@ -43,9 +44,14 @@ func _ready() -> void:
 	_setup_environment()
 	_setup_moon()
 	map_builder.build(world_seed, Game.quality)
+	_setup_terrain()
 	_spawn_pages()
 	player.global_position = Vector3(0, 0.15, 2.0)
 	player.rotation.y = 0.0
+	# the camera rig was built during scene load, before the player was placed:
+	# re-seat it so the tether's frame matches where we actually stand
+	if player.handle != null:
+		player.handle.snap()
 
 	slender.setup(player, self, map_builder)
 	slender.activate()
@@ -64,6 +70,8 @@ func _ready() -> void:
 		touch_ui.set_player(player)
 		touch_ui.hud = hud
 		add_child(touch_ui)
+		# the cursor stays free for the on-screen stick, but the mouse still
+		# looks around while a button is held (see player._unhandled_input)
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -81,7 +89,13 @@ func _ready() -> void:
 		# spawn a second runner inside the world
 		var flow := "--flow" in OS.get_cmdline_user_args()
 		if mode != "flow" and not flow:
-			var script_path := "res://scripts/selftest.gd" if mode == "selftest" else "res://scripts/autotest.gd"
+			var script_path := "res://scripts/autotest.gd"
+			if mode == "selftest":
+				script_path = "res://scripts/selftest.gd"
+			elif mode == "camtest":
+				script_path = "res://scripts/camera_test.gd"
+			elif mode == "controls":
+				script_path = "res://scripts/controls_test.gd"
 			_autotest = load(script_path).new()
 			_autotest.world = self
 			add_child(_autotest)
@@ -93,6 +107,8 @@ func _connect_hud() -> void:
 	hud.restart_pressed.connect(_restart)
 	hud.menu_pressed.connect(_to_title)
 	hud.touch_toggle_pressed.connect(_toggle_touch_mode)
+	hud.camcorder_toggled.connect(_toggle_camcorder_fx)
+	hud.handheld_toggled.connect(_toggle_handheld_camera)
 
 
 # --------------------------------------------------------------------------- #
@@ -104,12 +120,12 @@ func _setup_environment() -> void:
 	env.background_color = Color(0.012, 0.015, 0.021)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.17, 0.22, 0.33)
-	env.ambient_light_energy = 0.30
+	env.ambient_light_energy = 0.42
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.02
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.014, 0.018, 0.026)
-	env.fog_light_energy = 0.30
+	env.fog_light_energy = 0.38
 	env.fog_density = 0.062 if Game.quality >= 1 else 0.072
 	env.fog_sky_affect = 1.0
 	env.fog_aerial_perspective = 0.4
@@ -122,10 +138,17 @@ func _setup_environment() -> void:
 		player.camera.far = 70.0 if Game.quality >= 1 else 55.0
 
 
+func _setup_terrain() -> void:
+	terrain = load("res://scripts/endless_terrain.gd").new()
+	terrain.name = "Terrain"
+	add_child(terrain)
+	terrain.setup(map_builder, player, Game.quality)
+
+
 func _setup_moon() -> void:
 	var moon := DirectionalLight3D.new()
 	moon.light_color = Color(0.52, 0.62, 0.92)
-	moon.light_energy = 0.16
+	moon.light_energy = 0.24
 	moon.rotation = Vector3(deg_to_rad(-58), deg_to_rad(28), 0)
 	moon.shadow_enabled = Game.quality >= 2
 	moon.directional_shadow_max_distance = 60.0
@@ -134,15 +157,6 @@ func _setup_moon() -> void:
 
 
 func _spawn_pages() -> void:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load("res://assets/textures/paper.png")
-	mat.emission_enabled = true
-	mat.emission_texture = load("res://assets/textures/paper.png")
-	mat.emission_energy_multiplier = 0.75
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-
 	var spots: Array = map_builder.page_spots
 	var note_order := range(spots.size())
 	var nrng := Game.rng()
@@ -151,34 +165,32 @@ func _spawn_pages() -> void:
 		var tmp: int = note_order[i]
 		note_order[i] = note_order[j]
 		note_order[j] = tmp
-	# keep landmark order, notes are handed out in that same order
+	var cloth_script: Script = load("res://scripts/page_cloth.gd")
 	for i in spots.size():
 		var spot: Dictionary = spots[i]
+		var note_index: int = note_order[i] if i < note_order.size() else 0
+		var note: String = PAGE_NOTES[note_index % PAGE_NOTES.size()]
 		var root := Node3D.new()
 		root.name = "Page_%d" % i
-		var quad := QuadMesh.new()
-		quad.size = Vector2(0.44, 0.58)
-		var mi := MeshInstance3D.new()
-		mi.mesh = quad
-		mi.material_override = mat
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		root.add_child(mi)
-		if Game.quality >= 1:
-			var light := OmniLight3D.new()
-			light.light_color = Color(1.0, 0.94, 0.78)
-			light.light_energy = 1.1
-			light.omni_range = 4.2
-			light.omni_attenuation = 1.6
-			light.shadow_enabled = false
-			root.add_child(light)
+		# Pin it to the surface the landmark reported: the spot is a point on
+		# that surface and `normal` points out of it. The sheet hangs off the
+		# nail from its top edge, so the node sits at nail height.
 		var pos: Vector3 = spot["pos"]
-		root.position = Vector3(pos.x, 0.62, pos.z)
-		root.rotation = Vector3(-0.3, randf() * TAU, 0.0)
+		var n: Vector3 = spot.get("normal", Vector3(0, 0, 1))
+		n = n.normalized()
+		var basis := Basis(Vector3.UP, atan2(n.x, n.z))
+		root.transform = Transform3D(basis, pos + n * 0.035)
+		var sheet: Node3D = cloth_script.new()
+		sheet.name = "Sheet"
+		sheet.set("hang_phase", randf() * TAU)
+		sheet.set("note_index", (note_index % PAGE_NOTES.size()) + 1)
+		root.add_child(sheet)
 		add_child(root)
-		var note_index: int = note_order[i] if i < note_order.size() else 0
 		pages.append({
 			"node": root,
-			"note": PAGE_NOTES[note_index % PAGE_NOTES.size()],
+			"cloth": sheet,
+			"note": note,
+			"normal": n,
 			"landmark": spot["name"],
 			"taken": false,
 			"phase": randf() * TAU,
@@ -209,10 +221,7 @@ func _update_pages(delta: float) -> void:
 		if p["taken"]:
 			continue
 		var node: Node3D = p["node"]
-		var phase: float = p["phase"]
-		node.position.y = 0.62 + sin(_start_grace * 1.6 + phase) * 0.06
-		node.rotation.y += delta * 0.5
-		var d := player.global_position.distance_to(node.global_position)
+		var d := player.global_position.distance_to(node.global_position + Vector3(0, -0.29, 0))
 		if d < PICKUP_RADIUS and not autotest_no_pickup:
 			_collect(i)
 			return
@@ -241,7 +250,16 @@ func _update_feedback(delta: float) -> void:
 			intensity += 0.32 + clampf(slender.seen_time, 0.0, 3.0) * 0.1
 	if slender.mode == slender.Mode.CHASE:
 		intensity += 0.28
-	hud.set_static(clampf(intensity, 0.0, 0.85))
+	intensity = clampf(intensity, 0.0, 0.85)
+	hud.set_static(intensity)
+
+	# the camcorder reacts to the same danger: tape damage, tearing, signal
+	# loss, a zoom creep and the IR lamp when the torch is off
+	var dread := clampf((intensity - 0.06) / 0.72, 0.0, 1.0)
+	if slender.mode == slender.Mode.CHASE:
+		dread = maxf(dread, 0.85)
+	hud.set_dread(dread)
+	hud.set_camcorder_ir(not player.flashlight_on)
 
 	# audio: heartbeat + static + drone get louder as he closes in
 	var heartbeat := -60.0
@@ -309,6 +327,7 @@ func _collect(i: int) -> void:
 	hud.show_note(p["note"])
 	hud.flash(0.35, 0.5)
 	hud.static_burst(0.55)
+	hud.camcorder_glitch(0.75)
 	Sfx.play("page", -2.0, randf_range(0.95, 1.05))
 	# picking a page always wakes him up a little
 	slender.cooldown = maxf(2.5, slender.cooldown - 2.0)
@@ -322,12 +341,14 @@ func _collect(i: int) -> void:
 # --------------------------------------------------------------------------- #
 func _on_slender_apparition() -> void:
 	hud.static_burst(0.5)
+	hud.camcorder_glitch(0.55)
 	player.shake_amount = 0.008
 
 
 func _on_slender_visibility(is_visible: bool) -> void:
 	if is_visible and slender.mode == slender.Mode.APPARITION:
 		hud.static_burst(0.25)
+		hud.camcorder_glitch(0.3)
 		Sfx.play("appear_near", -20.0, randf_range(0.96, 1.04))
 
 
@@ -341,6 +362,8 @@ func on_chase_start() -> void:
 
 func _on_chase_start() -> void:
 	hud.static_burst(0.7)
+	hud.camcorder_glitch(0.95)
+	hud.camcorder_punch(0.35)
 	player.shake_amount = 0.02
 	hud.show_toast("RUN", 1.4)
 
@@ -382,6 +405,9 @@ func _on_caught() -> void:
 	player.shake_amount = 0.06
 	hud.set_static(0.30)
 	hud.static_burst(0.55)
+	hud.camcorder_glitch(1.0)
+	hud.camcorder_punch(0.8)
+	hud.set_dread(1.0)
 	hud.flash(0.5, 0.14)
 	player.flicker = 1.0
 	# open the mix right before he hits: the forest falls away, only him left
@@ -471,10 +497,30 @@ func _update_touch_toggle_label() -> void:
 	hud.update_touch_toggle_label(Game.touch_mode)
 
 
+func _toggle_camcorder_fx() -> void:
+	Settings.camcorder = not Settings.camcorder
+	Settings.save_settings()
+	hud.refresh_camcorder()
+	_update_touch_toggle_label()
+
+
+func _toggle_handheld_camera() -> void:
+	Settings.camcorder_physics = not Settings.camcorder_physics
+	Settings.save_settings()
+	if player != null and player.handle != null:
+		player.handle.set_physics_mode(Settings.camcorder_physics and Game.quality >= 1)
+	_update_touch_toggle_label()
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		if Game.run_active and not _paused and not _ended and not Game.autotest:
 			_toggle_pause()
+	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		# clicking back into the window must give the mouse back to the game,
+		# otherwise the camera feels dead until pause/resume
+		if Game.run_active and not _paused and not _ended and not Game.touch_mode:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func unfreeze_player_after_pickups() -> void:

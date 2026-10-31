@@ -1,19 +1,114 @@
-EIGHT PAGES 1.5.0
+EIGHT PAGES 1.5.2
 Godot 4.7.2 · GL Compatibility · GDScript
 ----------------------------------------
-1.5  upgraded labyrinth to a detailed 10x10 industrial-stone complex (24.5x24.5 m,
-     jointed flagstone pavement + iron storm grates, plinths/cornices/iron-barred
-     windows/rebar/corbelled portals, wall-mounted twin steel conduits + junction
-     boxes + 2 dead-end transformer substations with flickering bulkhead lamps +
-     spatial 3D 50 Hz wire_hum_loop.ogg, and 140-240 sagging catenary electric
-     cables + severed copper-tipped drops converging over the Central Sanctum);
-     migrated all 24 audio assets from WAV to Ogg Vorbis (.ogg, 684 KB total).
-     40 selftest checks green.
-1.4  procedural 8x8 stone labyrinth (22x22 m, single-draw-call world-UV
-     stonework, 2x2 Central Sanctum, 4 outer lintel archways, braided loops +
-     dead ends, Slender 64-cell BFS corridor steering) + Area3D ReverbZone
-     (World-bus stone reverb, Exterior wind low-pass occlusion, flagstone
-     footsteps). 38 selftest checks green.
+1.5.2-labyrinth  merged 1.5.2 (camcorder, physics handheld rig, pinned cloth
+     pages, 3.68 m Anny Slender, 2048 px triplanar concrete, endless exterior
+     terrain, control fixes) with 10x10 industrial-stone wired labyrinth,
+     spatial ReverbZone, Ogg Vorbis audio migration, and physical modal/voice
+     synthesis.
+1.5.2 effects restored (#28): the camcorder pass had quietly turned the old
+     static-grain overlay off and halved the vignette (0.92 -> 0.35) to avoid
+     stacking two of each. Both are back at full strength on top of the tape,
+     as they were before the camcorder existed; four selftest assertions pin
+     them, including across a CAMCORDER FX toggle. Costs ~9 ms of a 497 ms
+     llvmpipe frame at quality 1.
+1.5.1 control audit: five input bugs fixed and pinned by a new 20-check harness
+     (--autotest=controls). A finger produced look twice (touch overlay plus the
+     emulated mouse motion from pointing/emulate_mouse_from_touch) so the touch
+     camera ran ~1.7x too fast; a free cursor in touch mode turned the camera on
+     every move; the touch overlay kept steering and could latch a stick while
+     paused or dead; add_look() ignored frozen/paused; and the key that dismisses
+     a note also fired flashlight/interact/pause. Pause now silences the overlay,
+     the death freeze holds the view still, a real click re-captures the pointer
+     on any device, and the cursor free-vs-captured rule is explicit. 34 selftests
+     + 30 rig + 20 control checks green.
+
+1.5.2 fence orientation + bark at glancing light.
+     * fence panels and gate leaves were rotated 90 degrees: the yaw put the
+       plane's WIDTH along the outward normal, so every bay stood sideways to the
+       run it belongs to. Panels, rails and their colliders now share one explicit
+       basis (`_along_basis`) whose local X lies along the fence line, so all four
+       runs and both gate leaves line up. Guarded by a check that every panel's
+       local X is perpendicular to its side's outward normal.
+     * bark no longer falls to black at steep angles. The albedo was dark to start
+       with (0.20 linear) and the normal map steep (18 deg mean tilt), so a
+       glancing torch left only specular crumbs. The material now lifts the albedo,
+       softens the relief and uses wrapped diffuse so the terminator does not clip
+       to zero. Same for the shed's planks.
+1.5.1 pages: pinned to real surfaces, dark, and carrying their message.
+     * every page is now attached to the thing it belongs to - the face of the
+       broken wall, the inside of the tunnel, the silo shell, the truck's side,
+       the shed's back wall, a standing stone, the back of the bathroom, and a
+       scrap board nailed across the tower's legs - instead of floating in a
+       clearing. Each landmark reports a surface point plus an outward normal.
+     * no light of their own at all: the per-page OmniLight went earlier, now
+       the emission is gone too. Measured against the wall beside it, a page is
+       0.81x as bright with the torch on and 0.86x in the IR mode - it is lit,
+       not lit-up.
+     * the note is on the page. The eight messages are baked into
+       assets/textures/note_N.png by tools/gen_notes.py (runtime SubViewport
+       capture was tried and is unreliable with eight live viewports), and the
+       cloth sheet uses that image as its albedo, so what you read in the world
+       is what you collect.
+     * the sheet hangs off its nails: top edge pinned, wall-side clamped to the
+       surface, calm flutter instead of a flag, two nail heads drawn in.
+     * the inverted-face bug is gone and is now guarded: winding and normals
+       both point out of the wall, asserted per page in world space.
+     * map_builder: page spots carry a normal; a wall page used to be invisible
+       from the front because the visible face was a back face.
+1.5  the map is closed and the world outside it keeps going.
+     * boundary: a real chain-link fence, built the way one is built — 3 m
+       mesh bays, galvanised posts, top rail, bottom tension wire, and a
+       two-leaf gate standing open at the east side. 325 colliders on the
+       ring, checked arithmetically (ring closure, per-run coverage, gate
+       clearance) instead of by walking a character into it.
+     * outside: endless procedural forest streamed in 32 m chunks around the
+       player, plus a crowned dirt road that leaves through the gate and
+       wanders to the horizon. A 4 km floor slab means there is no edge to
+       fall off even if you go over the wire.
+     * pages are verlet cloth now: 7x9 pinned grid, fixed 60 Hz, shear links,
+       smoothed live normals, light coming through the sheet — and they carry
+       no light of their own.
+     * concrete/stone moved to world-space triplanar at 1.2 m per repeat:
+       2048² maps at ~1700 px/m on every face, no stretch (was up to 46:1),
+       isotropically rebuilt maps (runoff streaks and the per-tile moss band
+       removed, aggregate-led tone), mipmapped.
+     * tree normals re-verified the hard way: every triangle is wound with
+       its vertex normals, and every sampled face passes a step-out-and-shoot
+       -back test; the black caps at trunk bases were the downward-facing base
+       fans showing above ground, so trees now sit 12 cm into the soil.
+     * two deepseek audit agents ran in parallel during this cycle; all eleven
+       of their cloth/terrain findings are fixed. 38 selftest checks.
+1.5  the map is closed and the world outside it keeps going.
+     * boundary: a real chain-link fence, built the way one is built — 3 m
+       mesh bays, galvanised posts, top rail, bottom tension wire, and a
+       two-leaf gate standing open at the east side. 325 colliders on the
+       ring, checked arithmetically (ring closure, per-run coverage, gate
+       clearance) instead of by walking a character into it.
+     * outside: endless procedural forest streamed in 32 m chunks around the
+       player, plus a crowned dirt road that leaves through the gate and
+       wanders to the horizon. A 4 km floor slab means there is no edge to
+       fall off even if you go over the wire.
+     * pages are verlet cloth now: 7x9 pinned grid, fixed 60 Hz, shear links,
+       smoothed live normals, light coming through the sheet — and they carry
+       no light of their own.
+     * concrete/stone moved to world-space triplanar at 1.2 m per repeat:
+       2048² maps at ~1700 px/m on every face, no stretch (was up to 46:1),
+       isotropically rebuilt maps (runoff streaks and the per-tile moss band
+       removed, aggregate-led tone), mipmapped.
+     * tree normals re-verified the hard way: every triangle is wound with
+       its vertex normals, and every sampled face passes a step-out-and-shoot
+       -back test; the black caps at trunk bases were the downward-facing base
+       fans showing above ground, so trees now sit 12 cm into the soil.
+     * two deepseek audit agents ran in parallel during this cycle; all eleven
+       of their cloth/terrain findings are fixed. 38 selftest checks.
+1.4  the camcorder pass: one full-screen shader (lens warp, chromatic aberration,
+     rolling band, tape tear/dropout, signal-scaled grain, night-lift grade, IR
+     night-vision tube) and a viewfinder scene with REC/timecode/battery; the
+     camera moved onto a RigidBody3D handle tethered to the head, so the view
+     lags, leans and shudders and settles; danger-driven degradation; keyboard
+     and mouse always live (touch is additive); pause-menu toggles for the FX
+     and the rig. 32 selftests + 27 rig checks green.
 1.3  audio rebuilt around a formant voice engine (tools/gen_sfx.py): the death
      sting is a real scream now (harmonic stack + 5 formants + pitch break +
      torn breath) layered over a subharmonic growl, a metal shriek and a sub
@@ -22,8 +117,7 @@ Godot 4.7.2 · GL Compatibility · GDScript
      Master-bus limiter. 29 selftest checks still green.
 1.2  mesh normals rebuilt (parallel-transport frames, real end caps, outward
      winding on every triangle); pumpkins + dead bushes scattered procedurally;
-     the darkness is now genuine — moonlight 0.16, ambient 0.30, a 30° beam
-     and fog instead of grey haze. 29 selftest checks incl. a normals guard.
+     the darkness is now genuine — moonlight, ambient, a 30° beam and fog.
 1.1  realistic pass: bare procedural trees, PBR ground, rendered menu backdrop
 1.0  procedural runs, full test suite, web + Android + Linux exports
 tests: tools/test_all.sh     exports: build/web, build/android

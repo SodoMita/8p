@@ -49,11 +49,21 @@ def anisotropic(h, w, res_x, res_y, seed=0):
 
 
 def normal_map(height, strength=2.0):
+    """Tangent-space normal map in the OpenGL convention the renderer expects:
+    +X in the map = toward the RIGHT of the image, +Y in the map = toward the TOP
+    of the image, +Z = out of the surface.
+
+    Image rows increase DOWNWARD, so with v_up = -y_image:
+      nx = +dH/du                      = +dH/dx   (project convention)
+      ny = -dH/dv_up = +dH/dy_image    = +dH/dy
+    Getting the green sign wrong makes every bump read as a dent - which is what
+    "inverted normals" looks like on bark ridges and stone pits.
+    """
     dx = np.gradient(height, axis=1) * strength
     dy = np.gradient(height, axis=0) * strength
     nz = np.ones_like(height)
     ln = np.sqrt(dx * dx + dy * dy + nz * nz)
-    nx, ny, nz = -dx / ln, -dy / ln, nz / ln
+    nx, ny, nz = dx / ln, dy / ln, nz / ln
     rgb = np.stack([nx * 0.5 + 0.5, ny * 0.5 + 0.5, nz * 0.5 + 0.5], axis=-1)
     return (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
 
@@ -290,6 +300,40 @@ def make_pumpkin(size=512):
 
 
 # --------------------------------------------------------------------------- #
+# chain-link fabric (alpha cutout, tiles as a diamond weave)
+# --------------------------------------------------------------------------- #
+def make_chainlink(size=512):
+    """Diamond-weave wire mesh with an alpha cutout. One tile == ~0.5 m of fence."""
+    h = w = size
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    rng = np.random.default_rng(77)
+    cell = size / 8.0          # 8 diamonds across the tile
+    wire = max(2.0, size / 190.0)
+    # two families of diagonals; drawn with wrap-around so the tile is seamless
+    for k in range(-9, 10):
+        off = k * cell
+        for sign in (1.0, -1.0):
+            x0, y0 = -size, off
+            x1, y1 = size * 2, off + sign * (size * 2)
+            shade = int(120 + rng.integers(-16, 22))
+            col = (shade, shade + 2, shade + 4, 255)
+            d.line([(x0, y0), (x1, y1)], fill=col, width=int(round(wire)))
+            # wrap copies one tile up and down
+            d.line([(x0, y0 - size), (x1, y1 - size)], fill=col, width=int(round(wire)))
+            d.line([(x0, y0 + size), (x1, y1 + size)], fill=col, width=int(round(wire)))
+    # the wire is round stock: brighten a thin highlight along its centre
+    hi = img.filter(ImageFilter.GaussianBlur(0.7))
+    arr = np.asarray(hi, dtype=np.float32)
+    alpha = arr[..., 3:4]
+    rgb = arr[..., :3] * (0.85 + 0.30 * (alpha / 255.0))
+    out = np.concatenate([np.clip(rgb, 0, 255), alpha], axis=-1)
+    Image.fromarray(out.astype(np.uint8), "RGBA").save(
+        os.path.join(TEX, "chainlink.png"), optimize=True)
+    print("  texture: chainlink.png")
+
+
+# --------------------------------------------------------------------------- #
 # dry grass / weed billboard (alpha cutout)
 # --------------------------------------------------------------------------- #
 def make_grass(size=512):
@@ -343,13 +387,81 @@ def make_litter(size=512):
     print("  texture: litter.png")
 
 
+def self_check() -> bool:
+    """Guards the normal-map sign. A ramp rising toward the bottom of the image
+    must encode green > 127 (normal tilting toward the TOP of the image), and a
+    ramp rising to the right must encode red > 127 via +dH/dx."""
+    n = 64
+    yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
+    nm_v = normal_map(yy / n, strength=40.0)
+    nm_h = normal_map(xx / n, strength=40.0)
+    green = float(nm_v[..., 1].mean())
+    red = float(nm_h[..., 0].mean())
+    ok = green > 170.0 and red > 170.0
+    print("  self-check normal sign: green=%.1f (want >170) red=%.1f (want >170) -> %s"
+          % (green, red, "PASS" if ok else "FAIL"))
+    return ok
+
+
 if __name__ == "__main__":
     os.makedirs(TEX, exist_ok=True)
+    if not self_check():
+        raise SystemExit("normal_map() green channel is inverted - refusing to write textures")
     print("Generating realistic PBR textures...")
     make_bark()
     make_ground()
     make_stone()
     make_pumpkin()
+    make_chainlink()
     make_grass()
     make_litter()
     print("done.")
+
+def make_page_blank(size=(512, 672)):
+    """Clean aged paper stock for the page notes (no printed lines).
+
+    paper.png already carries ruled handwriting, so it cannot be used as the
+    substrate for a page that has its own text drawn on it.
+    """
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    w, h = size
+    rng = np.random.default_rng(7)
+
+    def fbm(octaves, base, gain, seed):
+        r = np.random.default_rng(seed)
+        acc = np.zeros((h, w), np.float32)
+        amp, tot = 1.0, 0.0
+        for o in range(octaves):
+            g = r.random((max(2, base * 2 ** o), max(2, base * 2 ** o)), dtype=np.float32)
+            g = np.asarray(Image.fromarray((g * 255).astype(np.uint8)).resize((w, h), Image.BICUBIC), np.float32) / 255.0
+            acc += g * amp
+            tot += amp
+            amp *= gain
+        return acc / tot
+
+    macro, mid, fine = fbm(4, 3, 0.58, 11), fbm(5, 9, 0.55, 12), fbm(4, 64, 0.5, 13)
+    base_col = np.stack([0.855, 0.822, 0.752], axis=-1)[None, None, :]
+    out = base_col * (0.90 + 0.22 * macro[..., None])
+    out = out * (0.96 + 0.09 * mid[..., None])
+    out = out * (0.985 + 0.03 * fine[..., None])
+
+    fib = Image.new("L", (w, h), 0)
+    px = fib.load()
+    for _ in range(1400):
+        x0, y0 = int(rng.integers(0, w)), int(rng.integers(0, h))
+        ln, a = int(rng.integers(4, 22)), float(rng.random() * 6.283)
+        for t in range(ln):
+            x, y = int(x0 + np.cos(a) * t), int(y0 + np.sin(a) * t)
+            if 0 <= x < w and 0 <= y < h:
+                px[x, y] = int(rng.integers(90, 160))
+    fib_a = np.asarray(fib.filter(ImageFilter.GaussianBlur(0.6)), np.float32) / 255.0
+    out = out * (1.0 - 0.16 * fib_a[..., None])
+
+    yy, xx = np.mgrid[0:h, 0:w]
+    edge = 1.0 - 0.16 * np.clip(((xx - w / 2) ** 2 / (w * 0.62) ** 2 + (yy - h / 2) ** 2 / (h * 0.62) ** 2), 0.0, 1.2)
+    out = out * edge[..., None]
+    Image.fromarray(np.clip(out * 255.0, 0, 255).astype(np.uint8)).save("assets/textures/page_blank.png")
+    print("  texture: page_blank.png")
+

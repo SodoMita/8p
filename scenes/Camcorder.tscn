@@ -1,0 +1,253 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/camcorder.gd" id="1_camcorder"]
+[ext_resource type="Shader" path="res://shaders/camcorder.gdshader" id="2_shader"]
+[ext_resource type="FontFile" path="res://assets/fonts/DejaVuSans.ttf" id="3_font"]
+
+[sub_resource type="ShaderMaterial" id="4_post"]
+shader = ExtResource("2_shader")
+
+[node name="Camcorder" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_camcorder")
+
+[node name="Post" type="ColorRect" parent="."]
+material = SubResource("4_post")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Chrome" type="Control" parent="."]
+modulate = Color(1, 1, 1, 0)
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="BracketTL_H" type="ColorRect" parent="Chrome"]
+layout_mode = 1
+offset_left = 26.0
+offset_top = 26.0
+offset_right = 56.0
+offset_bottom = 28.0
+color = Color(0.82, 0.84, 0.8, 0.3)
+mouse_filter = 2
+
+[node name="BracketTL_V" type="ColorRect" parent="Chrome"]
+layout_mode = 1
+offset_left = 26.0
+offset_top = 26.0
+offset_right = 28.0
+offset_bottom = 42.0
+color = Color(0.82, 0.84, 0.8, 0.3)
+mouse_filter = 2
+
+[node name="BracketTR_H" type="ColorRect" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -56.0
+offset_top = 26.0
+offset_right = -26.0
+offset_bottom = 28.0
+grow_horizontal = 0
+color = Color(0.82, 0.84, 0.8, 0.3)
+mouse_filter = 2
+
+[node name="BracketTR_V" type="ColorRect" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -28.0
+offset_top = 26.0
+offset_right = -26.0
+offset_bottom = 42.0
+grow_horizontal = 0
+color = Color(0.82, 0.84, 0.8, 0.3)
+mouse_filter = 2
+
+[node name="BracketBL_H" type="ColorRect" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 26.0
+offset_top = -28.0
+offset_right = 56.0
+offset_bottom = -26.0
+grow_vertical = 0
+color = Color(0.82, 0.84, 0.8, 0.3)
+mouse_filter = 2
+
+[node name="BracketBL_V" type="ColorRect" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 26.0
+offset_top = -42.0
+offset_right = 28.0
+offset_bottom = -26.0
+grow_vertical = 0
+color = Color(0.82, 0.84, 0.8, 0.3)
+mouse_filter = 2
+
+[node name="BracketBR_H" type="ColorRect" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -56.0
+offset_top = -28.0
+offset_right = -26.0
+offset_bottom = -26.0
+grow_horizontal = 0
+grow_vertical = 0
+color = Color(0.82, 0.84, 0.8, 0.3)
+mouse_filter = 2
+
+[node name="BracketBR_V" type="ColorRect" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -28.0
+offset_top = -42.0
+offset_right = -26.0
+offset_bottom = -26.0
+grow_horizontal = 0
+grow_vertical = 0
+color = Color(0.82, 0.84, 0.8, 0.3)
+mouse_filter = 2
+
+[node name="TopRight" type="VBoxContainer" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -220.0
+offset_top = 88.0
+offset_right = -30.0
+offset_bottom = 176.0
+grow_horizontal = 0
+mouse_filter = 2
+theme_override_constants/separation = 0
+alignment = 2
+
+[node name="RecRow" type="HBoxContainer" parent="Chrome/TopRight"]
+layout_mode = 2
+mouse_filter = 2
+alignment = 2
+theme_override_constants/separation = 8
+
+[node name="RecDot" type="ColorRect" parent="Chrome/TopRight/RecRow"]
+custom_minimum_size = Vector2(9, 9)
+layout_mode = 2
+size_flags_vertical = 4
+color = Color(0.86, 0.14, 0.12, 0.9)
+mouse_filter = 2
+
+[node name="RecLabel" type="Label" parent="Chrome/TopRight/RecRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.88, 0.84, 0.85)
+theme_override_fonts/font = ExtResource("3_font")
+theme_override_font_sizes/font_size = 15
+text = "REC"
+mouse_filter = 2
+
+[node name="Timecode" type="Label" parent="Chrome/TopRight"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.84, 0.78, 0.7)
+theme_override_fonts/font = ExtResource("3_font")
+theme_override_font_sizes/font_size = 15
+text = "00:00:00:00"
+horizontal_alignment = 2
+mouse_filter = 2
+
+[node name="BatteryRow" type="HBoxContainer" parent="Chrome/TopRight"]
+layout_mode = 2
+mouse_filter = 2
+alignment = 2
+theme_override_constants/separation = 8
+
+[node name="BatteryLabel" type="Label" parent="Chrome/TopRight/BatteryRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.8, 0.74, 0.6)
+theme_override_fonts/font = ExtResource("3_font")
+theme_override_font_sizes/font_size = 13
+text = "94"
+mouse_filter = 2
+
+[node name="BatteryBody" type="Panel" parent="Chrome/TopRight/BatteryRow"]
+custom_minimum_size = Vector2(34, 12)
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+
+[node name="BatteryFill" type="ColorRect" parent="Chrome/TopRight/BatteryRow/BatteryBody"]
+layout_mode = 0
+offset_left = 2.0
+offset_top = 2.0
+offset_right = 32.0
+offset_bottom = 10.0
+color = Color(0.82, 0.83, 0.76, 0.75)
+mouse_filter = 2
+
+[node name="CamLabel" type="Label" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -120.0
+offset_top = -70.0
+offset_right = 120.0
+offset_bottom = -50.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.72, 0.74, 0.7, 0.5)
+theme_override_fonts/font = ExtResource("3_font")
+theme_override_font_sizes/font_size = 12
+text = "TAPE  0012"
+horizontal_alignment = 1
+mouse_filter = 2
+
+[node name="TapeFlag" type="Label" parent="Chrome"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -200.0
+offset_top = -104.0
+offset_right = -32.0
+offset_bottom = -84.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.7, 0.84, 0.74, 0.0)
+theme_override_fonts/font = ExtResource("3_font")
+theme_override_font_sizes/font_size = 13
+text = "IR  LAMP"
+horizontal_alignment = 2
+mouse_filter = 2
