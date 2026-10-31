@@ -93,7 +93,7 @@ func _input(event: InputEvent) -> void:
 		diag_motion_px += event.relative
 		diag_last_relative = event.relative
 		diag_last_device = event.device
-	if event is InputEventMouseMotion and _mouse_look_allowed(event):
+	if event is InputEventMouseMotion and _look_is_wanted():
 		diag_looks_applied += 1
 		add_look(event.relative)
 
@@ -101,15 +101,13 @@ func _input(event: InputEvent) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if frozen:
 		return
-	# A real mouse click on the world captures the pointer: that is what makes
-	# the aim unbounded instead of stopping at the window edge, and it is how the
-	# web build recovers pointer-lock after an alt-tab (browsers refuse to lock
+	# A press on the world captures the pointer: that is what makes the aim
+	# unbounded instead of stopping at the window edge, and it is how the web
+	# build recovers pointer-lock after an alt-tab (browsers refuse to lock
 	# without a gesture). Only events that reached _unhandled_input get here, so a
-	# click that landed on a button never captures; fingers are excluded too --
-	# their emulated clicks must not steal the cursor from the touch controls.
-	if event is InputEventMouseButton and event.pressed \
-			and event.device != InputEvent.DEVICE_ID_EMULATION \
-			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+	# press that landed on a widget never captures, and where there is no pointer
+	# at all (a phone) the engine ignores the request.
+	if event is InputEventMouseButton and event.pressed and _can_capture_pointer():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# keyboard actions are never disabled by touch mode either
 	if event.is_action_pressed("flashlight"):
@@ -118,32 +116,25 @@ func _unhandled_input(event: InputEvent) -> void:
 		interact()
 
 
-func _mouse_look_allowed(event: InputEventMouseMotion) -> bool:
-	# The decision is about WHERE THE EVENT CAME FROM, never about Game.touch_mode.
-	# Gating mouse look on touch_mode is what left PC players unable to turn at
-	# all: _detect_touch() returns true for any machine that reports a touchscreen
-	# (a Windows laptop, a desktop browser with navigator.maxTouchPoints > 0), and
-	# those people are holding a mouse.
-	#
-	# A finger is the touch overlay's business: pointing/emulate_mouse_from_touch
-	# turns every screen drag into a mouse motion tagged with the emulation
-	# device, and touch_controls already looked for that finger, so counting the
-	# twin made the touch camera ~1.7x too fast. Anything else is a real mouse or
-	# trackpad and it always looks.
-	if event.device == InputEvent.DEVICE_ID_EMULATION:
+## One rule, no platform or device special cases: a pointer motion turns the
+## camera unless a finger is currently on the screen or the pointer is over an
+## actual UI widget. Everything else -- mouse, trackpad, pen, a finger's
+## engine-emulated mouse motion on a platform that sends one -- is a look.
+## A press may capture the pointer only while the forest is actually playable.
+## The same condition releases it, so a menu that opens mid-game cannot end up
+## under a captured cursor (that was the death-screen bug).
+func _can_capture_pointer() -> bool:
+	return not frozen and not get_tree().paused and not Game.ui_blocking
+
+
+func _look_is_wanted() -> bool:
+	if frozen or get_tree().paused:
 		return false
-	# belt and braces for platforms that do not tag the emulated twin: while a
-	# finger is actually on the glass, the overlay owns look
+	# a thumb on the glass is the touch overlay's business; it does its own look
 	if finger_down:
 		return false
-	# Touch mode draws a real cursor for the stick and the buttons, so while that
-	# cursor is over an actual widget it belongs to the widget; everywhere else
-	# (i.e. the whole game view) plain mouse motion turns the camera, which is
-	# what a PC player with a touchscreen laptop expects.
-	if Game.touch_mode and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED \
-			and get_viewport().gui_get_hovered_control() != null:
-		return false
-	return true
+	# the cursor is over a button, a slider, the stick: that is the widget's event
+	return get_viewport().gui_get_hovered_control() == null
 
 
 func add_look(delta_px: Vector2) -> void:
@@ -311,6 +302,10 @@ func _update_breathing(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	# a captured pointer over a clickable screen is a bug the player feels at once:
+	# release it the moment a UI takes over, and give it back when the UI is gone
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not _can_capture_pointer():
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_update_aspect()
 	# walking FOV + sprint kick
 	var target_fov := 74.0

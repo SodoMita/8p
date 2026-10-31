@@ -8,13 +8,18 @@ signal player_killed(reason: String)
 signal run_finished(won: bool)
 
 const TOTAL_PAGES := 8
-const VERSION := "1.6.0"
+const VERSION := "1.6.2"
 
 var pages_collected := 0
 var run_time := 0.0
 var run_active := false
 var clock_frozen := false
 var touch_mode := false
+## True while a menu, a note with buttons or an end screen owns the screen. The
+## pointer policy has exactly one reader (player.gd) and one writer (hud.gd), so
+## the cursor is released whenever a UI can be clicked and recaptured when the
+## forest is back -- with no per-platform branches anywhere.
+var ui_blocking := false
 var quality := 2  # 0 = low, 1 = medium, 2 = high
 var autotest := false
 var best_time := -1.0

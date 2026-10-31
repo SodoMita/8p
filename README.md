@@ -156,6 +156,16 @@ look on touch mode is what made the camera impossible to turn on those machines.
 A click on the world captures the pointer so aim is unbounded and so the web build
 recovers pointer-lock after an alt-tab (browsers only grant it on a gesture).
 
+The pointer itself has one owner (`world._sync_pointer()`): it is captured only
+while the run is live and no screen is asking to be clicked, and it is released the
+moment a menu or an end screen appears — so the death screen's buttons are reachable
+with a visible cursor. `Game.ui_blocking` is written by the HUD and read by both.
+
+**One rule, no platform or device special cases:** pointer motion turns the
+camera unless (a) a finger is on the screen — the touch overlay owns that finger —
+or (b) the pointer is over an actual UI widget. Mouse, trackpad, pen, and the
+engine's emulated motion all take the same path; nothing asks which OS it is on.
+
 Mouse look is read in `_input`, **not** `_unhandled_input`, on purpose: Godot's GUI
 layer runs first and marks a mouse motion as handled whenever a `Control` with
 `mouse_filter = STOP` is under the pointer — and a captured pointer sits at the

@@ -1,6 +1,18 @@
-EIGHT PAGES 1.6.0
+EIGHT PAGES 1.6.2
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
+1.6.2 pointer owner + input rule (human #53/#54). The pointer is captured only
+     while the run is live and no screen needs clicking: world._sync_pointer() is
+     the only owner, hud.gd writes Game.ui_blocking when a pause or end screen
+     opens or closes, and player.gd refuses to capture while one is open and drops
+     a captured pointer the frame one appears -- the death screen used to keep the
+     cursor captured (it was only released on touch devices) so its buttons were
+     unreachable. The look path has no platform or device branches left: pointer
+     motion turns the camera unless a finger is down or the pointer is over a
+     widget. The camera also stopped dying on a 4x4 crosshair dot whose ColorRect
+     kept Control's default STOP filter at screen centre, exactly where a captured
+     pointer lives. New tools/mouse_live_test.sh drives a real X11 pointer and
+     asserts the camera turns; F3 in game shows the live input path.
 1.6.0 branch integration. Six agent branches merged into main and made to run
      together. What actually needed fixing to make them coexist:
      * translations (RU/ZH): the branch's manager could not load at all -- it
