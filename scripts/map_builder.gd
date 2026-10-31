@@ -105,7 +105,7 @@ func _load_meshes() -> void:
 # --------------------------------------------------------------------------- #
 # materials — albedo + normal + roughness (PBR), shared across instances
 # --------------------------------------------------------------------------- #
-func _pbr(name: String, uv_scale := 1.0, rough := 1.0, normal_scale := 1.0) -> StandardMaterial3D:
+func _pbr(name: String, repeats_per_metre := 1.0, rough := 1.0, normal_scale := 1.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_texture = load("res://assets/textures/%s_albedo.png" % name)
 	m.normal_enabled = true
@@ -115,7 +115,13 @@ func _pbr(name: String, uv_scale := 1.0, rough := 1.0, normal_scale := 1.0) -> S
 	m.roughness = rough
 	m.metallic = 0.0
 	m.metallic_specular = 0.35
-	m.uv1_scale = Vector3(uv_scale, uv_scale, 1.0)
+	# All PBR channels use the same world-space projection, including normals.
+	# UV scale is repeats per world metre, not repeats per mesh UV island.
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_triplanar_sharpness = 4.0
+	m.uv1_scale = Vector3.ONE * repeats_per_metre
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	m.texture_repeat = true
 	# every surface in this wood is double sided: the walls are broken, the
@@ -147,11 +153,14 @@ func _triplanar(tex: String, metres_per_repeat: float, rough: float, normal_scal
 
 
 func _make_materials() -> void:
-	# trees use world-space UVs baked in the mesh generator, so scale 1
+	# Trees carry world-space UVs baked in the mesh generator, so scale 1 -- and
+	# the same world-anchored projection the model pass added, so no parent or
+	# MultiMesh scale can stretch the texels.
+	#
 	# Bark is dark to begin with (albedo mean 0.20 linear) and the normal map is
-	# steep (18 deg mean tilt), so at grazing angles a lit trunk fell to nothing
-	# but a few highlights. Lift the albedo, soften the relief and use a wrapped
-	# diffuse term so the terminator does not go black.
+	# steep (18 deg mean tilt), so at grazing angles a lit trunk used to fall to
+	# nothing but a few highlights. Lift the albedo, soften the relief and use a
+	# wrapped diffuse term so the terminator does not go black.
 	_mats["bark"] = _pbr("bark", 1.0, 1.0, 0.75)
 	_mats["bark"].albedo_color = Color(1.55, 1.50, 1.42)
 	_mats["bark"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
@@ -161,20 +170,20 @@ func _make_materials() -> void:
 	# 2048 px over 1.2 m -> ~1700 px/m on every concrete and stone face,
 	# independent of how big the surface is
 	_mats["stone"] = _triplanar("stone", 1.2, 0.95, 1.0)
-	_mats["concrete"] = _triplanar("stone", 1.2, 1.0, 0.85)
-	# the labyrinth's industrial dressing: same triplanar stone, denser, plus
-	# painted metal and conduit so the wires read against the walls
-	_mats["lab_wall"] = _triplanar("stone", 0.9, 0.96, 1.35)
-	_mats["lab_floor"] = _triplanar("stone", 1.0, 0.98, 1.15)
-	_mats["lab_metal"] = _flat(Color(1.0, 1.0, 1.0), 0.46, 0.72)
-	_mats["lab_wire"] = _flat(Color(1.0, 1.0, 1.0), 0.40, 0.22)
-	_mats["metal"] = _flat(Color(0.13, 0.135, 0.14), 0.42, 0.65)
-	_mats["rust"] = _flat(Color(0.30, 0.17, 0.10), 0.85, 0.3)
+	_mats["concrete"] = _procedural_surface("weathered_concrete")
+	_mats["metal"] = _weathered_metal(Color(0.19, 0.23, 0.20), 0.46)
+	_mats["rust"] = _weathered_metal(Color(0.22, 0.18, 0.14), 0.78)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
 	_mats["wood"] = _pbr("bark", 1.0, 1.0, 0.65)
 	_mats["wood"].albedo_color = Color(1.42, 1.38, 1.31)
 	_mats["wood"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
-	_mats["pumpkin"] = _pbr("pumpkin", 1.0, 1.0, 1.35)
+	_mats["pumpkin"] = _procedural_surface("pumpkin_skin")
+	_mats["lamp"] = _flat(Color(0.42, 0.39, 0.28), 0.24, 0.15)
+	# the labyrinth's industrial dressing
+	_mats["lab_wall"] = _triplanar("stone", 0.9, 0.96, 1.35)
+	_mats["lab_floor"] = _triplanar("stone", 1.0, 0.98, 1.15)
+	_mats["lab_metal"] = _flat(Color(1.0, 1.0, 1.0), 0.46, 0.72)
+	_mats["lab_wire"] = _flat(Color(1.0, 1.0, 1.0), 0.40, 0.22)
 
 	var link := StandardMaterial3D.new()
 	link.albedo_texture = load("res://assets/textures/chainlink.png")
@@ -213,6 +222,83 @@ func _make_materials() -> void:
 
 	for key in ["bark", "wood", "lab_wall", "lab_floor", "lab_metal", "lab_wire"]:
 		_mats[key].vertex_color_use_as_albedo = true
+
+
+func _procedural_surface(shader_name: String) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/%s.gdshader" % shader_name)
+	return mat
+
+
+func _chamfered_concrete(size: Vector3, pos: Vector3) -> ArrayMesh:
+	# Real edge geometry catches the flashlight; collision remains a simple box.
+	var h := size * 0.5
+	var bevel := minf(minf(size.x, size.y), size.z) * 0.18
+	bevel = minf(bevel, 0.065) * (0.8 + 0.2 * sin(pos.x * 7.1 + pos.z * 3.9))
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for axis in 3:
+		var u := (axis + 1) % 3
+		var v := (axis + 2) % 3
+		for side in [-1.0, 1.0]:
+			var points: Array[Vector3] = []
+			for corner in [Vector2(-1,-1), Vector2(1,-1), Vector2(1,1), Vector2(-1,1)]:
+				var p := Vector3.ZERO
+				p[axis] = h[axis] * side
+				p[u] = (h[u] - bevel) * corner.x
+				p[v] = (h[v] - bevel) * corner.y
+				points.append(p)
+			var n := Vector3.ZERO
+			n[axis] = side
+			_concrete_face(st, points, n)
+	# Twelve bevel strips, then eight triangular corner chips.
+	for axis in 3:
+		var u := (axis + 1) % 3
+		var v := (axis + 2) % 3
+		for su in [-1.0, 1.0]:
+			for sv in [-1.0, 1.0]:
+				var points: Array[Vector3] = []
+				for c in [Vector2(-1,0), Vector2(1,0), Vector2(1,1), Vector2(-1,1)]:
+					var p := Vector3.ZERO
+					p[axis] = (h[axis] - bevel) * c.x
+					p[u] = (h[u] - bevel * c.y) * su
+					p[v] = (h[v] - bevel * (1.0 - c.y)) * sv
+					points.append(p)
+				var n := Vector3.ZERO
+				n[u] = su
+				n[v] = sv
+				_concrete_face(st, points, n.normalized())
+	for x in [-1.0, 1.0]:
+		for y in [-1.0, 1.0]:
+			for z in [-1.0, 1.0]:
+				var sign_vec := Vector3(x,y,z)
+				var points: Array[Vector3] = []
+				for axis in 3:
+					var p := (h - Vector3.ONE * bevel) * sign_vec
+					p[axis] = h[axis] * sign_vec[axis]
+					points.append(p)
+				_concrete_face(st, points, sign_vec.normalized())
+	st.index()
+	return st.commit()
+
+
+func _concrete_face(st: SurfaceTool, points: Array[Vector3], n: Vector3) -> void:
+	for i in range(1, points.size() - 1):
+		var tri := [points[0], points[i], points[i + 1]]
+		if (tri[1] - tri[0]).cross(tri[2] - tri[0]).dot(n) > 0.0:
+			tri.reverse()
+		for p in tri:
+			st.set_normal(n)
+			st.set_uv(Vector2(p.x + p.z, p.y))
+			st.add_vertex(p)
+
+
+func _weathered_metal(paint: Color, corrosion: float) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/weathered_metal.gdshader")
+	mat.set_shader_parameter("paint_color", paint)
+	mat.set_shader_parameter("corrosion", corrosion)
+	return mat
 
 
 func _flat(color: Color, rough := 0.8, metallic := 0.0) -> StandardMaterial3D:
@@ -529,7 +615,7 @@ func _box(xf: Transform3D, pos: Vector3, size: Vector3, mat: Material, rot := Ve
 	var mi := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = size
-	mi.mesh = box
+	mi.mesh = _chamfered_concrete(size, pos) if mat == _mats.get("concrete") else box
 	mi.material_override = mat
 	root.add_child(mi)
 	if collide:
@@ -1743,6 +1829,18 @@ func _silo(xf: Transform3D) -> void:
 	_cyl(xf, Vector3(0, h + 0.35, 0), r * 1.06, 0.6, _mats["metal"], r * 0.2)
 	_cyl(xf, Vector3(0, h + 0.7, 0), r * 0.3, 0.5, _mats["rust"])
 	_box(xf, Vector3(0, 0.28, r + 0.9), Vector3(1.7, 0.55, 1.6), _mats["concrete"])
+	# Rolled sheet-metal bands break up the smooth primitive silhouette.
+	for band in range(1, int(h / 1.15)):
+		var ring := MeshInstance3D.new()
+		var torus := TorusMesh.new()
+		torus.inner_radius = r - 0.018
+		torus.outer_radius = r + 0.035
+		torus.rings = 32
+		torus.ring_segments = 6
+		ring.mesh = torus
+		ring.material_override = _mats["rust"]
+		ring.transform = xf * Transform3D(Basis(), Vector3(0, band * 1.15, 0))
+		add_child(ring)
 	# ladder up the side + a rusted hatch
 	_box(xf, Vector3(-0.5, h * 0.45, r + 0.06), Vector3(0.09, h * 0.85, 0.09), _mats["rust"], Vector3.ZERO, false)
 	_box(xf, Vector3(0.5, h * 0.45, r + 0.06), Vector3(0.09, h * 0.85, 0.09), _mats["rust"], Vector3.ZERO, false)
@@ -1755,17 +1853,79 @@ func _silo(xf: Transform3D) -> void:
 
 
 func _truck(xf: Transform3D) -> void:
-	var m: Material = _mats["metal"]
+	var detail_start := get_child_count()
+	# Separate chassis, cab and open bed rather than one solid toy-like block.
+	var metal: Material = _mats["metal"]
+	var rust: Material = _mats["rust"]
+	var dark: Material = _mats["dark"]
 	var ln := rng.randf_range(4.6, 6.0)
-	_box(xf, Vector3(0, 1.15, 0), Vector3(2.25, 1.65, ln), m)
-	_box(xf, Vector3(0, 2.3, ln * 0.34), Vector3(2.15, 1.1, 1.6), m)
-	_box(xf, Vector3(0, 2.32, ln * 0.34 + 0.81), Vector3(1.9, 0.7, 0.05), _mats["dark"], Vector3.ZERO, false)
-	# cargo bed walls
-	_box(xf, Vector3(0, 2.05, -ln * 0.12), Vector3(2.3, 0.12, ln * 0.52), _mats["rust"], Vector3.ZERO, false)
+	var cab_z := ln * 0.34
+	_box(xf, Vector3(0, 0.72, 0), Vector3(1.8, 0.24, ln), rust)
+	_box(xf, Vector3(0, 1.28, cab_z), Vector3(2.15, 0.9, 1.7), metal)
+	_box(xf, Vector3(0, 1.65, cab_z + 1.03), Vector3(2.08, 0.2, 0.7), metal)
+	_box(xf, Vector3(0, 2.55, cab_z), Vector3(2.23, 0.12, 1.83), metal)
+	# Recessed glazing, pillars, windshield divider, door seams and handles.
+	_box(xf, Vector3(0, 2.13, cab_z + 0.82), Vector3(1.91, 0.72, 0.035), dark, Vector3(-0.10, 0, 0), false)
+	for side in [-1.0, 1.0]:
+		_box(xf, Vector3(side * 1.04, 2.12, cab_z), Vector3(0.035, 0.70, 1.36), dark, Vector3.ZERO, false)
+		for dz in [-0.81, 0.81]:
+			_box(xf, Vector3(side * 1.05, 2.12, cab_z + dz), Vector3(0.09, 0.88, 0.09), metal, Vector3.ZERO, false)
+		_box(xf, Vector3(side * 1.083, 1.62, cab_z - 0.35), Vector3(0.035, 0.045, 0.22), rust, Vector3.ZERO, false)
+		_box(xf, Vector3(side * 1.24, 2.14, cab_z + 0.65), Vector3(0.21, 0.27, 0.10), metal, Vector3.ZERO, false)
+	_box(xf, Vector3(0, 2.12, cab_z + 0.85), Vector3(0.055, 0.76, 0.05), metal, Vector3.ZERO, false)
+	# Cargo bed: visibly hollow, with raised side rails and a tailgate.
+	var bed_len := ln * 0.53
+	var bed_z := -ln * 0.19
+	_box(xf, Vector3(0, 1.0, bed_z), Vector3(2.25, 0.16, bed_len), rust)
+	for side in [-1.0, 1.0]:
+		_box(xf, Vector3(side * 1.08, 1.47, bed_z), Vector3(0.12, 0.85, bed_len), metal)
+		for rib in 4:
+			_box(xf, Vector3(side * 1.15, 1.47, bed_z - bed_len * 0.4 + rib * bed_len * 0.26), Vector3(0.06, 0.9, 0.065), rust, Vector3.ZERO, false)
+	_box(xf, Vector3(0, 1.47, bed_z - bed_len * 0.5), Vector3(2.25, 0.85, 0.12), metal)
+	# Wheels rotate about Z so their axle is X (old wheels stood vertically).
 	for wx in [-1.12, 1.12]:
 		for wz in [-ln * 0.32, -ln * 0.06, ln * 0.3]:
-			_cyl(xf, Vector3(wx, 0.5, wz), 0.5, 0.34, _mats["dark"])
+			# detailed wheel + hub from the model pass (rotated so the axle is X)
+			var wheel := _cyl(xf, Vector3(wx, 0.53, wz), 0.53, 0.32, dark, -1.0, false)
+			wheel.transform.basis = xf.basis * Basis(Vector3.FORWARD, PI * 0.5)
+			var hub := _cyl(xf, Vector3(wx + signf(wx) * 0.18, 0.53, wz), 0.27, 0.045, rust, -1.0, false)
+			hub.transform.basis = wheel.transform.basis
+	_box(xf, Vector3(0, 0.88, cab_z + 1.4), Vector3(2.35, 0.18, 0.18), rust, Vector3.ZERO, false)
+	_box(xf, Vector3(0, 1.3, cab_z + 1.39), Vector3(1.12, 0.35, 0.025), dark, Vector3.ZERO, false)
+	for side in [-1.0, 1.0]:
+		_box(xf, Vector3(side * 0.81, 1.4, cab_z + 1.4), Vector3(0.30, 0.24, 0.03), _mats["lamp"], Vector3.ZERO, false)
+	# page on the driver's door panel; keeps the truck's pinned-page surface
 	_attach_hint = {"pos": Vector3(1.125, 1.55, 0.0), "n": Vector3(1, 0, 0)}
+
+	_batch_prop_details(detail_start)
+
+
+func _batch_prop_details(first_child: int) -> void:
+	# Cosmetic parts share a handful of material draw calls; collision stays simple.
+	var batches := {}
+	var remove: Array[Node] = []
+	for i in range(first_child, get_child_count()):
+		var node := get_child(i)
+		if node is StaticBody3D or not node is Node3D or node.get_child_count() != 1:
+			continue
+		var mi := node.get_child(0) as MeshInstance3D
+		if mi == null:
+			continue
+		var mat := mi.material_override
+		if not batches.has(mat):
+			var surface := SurfaceTool.new()
+			surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+			batches[mat] = surface
+		batches[mat].append_from(mi.mesh, 0, node.transform * mi.transform)
+		remove.append(node)
+	for node in remove:
+		node.free()
+	for mat in batches:
+		var mi := MeshInstance3D.new()
+		mi.mesh = batches[mat].commit()
+		mi.material_override = mat
+		mi.name = "TruckDetailBatch"
+		add_child(mi)
 
 
 func _shed(xf: Transform3D) -> void:
@@ -1800,6 +1960,7 @@ func _rock_circle(xf: Transform3D) -> void:
 		var hh := rng.randf_range(1.0, 2.2)
 		var rad := rng.randf_range(0.45, 0.75)
 		var body := _cyl(xf, p + Vector3(0, hh * 0.5, 0), rad, hh, _mats["stone"], rad * 0.55)
+		(body.get_child(0) as MeshInstance3D).mesh = _weathered_rock(rad, hh, i)
 		body.rotation = xf.basis.get_rotation_quaternion().get_euler() + Vector3(rng.randf_range(-0.08, 0.08), rng.randf() * 0.6, rng.randf_range(-0.08, 0.08))
 		if stone_hint.is_empty() and hh >= 1.7 and rad >= 0.55:
 			var dir := Vector3(cos(a), 0.0, sin(a))
@@ -1808,6 +1969,37 @@ func _rock_circle(xf: Transform3D) -> void:
 	_box(xf, Vector3(rng.randf_range(-0.8, 0.8), 0.4, rng.randf_range(-0.8, 0.8)), Vector3(1.5, 0.8, 0.9), _mats["stone"], Vector3(0.3, rng.randf() * TAU, 0.2))
 	if not stone_hint.is_empty():
 		_attach_hint = stone_hint
+
+
+func _weathered_rock(radius: float, height: float, variant: int) -> ArrayMesh:
+	# Ring-correlated erosion creates fractured strata, not perfect columns.
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rings: Array[PackedVector3Array] = []
+	const SIDES := 9
+	for j in 5:
+		var row := PackedVector3Array()
+		var t := j / 4.0
+		for k in SIDES:
+			var angle := TAU * k / SIDES
+			var erosion := 1.0 + 0.16 * sin(k * 2.73 + variant * 1.7) + 0.075 * cos(j * 4.1 + k)
+			var r := radius * erosion * (1.0 - 0.43 * t)
+			row.append(Vector3(cos(angle) * r + t * 0.09, (t - 0.5) * height + sin(k * 3.4 + variant) * 0.09 * t, sin(angle) * r))
+		rings.append(row)
+	for j in 4:
+		for k in SIDES:
+			var n := (k + 1) % SIDES
+			for v in [rings[j][k], rings[j + 1][n], rings[j + 1][k], rings[j][k], rings[j][n], rings[j + 1][n]]:
+				st.set_uv(Vector2(v.x + v.z * 0.4, v.y) * 0.6)
+				st.add_vertex(v)
+	for k in SIDES:
+		for v in [Vector3(0.09, height * 0.5, 0), rings[4][k], rings[4][(k + 1) % SIDES]]:
+			st.set_uv(Vector2(v.x, v.z))
+			st.add_vertex(v)
+	st.generate_normals()
+	st.generate_tangents()
+	st.index()
+	return st.commit()
 
 
 func _bathroom(xf: Transform3D) -> void:

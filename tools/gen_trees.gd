@@ -6,7 +6,7 @@ extends SceneTree
 ## gravity bend and irregular forks) so the forest never repeats a silhouette.
 
 const OUT_DIR := "res://assets/models"
-const RADIAL_TRUNK := 10
+const RADIAL_TRUNK := 14
 const RADIAL_BRANCH := 6
 const BARK_TILE := 0.55   # metres of bark per texture repeat (world-space UVs)
 
@@ -116,6 +116,16 @@ func _grow_tree(rng: RandomNumberGenerator, cfg: Dictionary) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	_grow(st, rng, Vector3.ZERO, Vector3.UP, cfg["trunk_h"], cfg["trunk_r"], 0, cfg)
+	# Ground-hugging buttress roots anchor the trunk rather than ending as a pipe.
+	for root in 6:
+		var a := root * TAU / 6.0 + rng.randf_range(-0.2, 0.2)
+		var outward := Vector3(cos(a), 0, sin(a))
+		var r: float = cfg["trunk_r"]
+		var reach := r * rng.randf_range(2.0, 3.2)
+		_tube(st, [outward * r * 0.35 + Vector3.UP * 0.36,
+			outward * reach * 0.55 + Vector3.UP * 0.12,
+			outward * reach + Vector3.DOWN * 0.025], [r * 0.35, r * 0.20, 0.015], 6, true)
+
 	return _commit(st)
 
 
@@ -125,7 +135,7 @@ func _grow(st: SurfaceTool, rng: RandomNumberGenerator, origin: Vector3, dir: Ve
 	var lean := Vector3(rng.randf_range(-0.12, 0.12), 0.0, rng.randf_range(-0.12, 0.12))
 	if depth == 0:
 		lean *= 3.0  # trunks are visibly crooked
-	var segs := 4 if depth == 0 else 2
+	var segs := 7 if depth == 0 else 3
 	var pts: Array[Vector3] = [origin]
 	var radii: Array[float] = [radius]
 	var p := origin
@@ -136,7 +146,7 @@ func _grow(st: SurfaceTool, rng: RandomNumberGenerator, origin: Vector3, dir: Ve
 		d = (d + lean * 0.35 + Vector3.DOWN * (0.05 if depth > 0 else 0.015)).normalized()
 		p = p + d * (length / segs)
 		pts.append(p)
-		radii.append(radius * (1.0 - 0.42 * t))
+		radii.append(radius * (1.0 - 0.42 * t) * (1.0 + 0.35 * exp(-t * 12.0) if depth == 0 else 1.0))
 	_tube(st, pts, radii, RADIAL_TRUNK if depth == 0 else RADIAL_BRANCH, depth == 0)
 
 	if depth >= max_depth:
@@ -246,65 +256,54 @@ func _cap_fan(st: SurfaceTool, f: Array, radius: float, sides: int, sign_dir: fl
 func _pumpkin(rng: RandomNumberGenerator, radius: float, lobes: int) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var rings := 14
-	var seg := 28
-	var squash := rng.randf_range(0.70, 0.86)
-	var lobe_depth := rng.randf_range(0.06, 0.11)
-	var pts := []   # pts[lat][lon] -> Vector3
-	var nrm := []
-	var uvs := []
-	for i in rings + 1:
-		var v := float(i) / rings              # 0 at the bottom pole
-		var phi := PI * v                      # polar angle
-		var h := -cos(phi)                     # -1 .. 1
-		var row := []
-		var nrow := []
-		var urow := []
-		# ribs fade out at both poles so the cap does not pinch
-		var fade := sin(phi)
-		for j in seg + 1:
-			var u := float(j) / seg
-			var a := TAU * u
-			var rib := 1.0 + lobe_depth * cos(float(lobes) * a) * fade
-			# slightly flattened base, slightly dented crown
-			var vert_scale := squash * (1.0 - 0.10 * smoothstep(0.55, 1.0, h))
-			var r := radius * rib * sin(phi) * (1.0 + 0.04 * cos(phi * 2.0))
-			var y := radius * vert_scale * h
-			# a little wobble so no two pumpkins are identical
-			var wobble := 1.0 + 0.035 * sin(a * 3.0 + rng.randf() * TAU)
-			var p := Vector3(cos(a) * r * wobble, y, sin(a) * r * wobble)
-			row.append(p)
-			# analytic-ish normal: radial with a vertical component from the profile
-			var radial := Vector3(cos(a) * rib, 0.0, sin(a) * rib).normalized()
-			var n := (radial * (1.0 - absf(h) * 0.35) + Vector3.UP * h * 0.85).normalized()
-			nrow.append(n)
-			urow.append(Vector2(u * 2.0, v))
-		pts.append(row)
-		nrm.append(nrow)
-		uvs.append(urow)
-	for i in rings:
-		for j in seg:
-			var a: Vector3 = pts[i][j]
-			var b: Vector3 = pts[i][j + 1]
-			var c: Vector3 = pts[i + 1][j + 1]
-			var d: Vector3 = pts[i + 1][j]
-			var na: Vector3 = nrm[i][j]
-			var nb: Vector3 = nrm[i][j + 1]
-			var nc: Vector3 = nrm[i + 1][j + 1]
-			var nd: Vector3 = nrm[i + 1][j]
-			var ua: Vector2 = uvs[i][j]
-			var ub: Vector2 = uvs[i][j + 1]
-			var uc: Vector2 = uvs[i + 1][j + 1]
-			var ud: Vector2 = uvs[i + 1][j]
-			_quad(st, a, d, c, b, na, nd, nc, nb, ua, ud, uc, ub)
-	# dry stem
-	var top := Vector3(0, radius * squash * 1.0, 0)
-	var sway := Vector3(rng.randf_range(-0.05, 0.05), 0, rng.randf_range(-0.05, 0.05))
-	_tube(st, [top - Vector3(0, 0.06, 0), top + Vector3(0, 0.10, 0) + sway,
-			top + Vector3(0, 0.20, 0) + sway * 2.2],
-		[radius * 0.20, radius * 0.15, radius * 0.12], 6, true)
+	const RINGS := 24
+	const SEGMENTS := 72
+	var squash := rng.randf_range(0.72, 0.88)
+	var phase := rng.randf() * TAU
+	var profile := Vector3(radius, squash, phase)
+	for i in RINGS:
+		for j in SEGMENTS:
+			var corners := [Vector2(j / float(SEGMENTS), i / float(RINGS)),
+				Vector2(j / float(SEGMENTS), (i + 1) / float(RINGS)),
+				Vector2((j + 1) / float(SEGMENTS), (i + 1) / float(RINGS)),
+				Vector2((j + 1) / float(SEGMENTS), i / float(RINGS))]
+			for k in [0, 1, 2, 0, 2, 3]:
+				var uv: Vector2 = corners[k]
+				var a := uv.x * TAU
+				var phi := uv.y * PI
+				var p := _pumpkin_point(a, phi, lobes, profile)
+				# Numerical derivatives follow the lobes, dents and flattened base.
+				var dp := _pumpkin_point(a, clampf(phi + 0.001, 0.0001, PI - 0.0001), lobes, profile) - _pumpkin_point(a, clampf(phi - 0.001, 0.0001, PI - 0.0001), lobes, profile)
+				var da := _pumpkin_point(a + 0.001, clampf(phi, 0.0001, PI - 0.0001), lobes, profile) - _pumpkin_point(a - 0.001, clampf(phi, 0.0001, PI - 0.0001), lobes, profile)
+				var n := dp.cross(da).normalized()
+				st.set_normal(n)
+				st.set_uv(uv)
+				var groove := pow(0.5 + 0.5 * cos(lobes * a), 5.0)
+				st.set_color(Color(1.0 - groove * 0.24, 1.0 - groove * 0.32, 1.0 - groove * 0.4, 1.0))
+				st.add_vertex(p)
+	# Alpha is a material-region mask, not transparency. One batched mesh/material.
+	st.set_color(Color(0.75, 0.68, 0.48, 0.0))
+	var crown := _pumpkin_point(0, PI, lobes, profile)
+	var bend := Vector3(cos(phase), 0, sin(phase)) * radius * 0.18
+	_tube(st, [crown - Vector3.UP * 0.018, crown + Vector3.UP * radius * 0.20,
+		crown + Vector3.UP * radius * 0.44 + bend,
+		crown + Vector3.UP * radius * 0.56 + bend * 1.8],
+		[radius * 0.15, radius * 0.115, radius * 0.08, radius * 0.065], 9, true)
 	return _commit(st)
 
+
+func _pumpkin_point(a: float, phi: float, lobes: int, profile: Vector3) -> Vector3:
+	var h := -cos(phi)
+	var fade := sin(phi)
+	var groove := pow(0.5 + 0.5 * cos(lobes * a), 5.0)
+	var rib := 1.0 - 0.15 * groove * pow(fade, 0.6)
+	var wobble := 1.0 + 0.035 * sin(a * 3.0 + profile.z) * fade
+	var r := profile.x * fade * rib * wobble
+	var y := profile.x * profile.y * h
+	# A settled flat bottom and deeply inset stem socket.
+	y = maxf(y, -profile.x * profile.y * 0.87)
+	y -= profile.x * 0.16 * smoothstep(0.78, 1.0, h)
+	return Vector3(cos(a) * r, y, sin(a) * r)
 
 # --------------------------------------------------------------------------- #
 # dead bush: a broad fan of arching twigs, dense enough to read as a mass
@@ -397,5 +396,5 @@ func _save(mesh: ArrayMesh, name: String) -> void:
 	var err := ResourceSaver.save(mesh, path)
 	var tris := 0
 	for s in mesh.get_surface_count():
-		tris += mesh.surface_get_array_len(s) / 3
+		tris += mesh.surface_get_array_index_len(s) / 3 if mesh.surface_get_array_index_len(s) > 0 else mesh.surface_get_array_len(s) / 3
 	print("[gen_trees] %s  %d tris  err=%d" % [name, int(tris), err])
