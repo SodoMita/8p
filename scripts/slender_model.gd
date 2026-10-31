@@ -1,6 +1,6 @@
 extends RefCounted
-## Deterministic, smooth procedural creature. Five material batches, no textures,
-## no external assets, no per-frame mesh work. Local +Z is the face/player side.
+## Continuous Anny/MakeHuman anatomical body with fitted garments.
+## Five batches, baked source geometry, no Python/Anny dependency at runtime.
 
 var _region := 0
 
@@ -22,10 +22,9 @@ func build(parent: Node3D) -> Array[MeshInstance3D]:
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
 		st.set_material(mat)
 		_surfaces.append(st)
-	_body()
+	_add_anatomy()
+	_tailoring()
 	for side in [-1.0, 1.0]:
-		_limbs(side)
-		_hand(side)
 		_tendrils(side)
 	var result: Array[MeshInstance3D] = []
 	for i in _surfaces.size():
@@ -48,22 +47,70 @@ func _material(color: Color, roughness: float, glow: float) -> StandardMaterial3
 	mat.emission_energy_multiplier = glow
 	return mat
 
-func _tri(surface: int, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3) -> void:
+func _tri(surface: int, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3, regions := Vector3(-1,-1,-1), weights := Vector3.ONE) -> void:
 	var st := _surfaces[surface]
-	# Godot's front faces are clockwise. Keep winding aligned with the explicit
-	# outward normals even for mirrored collar panels and swept tube caps.
-	var verts := [[a, na], [b, nb], [c, nc]]
-	if (b - a).cross(c - a).dot(na + nb + nc) > 0.0:
-		verts = [[a, na], [c, nc], [b, nb]]
+	var ids := regions if regions.x >= 0 else Vector3(_region,_region,_region)
+	var verts := [[a,na,ids.x,weights.x],[b,nb,ids.y,weights.y],[c,nc,ids.z,weights.z]]
+	if (b-a).cross(c-a).dot(na+nb+nc) > 0.0:
+		verts = [verts[0],verts[2],verts[1]]
 	for pair in verts:
-		st.set_color(Color(float(_region) / 8.0, 0, 0, 1))
+		st.set_color(Color(float(pair[2])/8.0,float(pair[3]),0,1))
 		st.set_normal(pair[1])
 		st.add_vertex(pair[0])
 
 func _panel(surface: int, points: Array[Vector3]) -> void:
-	# Flat tailoring pieces, slightly raised from the chest, outward +Z normal.
-	for i in range(1, points.size() - 1):
-		_tri(surface, points[0], points[i + 1], points[i], Vector3.BACK, Vector3.BACK, Vector3.BACK)
+	for i in range(1,points.size()-1):
+		_tri(surface,points[0],points[i+1],points[i],Vector3.BACK,Vector3.BACK,Vector3.BACK)
+
+func _add_anatomy() -> void:
+	var data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://assets/models/slender_anny.json"))
+	for batch: Dictionary in data["batches"]:
+		var positions: Array[Vector3] = []
+		var normals: Array[Vector3] = []
+		for p: Array in batch["vertices"]: positions.append(Vector3(p[0],p[1],p[2]))
+		for n: Array in batch["normals"]: normals.append(Vector3(n[0],n[1],n[2]).normalized())
+		var ids: Array = batch["regions"]
+		var weights: Array = batch["weights"]
+		for face: Array in batch["faces"]:
+			var a: int = int(face[0])
+			var b: int = int(face[1])
+			var c: int = int(face[2])
+			_tri(int(batch["material"]),positions[a],positions[b],positions[c],normals[a],normals[b],normals[c],Vector3(ids[a],ids[b],ids[c]),Vector3(weights[a],weights[b],weights[c]))
+
+func _solid_panel(surface: int, points: Array[Vector3], thickness := 0.006) -> void:
+	_panel(surface,points)
+	var back: Array[Vector3] = []
+	for p in points: back.append(p-Vector3(0,0,thickness))
+	for i in range(1,points.size()-1):
+		_tri(surface,back[0],back[i],back[i+1],Vector3.FORWARD,Vector3.FORWARD,Vector3.FORWARD)
+	for i in points.size():
+		var j := (i+1)%points.size()
+		var n := (points[j]-points[i]).cross(Vector3.FORWARD).normalized()
+		_tri(surface,points[i],points[j],back[i],n,n,n)
+		_tri(surface,points[j],back[j],back[i],n,n,n)
+
+func _ring_band(surface: int, bottom: float, top: float, inner_bottom: Vector2, outer_bottom: Vector2, inner_top: Vector2, outer_top: Vector2, segments := 48) -> void:
+	# A closed annular solid: inner/outer walls and top/bottom lips. The hole is
+	# genuinely open around the neck, not the capped cylinder of the old collar.
+	var rings: Array = []
+	for spec in [[bottom,inner_bottom],[bottom,outer_bottom],[top,outer_top],[top,inner_top]]:
+		var ring: Array[Vector3] = []
+		for j in segments:
+			var a := TAU*float(j)/segments
+			ring.append(Vector3(cos(a)*spec[1].x,spec[0],0.012+sin(a)*spec[1].y))
+		rings.append(ring)
+	for k in 4:
+		var next := (k+1)%4
+		for j in segments:
+			var nj := (j+1)%segments
+			var a: Vector3 = rings[k][j]
+			var b: Vector3 = rings[k][nj]
+			var c: Vector3 = rings[next][j]
+			var d: Vector3 = rings[next][nj]
+			var middle := (a+b+c+d)*0.25
+			var n := Vector3.UP if k==2 else (Vector3.DOWN if k==0 else Vector3(middle.x,0,middle.z).normalized()*(1.0 if k==1 else -1.0))
+			_tri(surface,a,b,c,n,n,n)
+			_tri(surface,b,d,c,n,n,n)
 
 func _loft(surface: int, rings: Array[Vector4], depth: float, z := 0.0, segments := 24) -> void:
 	# ring = x center, y, x radius, depth radius multiplier (allows flattened chest)
@@ -126,52 +173,61 @@ func _tube(surface: int, points: Array[Vector3], radii: Array[float], segments :
 			if end == 0: _tri(surface, points[end], pos[b], pos[a], normal, normals[b], normals[a])
 			else: _tri(surface, points[end], pos[a], pos[b], normal, normals[a], normals[b])
 
-func _body() -> void:
-	# Structured shoulders, a high waist and a slightly flared long jacket hem.
-	_loft(0, [Vector4(0, 1.04, 0.153, 1), Vector4(0, 1.09, 0.166, 1), Vector4(0, 1.4, 0.15, 1), Vector4(0, 1.66, 0.137, 1), Vector4(0, 1.9, 0.174, 1), Vector4(0, 2.13, 0.232, 0.84), Vector4(0, 2.22, 0.21, 0.82), Vector4(0, 2.26, 0.085, 1)], 0.74)
-	# White shirt inset and pointed collar, not a floating rectangular tie.
-	_panel(2, [Vector3(-0.087, 2.245, 0.158), Vector3(0.087, 2.245, 0.158), Vector3(0.026, 1.86, 0.158), Vector3(-0.026, 1.86, 0.158)])
-	_loft(2, [Vector4(0, 2.225, 0.074, 1), Vector4(0, 2.3, 0.067, 1)], 0.9)
-	for side in [-1.0, 1.0]:
-		_panel(2, [Vector3(0.012 * side, 2.267, 0.176), Vector3(0.082 * side, 2.263, 0.176), Vector3(0.066 * side, 2.145, 0.18)])
-		_panel(1, [Vector3(0.092 * side, 2.243, 0.145), Vector3(0.193 * side, 2.158, 0.172), Vector3(0.131 * side, 2.09, 0.172), Vector3(0.157 * side, 2.043, 0.168), Vector3(0.025 * side, 1.838, 0.15)])
-		# Welt pocket and jacket seam, restrained rather than noisy decoration.
-		_panel(1, [Vector3(0.067 * side, 1.46, 0.112), Vector3(0.136 * side, 1.48, 0.084), Vector3(0.137 * side, 1.463, 0.085), Vector3(0.068 * side, 1.444, 0.113)])
-	_panel(1, [Vector3(0, 2.233, 0.187), Vector3(0.027, 2.202, 0.194), Vector3(0, 2.166, 0.195), Vector3(-0.027, 2.202, 0.194)])
-	# Segmented blade, pinned under the knot; GPU follows the constrained chain.
+func _knot() -> void:
+	# Beveled, tapered rectangular silk knot, with a flat front and real depth.
+	var rings: Array = []
+	for shape in [[2.165,.012,.009],[2.185,.022,.013],[2.213,.026,.014],[2.240,.017,.010]]:
+		var y: float = shape[0]
+		var w: float = shape[1]
+		var d: float = shape[2]
+		var b := .004
+		var ring: Array[Vector3] = []
+		for xz in [Vector2(-w+b,-d),Vector2(w-b,-d),Vector2(w,-d+b),Vector2(w,d-b),Vector2(w-b,d),Vector2(-w+b,d),Vector2(-w,d-b),Vector2(-w,-d+b)]:
+			ring.append(Vector3(xz.x,y,.180+xz.y))
+		rings.append(ring)
+	for i in 3:
+		for j in 8:
+			var k := (j+1)%8
+			var a: Vector3 = rings[i][j]
+			var b: Vector3 = rings[i][k]
+			var c: Vector3 = rings[i+1][j]
+			var d: Vector3 = rings[i+1][k]
+			var n := Vector3((a+b).x,0,(a+b).z-.36).normalized()
+			_tri(1,a,b,c,n,n,n)
+			_tri(1,b,d,c,n,n,n)
+	for end in [0,3]:
+		for j in 8:
+			var n := Vector3.DOWN if end==0 else Vector3.UP
+			_tri(1,Vector3(0,2.165 if end==0 else 2.240,.18),rings[end][j],rings[end][(j+1)%8],n,n,n)
+
+func _tailoring() -> void:
+	_region = 0
+	# Shirt and volumetric notch lapels fit the baked jacket's chest profile.
+	for side in [-1.0,1.0]:
+		_solid_panel(1,[Vector3(.092*side,2.243,.145),Vector3(.193*side,2.158,.177),Vector3(.131*side,2.09,.177),Vector3(.157*side,2.043,.173),Vector3(.025*side,1.838,.155)])
+	# Rounded closed dress shoes fitted over the Anny feet, not exposed toe shapes.
+	for side in [-1.0,1.0]:
+		_region = 4 if side < 0 else 5
+		_loft(4,[Vector4(.13*side,.003,.076,1),Vector4(.13*side,.022,.077,1),Vector4(.13*side,.070,.072,1),Vector4(.13*side,.112,.041,.65)],1.95,.061,24)
+	_region = 0
+	# White collar stand, real dark tie loop around it, and folded outer collar.
+	_ring_band(2,2.245,2.300,Vector2(.067,.060),Vector2(.073,.067),Vector2(.067,.060),Vector2(.073,.067))
+	_ring_band(1,2.262,2.286,Vector2(.076,.070),Vector2(.081,.075),Vector2(.076,.070),Vector2(.081,.075))
+	_ring_band(2,2.247,2.301,Vector2(.085,.079),Vector2(.091,.085),Vector2(.073,.067),Vector2(.079,.073))
+	for side in [-1.0,1.0]:
+		_solid_panel(2,[Vector3(.012*side,2.275,.092),Vector3(.085*side,2.255,.112),Vector3(.065*side,2.145,.182)])
+		# Both sides of the loop feed into the knot beneath the collar points.
+		_tube(1,[Vector3(.031*side,2.274,.077),Vector3(.024*side,2.248,.120),Vector3(.010*side,2.231,.173)],[.010,.011,.010],8,.42)
+	# A solid Windsor-style knot, not a flat decorative diamond.
+	_knot()
+	# Physical blade hangs from the base of that knot (CPU constraint root).
 	_region = 8
 	for i in 4:
-		var top_y := 2.176 - float(i) * 0.074
-		var bottom_y := top_y - 0.074
-		var top_w := 0.014 + float(i) * 0.005
-		var bottom_w := 0.014 + float(i + 1) * 0.005 if i < 3 else 0.0005
-		_panel(1, [Vector3(-top_w, top_y, 0.185), Vector3(top_w, top_y, 0.185), Vector3(bottom_w, bottom_y, 0.185), Vector3(-bottom_w, bottom_y, 0.185)])
+		var y := 2.176-float(i)*.074
+		var width := .014+float(i)*.005
+		var next_width := .014+float(i+1)*.005 if i<3 else .0005
+		_panel(1,[Vector3(-width,y,.185),Vector3(width,y,.185),Vector3(next_width,y-.074,.185),Vector3(-next_width,y-.074,.185)])
 	_region = 0
-	_tube(3, [Vector3(0, 2.27, 0), Vector3(0, 2.39, 0.005)], [0.057, 0.062], 16)
-	_region = 1
-	# Egg-shaped skull: narrower chin, broad cranium. Deliberately no facial features.
-	_loft(3, [Vector4(0, 2.348, 0.012, 1), Vector4(0, 2.367, 0.061, 1), Vector4(0, 2.407, 0.103, 1), Vector4(0, 2.475, 0.139, 1), Vector4(0, 2.555, 0.16, 1), Vector4(0, 2.635, 0.165, 1), Vector4(0, 2.7, 0.139, 1), Vector4(0, 2.752, 0.087, 1), Vector4(0, 2.772, 0.008, 1)], 0.85, 0.022, 32)
-
-func _limbs(s: float) -> void:
-	_region = 2 if s < 0 else 3
-	# Sleeves hang from rounded shoulders; subtle elbow bend avoids pipe limbs.
-	_tube(0, [Vector3(0.2*s, 2.19, 0), Vector3(0.26*s, 2.13, 0), Vector3(0.295*s, 1.94, 0.005), Vector3(0.34*s, 1.67, 0.015), Vector3(0.354*s, 1.55, 0.028), Vector3(0.374*s, 1.25, 0.052), Vector3(0.394*s, 0.99, 0.07)], [0.07, 0.093, 0.075, 0.057, 0.059, 0.044, 0.037], 16, 0.82)
-	_tube(2, [Vector3(0.394*s, 1.012, 0.07), Vector3(0.397*s, 0.974, 0.071)], [0.037, 0.035], 12, 0.8)
-	_region = 4 if s < 0 else 5
-	_tube(0, [Vector3(0.093*s, 1.2, 0), Vector3(0.106*s, 1.04, 0), Vector3(0.118*s, 0.77, 0.015), Vector3(0.121*s, 0.59, 0.026), Vector3(0.127*s, 0.36, 0.005), Vector3(0.13*s, 0.09, 0.01)], [0.087, 0.089, 0.07, 0.063, 0.052, 0.05], 16, 0.91)
-	# Rounded elongated dress shoes, toes towards +Z.
-	_loft(4, [Vector4(0.13*s, 0.008, 0.048, 1), Vector4(0.13*s, 0.022, 0.068, 1), Vector4(0.13*s, 0.064, 0.064, 1), Vector4(0.13*s, 0.097, 0.04, 0.8)], 2.0, 0.058, 20)
-
-func _hand(s: float) -> void:
-	_region = 2 if s < 0 else 3
-	# Flattened palm; four individually tapered fingers plus the hooked thumb.
-	_tube(3, [Vector3(0.397*s, 0.982, 0.072), Vector3(0.404*s, 0.929, 0.075), Vector3(0.415*s, 0.847, 0.082)], [0.027, 0.041, 0.033], 12, 0.52)
-	for f in 4:
-		var spread := (float(f) - 1.5) * 0.021
-		var length := [0.127, 0.17, 0.157, 0.12][f] as float
-		var x := (0.415 + spread) * s
-		_tube(3, [Vector3(x, 0.856, 0.082), Vector3(x + spread*0.28*s, 0.856-length*0.5, 0.083), Vector3(x + spread*0.4*s, 0.856-length*0.84, 0.106), Vector3(x + spread*0.35*s, 0.856-length, 0.124)], [0.011, 0.0095, 0.007, 0.0025], 8)
-	_tube(3, [Vector3(0.377*s, 0.924, 0.08), Vector3(0.351*s, 0.878, 0.084), Vector3(0.342*s, 0.824, 0.11), Vector3(0.35*s, 0.807, 0.129)], [0.016, 0.012, 0.008, 0.003], 8)
 
 func _tendrils(s: float) -> void:
 	_region = 6 if s < 0 else 7

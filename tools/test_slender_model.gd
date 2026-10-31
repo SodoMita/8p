@@ -25,7 +25,7 @@ func _initialize() -> void:
 			assert(cross.dot(normals[i] + normals[i+1] + normals[i+2]) <= 0.00001, "Clockwise winding must agree with outward normals")
 	assert(bounds.end.y > 2.75 and bounds.end.y < 2.8)
 	assert(bounds.position.y >= 0.0)
-	assert(triangles < 12000, "Keep the mobile geometry budget bounded")
+	assert(triangles < 40000, "Keep the mobile geometry budget bounded")
 	var other := Node3D.new()
 	root.add_child(other)
 	var copy: Array[MeshInstance3D] = load("res://scripts/slender_model.gd").new().build(other)

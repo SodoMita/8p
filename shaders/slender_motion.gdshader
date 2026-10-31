@@ -25,6 +25,7 @@ void rotate_z(inout vec3 p, inout vec3 n, vec3 pivot, float a) {
 void vertex() {
 	vec3 rest = VERTEX;
 	float region = floor(COLOR.r * 8.0 + 0.5);
+	float joint_weight = clamp(COLOR.g, 0.0, 1.0);
 	float t = motion_time;
 	float quiet = mix(0.025, 1.0, freedom);
 	float side = (region == 2.0 || region == 4.0 || region == 6.0) ? -1.0 : 1.0;
@@ -43,21 +44,21 @@ void vertex() {
 		float shin = 1.0 - smoothstep(0.51, 0.68, rest.y);
 		rotate_x(VERTEX, NORMAL, knee, angles.y * shin);
 		float hip_weight = 1.0 - smoothstep(1.01, 1.20, rest.y);
-		rotate_x(VERTEX, NORMAL, hip, angles.x * hip_weight);
-		rotate_z(VERTEX, NORMAL, hip, angles.z * hip_weight);
+		rotate_x(VERTEX, NORMAL, hip, angles.x * hip_weight * joint_weight);
+		rotate_z(VERTEX, NORMAL, hip, angles.z * hip_weight * joint_weight);
 	} else {
 		if (region == 1.0) {
 			// Vestibular counter-motion: head stays quieter than the shoulders.
-			rotate_x(VERTEX, NORMAL, vec3(0.0, 2.32, 0.0), -body_pose.x * 0.7 + sin(t * 0.43) * 0.009 * quiet);
-			rotate_z(VERTEX, NORMAL, vec3(0.0, 2.32, 0.0), -body_pose.z * 0.7 + sin(t * 0.37) * 0.012 * quiet);
+			rotate_x(VERTEX, NORMAL, vec3(0.0, 2.32, 0.0), (-body_pose.x * 0.7 + sin(t * 0.43) * 0.009 * quiet) * joint_weight);
+			rotate_z(VERTEX, NORMAL, vec3(0.0, 2.32, 0.0), (-body_pose.z * 0.7 + sin(t * 0.37) * 0.012 * quiet) * joint_weight);
 		} else if (region == 2.0 || region == 3.0) {
 			float fingers = 1.0 - smoothstep(0.80, 0.86, rest.y);
 			rotate_x(VERTEX, NORMAL, vec3(side * 0.415, 0.85, 0.082), fingers * (0.10 + sin(t * 0.67 + side) * 0.025) * quiet);
 			float forearm = 1.0 - smoothstep(1.48, 1.72, rest.y);
-			rotate_x(VERTEX, NORMAL, vec3(side * 0.35, 1.62, 0.02), forearm * abs(arm_lag.x) * 0.45);
+			rotate_x(VERTEX, NORMAL, vec3(side * 0.35, 1.62, 0.02), forearm * abs(arm_lag.x) * 0.45 * joint_weight);
 			float shoulder = 1.0 - smoothstep(2.10, 2.22, rest.y);
-			rotate_x(VERTEX, NORMAL, vec3(side * 0.22, 2.17, 0.0), shoulder * arm_lag.x);
-			rotate_z(VERTEX, NORMAL, vec3(side * 0.22, 2.17, 0.0), shoulder * arm_lag.y);
+			rotate_x(VERTEX, NORMAL, vec3(side * 0.22, 2.17, 0.0), shoulder * arm_lag.x * joint_weight);
+			rotate_z(VERTEX, NORMAL, vec3(side * 0.22, 2.17, 0.0), shoulder * arm_lag.y * joint_weight);
 		} else if (region == 6.0 || region == 7.0) {
 			float tip = smoothstep(0.17, 1.05, abs(rest.x));
 			VERTEX.z += tip * (sin(t * 0.65 + rest.y * 2.0 + side) * 0.018 * quiet - arm_lag.x * 0.8);

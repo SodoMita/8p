@@ -21,7 +21,7 @@ func _initialize() -> void:
 			var id := roundi(colors[j].r * 8.0)
 			assert(id >= 0 and id <= 8)
 			regions[id] = true
-			assert(roundi(colors[(j / 3) * 3].r * 8.0) == id)
+			assert(colors[j].g >= 0.0 and colors[j].g <= 1.0, "Anny joint weights must remain valid")
 	assert(regions.size() == 9, "Separate segmented tie region required")
 	for i in 120: anim.advance(1.0 / 60.0, false, true, false)
 	assert(anim.freedom < 0.001)
