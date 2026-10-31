@@ -127,8 +127,11 @@ func _build() -> void:
 	# --- vignette --------------------------------------------------------
 	var vig := _shader_rect("res://shaders/vignette.gdshader")
 	vignette_mat = vig.material as ShaderMaterial
-	# the camcorder pass brings its own lens falloff and tube corners
-	vignette_mat.set_shader_parameter("strength", 0.35 if Settings.camcorder else 0.92)
+	# Full strength everywhere. The camcorder pass brings its own lens falloff, so
+	# its first version halved this one to 0.35 to avoid stacking two -- that was
+	# an effect the player had before, so it is back (#28 /re 21: the vignette and
+	# the static overlay are the look, they stay on top of the tape).
+	vignette_mat.set_shader_parameter("strength", 0.92)
 	root.add_child(vig)
 
 	# --- static / grain overlay -----------------------------------------
@@ -476,11 +479,11 @@ func set_stamina(v: float) -> void:
 
 func set_static(v: float) -> void:
 	_target_static = clampf(v, 0.0, 1.0)
-	# With the camcorder on, its tape damage *is* the static: stacking the old
-	# grain overlay underneath double-counted the noise (and the night-vision
-	# gain then blew it up into snow). Turning it off is the A/B path back.
+	# The grain overlay composites OVER the camcorder pass (it is added after it in
+	# _build()), so the two noise layers add up: this is the pre-camcorder look,
+	# restored on request. Hiding it again is the A/B path back.
 	if static_rect != null:
-		static_rect.visible = not Settings.camcorder
+		static_rect.visible = true
 
 
 ## Danger level 0..1 for the camcorder pass (proximity, chase, being watched).
@@ -511,9 +514,9 @@ func refresh_camcorder() -> void:
 	if camcorder != null:
 		camcorder.set_enabled(Settings.camcorder)
 	if vignette_mat != null:
-		vignette_mat.set_shader_parameter("strength", 0.35 if Settings.camcorder else 0.92)
+		vignette_mat.set_shader_parameter("strength", 0.92)
 	if static_rect != null:
-		static_rect.visible = not Settings.camcorder
+		static_rect.visible = true
 
 
 func flash(amount: float, duration := 0.35) -> void:
