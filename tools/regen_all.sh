@@ -25,6 +25,9 @@ echo "== 2/5 PBR sets (bark, ground, stone, pumpkin, chainlink, grass, litter)"
 python3 tools/gen_textures_real.py | tail -3
 
 echo "== 3/5 high-res concrete"
+python3 - >/dev/null <<'EOP' || true
+EOP
+python3 tools/gen_notes.py   # page notes on top of page_blank.png
 python3 tools/gen_concrete.py | tail -2
 
 echo "== 4/5 fonts"

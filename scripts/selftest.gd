@@ -76,12 +76,29 @@ func _run() -> void:
 	print("[selftest] second signature: ", sig2)
 	check("procedural_layout_unique", sig != sig2)
 
+	# Reachability, tested the way it actually matters: is there room to stand in
+	# front of the page? A capsule cast against real collision, not the scattering
+	# radius that `_point_inside_prop` uses for trees and props.
 	var all_reachable := true
+	var stand_space: PhysicsDirectSpaceState3D = world.get_world_3d().direct_space_state
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.3
+	cap.height = 1.6
 	for spot in world.map_builder.page_spots:
-		var sp: Vector3 = spot["pos"]
-		if not world.map_builder.is_walkable(sp, 0.35):
+		var sp: Vector3 = spot["pos"] + (spot.get("normal", Vector3(0, 0, 1)) as Vector3) * 1.1
+		sp.y = 0.0
+		if Vector2(sp.x, sp.z).length() > world.map_builder.HALF - 2.0:
 			all_reachable = false
-			print("[selftest]   page blocked at ", sp)
+			print("[selftest]   page spot outside the map at ", sp)
+			continue
+		var qs := PhysicsShapeQueryParameters3D.new()
+		qs.shape = cap
+		qs.collision_mask = 1
+		qs.transform = Transform3D(Basis(), sp + Vector3(0, 0.95, 0))
+		var hits := stand_space.intersect_shape(qs, 1)
+		if hits.size() > 0:
+			all_reachable = false
+			print("[selftest]   nowhere to stand at ", sp)
 	check("pages_reachable", all_reachable)
 	var landmark_spread := _min_landmark_distance(world.map_builder)
 	# the algorithm targets >= 24 m centre-to-centre; 18 m still guarantees the
@@ -194,11 +211,15 @@ func _run() -> void:
 				gate_clear = false
 	check("gate_is_open", gate_clear, str(gate))
 
-	# --- pages: cloth simulation, and no light of their own ------------------
+	# --- pages: nailed to real surfaces, dark, and carrying their message -----
 	var pages_list: Array = world.pages
 	var cloth_ok: bool = pages_list.size() >= 8
 	var light_free := cloth_ok
+	var dark := cloth_ok
+	var texted := cloth_ok
 	var sags := cloth_ok
+	var anchored := cloth_ok
+	var space: PhysicsDirectSpaceState3D = world.get_world_3d().direct_space_state
 	for p in pages_list:
 		var sheet: Node3D = p.get("cloth")
 		if sheet == null or sheet.vertex_count() != 63:
@@ -206,33 +227,73 @@ func _run() -> void:
 			continue
 		if sheet.has_light():
 			light_free = false
-		var before: PackedVector3Array = sheet.snapshot()
-		var top_y: float = before[0].y
+		if sheet.is_emissive():
+			dark = false
+		if not sheet.note_is_visible():
+			texted = false
+		# the page must have a solid surface right behind it: shoot a short ray
+		# through the sheet and expect to hit the wall/panel it is nailed to
+		var node: Node3D = p["node"]
+		var nrm: Vector3 = p["normal"]
+		# start outside and cast in: a ray that begins inside the wall reports no
+		# hit at all, because only entry faces are detected
+		var from: Vector3 = node.global_position + nrm * 0.30
+		var to: Vector3 = node.global_position - nrm * 0.30
+		var q := PhysicsRayQueryParameters3D.create(from, to)
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			anchored = false
 		for k in 90:
 			sheet._simulate(1.0 / 60.0)
 		var after: PackedVector3Array = sheet.snapshot()
-		# the free (bottom) edge must have dropped and must not have exploded
-		if after[63 - 1].y > top_y - 0.05 or after[63 - 1].length() > 20.0:
+		var top_y: float = after[0].y
+		var drop: float = top_y - after[63 - 1].y
+		# hangs at least 85% of its length below the nail, and stays finite
+		if drop < 0.49 or after[63 - 1].length() > 20.0:
 			sags = false
-	# the sheet's smoothed normals must agree with its own winding (+Z), or the
-	# page is lit from behind and reads as a black rectangle in the beam
-	var norm_ok := cloth_ok
-	for p in pages_list:
-		var sh: Node3D = p.get("cloth")
-		if sh == null:
-			continue
-		sh._simulate(1.0 / 60.0)
-		var ns: PackedVector3Array = sh.surface_normals()
-		var acc2 := 0.0
-		for nvec in ns:
-			acc2 += nvec.dot(Vector3.BACK)
-		if ns.size() == 0 or acc2 / float(ns.size()) < 0.9:
-			norm_ok = false
-	check("page_cloth_normals_forward", norm_ok)
-
+		for v in after:
+			if v.z < 0.005:
+				sags = false
+				break
 	check("pages_are_cloth", cloth_ok, "%d pages" % pages_list.size())
 	check("pages_have_no_light", light_free)
+	check("pages_are_not_emissive", dark)
+	check("pages_show_their_note", texted)
+	check("pages_pinned_to_surface", anchored, "%d pages" % pages_list.size())
+	# the sheet's normals must face OUT of the wall it hangs on. This is the check
+	# that catches the inversion: measured in world space against the surface
+	# normal the landmark reported, not against the sheet's own winding.
+	var facing := cloth_ok
+	for p in pages_list:
+		var sheet2: Node3D = p.get("cloth")
+		var node2: Node3D = p["node"]
+		if sheet2 == null:
+			continue
+		# no extra simulation here: _rebuild() recomputes normals from the live
+		# geometry, and stepping the solver would move the sheet away from the
+		# frame the rest of the test measured
+		sheet2._rebuild()
+		var ns: PackedVector3Array = sheet2.surface_normals()
+		if ns.size() == 0:
+			facing = false
+			continue
+		var acc2 := Vector3.ZERO
+		for nv in ns:
+			acc2 += nv
+		var world_avg: Vector3 = (node2.global_transform.basis * (acc2 / float(ns.size()))).normalized()
+		var surface_n: Vector3 = (p["normal"] as Vector3).normalized()
+		if world_avg.dot(surface_n) < 0.9:
+			facing = false
+			print("[selftest]   page normals face the wall at ", p.get("landmark"), " dot=", world_avg.dot(surface_n))
+	check("page_normals_face_outward", facing)
+
 	check("page_cloth_sags", sags)
+	var height_ok := true
+	for p in pages_list:
+		var y: float = (p["node"] as Node3D).global_position.y
+		if y < 1.1 or y > 1.9:
+			height_ok = false
+	check("pages_at_hand_height", height_ok)
 
 	# --- outside the fence: endless terrain + the road out of the gate --------
 	var st: Dictionary = world.terrain.stats() if world.terrain != null else {}
@@ -376,7 +437,9 @@ func _run() -> void:
 	# ---------------------------------------------------------------- pickups
 	world.autotest_no_pickup = false
 	var target: Vector3 = (world.pages[0]["node"] as Node3D).global_position
-	player.global_position = Vector3(target.x, 0.15, target.z + 1.0)
+	var tnrm: Vector3 = world.pages[0]["normal"]
+	var stand: Vector3 = target + tnrm * 1.1
+	player.global_position = Vector3(stand.x, 0.15, stand.z)
 	await _wait(0.5)
 	check("page_pickup", Game.pages_collected == 1, "collected=%d" % Game.pages_collected)
 	check("hud_page_counter", world.hud.pages_label.text == "1 / 8", world.hud.pages_label.text)
@@ -384,7 +447,9 @@ func _run() -> void:
 	check("slender_woken", sl.cooldown < 16.0, "cooldown=%.1f" % sl.cooldown)
 
 	# ------------------------------------------------------------------ AI
-	# unoccluded in front of the camera -> seen; behind -> unseen
+	# unoccluded in front of the camera -> seen; behind -> unseen.
+	# The forest is procedural, so a fixed heading can end up behind a trunk:
+	# turn until the sight line is genuinely clear, then assert the mechanism.
 	sl.set_process(false)
 	sl.visible = true
 	var cam: Camera3D = player.camera
@@ -392,11 +457,22 @@ func _run() -> void:
 	player.rotation.y = 0.0
 	player.head.rotation.x = 0.0
 	await _wait(0.3)
-	sl.global_position = Vector3(0, 0, 1)
-	await _wait(0.2)
+	var sight_space: PhysicsDirectSpaceState3D = get_viewport().world_3d.direct_space_state
+	var clear_dir := Vector3(0, 0, -1)
+	for k in 24:
+		var a := TAU * float(k) / 24.0
+		var d := Vector3(sin(a), 0, -cos(a))
+		sl.global_position = player.global_position + d * 8.0
+		var q := PhysicsRayQueryParameters3D.create(cam.global_position, sl.global_position + Vector3(0, 2.2, 0), 1)
+		if sight_space.intersect_ray(q).is_empty():
+			clear_dir = d
+			break
+	sl.global_position = player.global_position + clear_dir * 8.0
+	player.rotation.y = atan2(-clear_dir.x, -clear_dir.z)
+	await _wait(0.3)
 	check("slender_seen_in_front", sl._is_seen_by_player(),
-		"cam=%s sl=%s frustum=%s" % [str(cam.global_position), str(sl.global_position), str(cam.is_position_in_frustum(sl.global_position + Vector3(0, 2.2, 0)))])
-	sl.global_position = player.global_position + Vector3(0, 0, 10)
+		"dir=%s frustum=%s" % [str(clear_dir), str(cam.is_position_in_frustum(sl.global_position + Vector3(0, 2.2, 0)))])
+	sl.global_position = player.global_position + clear_dir * -8.0
 	await _wait(0.2)
 	check("slender_unseen_behind", not sl._is_seen_by_player())
 	sl.set_process(true)

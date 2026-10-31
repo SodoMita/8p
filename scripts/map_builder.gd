@@ -22,6 +22,9 @@ signal built
 
 var rng := RandomNumberGenerator.new()
 var page_spots: Array[Dictionary] = []
+# set by each landmark builder: a surface point (landmark-local) and its outward
+# normal, so a page is pinned to something real instead of floating in a clearing
+var _attach_hint: Dictionary = {}
 var tree_positions: PackedVector3Array = PackedVector3Array()
 var landmarks: Array[Dictionary] = []
 var world_seed := 0
@@ -421,22 +424,17 @@ func _build_landmark(type: String, base: Vector3, rot: float, s: float) -> void:
 
 
 func _add_page_spot(type: String, xf: Transform3D) -> void:
-	# candidate offsets in landmark-local space; pick one that is clear
-	var candidates := [
-		Vector3(0, 0, 5.0), Vector3(3.0, 0, 4.0), Vector3(-3.0, 0, 4.0),
-		Vector3(5.0, 0, 0.0), Vector3(-5.0, 0, -1.0), Vector3(0, 0, -5.0),
-		Vector3(4.0, 0, -4.0), Vector3(-4.0, 0, -4.5),
-	]
-	_shuffle(candidates)
-	for c in candidates:
-		var world: Vector3 = xf * c
-		if Vector2(world.x, world.z).length() > HALF - 6.0:
-			continue
-		if _point_inside_prop(world):
-			continue
-		page_spots.append({"pos": world, "name": type})
+	# The landmark told us where its surface is, so the page is pinned to it:
+	# the spot is a point on that surface and the normal points out of it.
+	if _attach_hint.is_empty():
+		# no hint (should not happen): keep the old open-air fallback, but low
+		page_spots.append({"pos": xf * Vector3(0, 1.45, 5.0), "name": type,
+			"normal": (xf.basis * Vector3(0, 0, 1)).normalized()})
 		return
-	page_spots.append({"pos": xf * Vector3(0, 0, 6.5), "name": type})
+	var p: Vector3 = xf * (_attach_hint["pos"] as Vector3)
+	var n: Vector3 = (xf.basis * (_attach_hint["n"] as Vector3)).normalized()
+	_attach_hint = {}
+	page_spots.append({"pos": p, "normal": n, "name": type})
 
 
 # --------------------------------------------------------------------------- #
@@ -525,6 +523,8 @@ func _concrete_walls(xf: Transform3D) -> void:
 		# collapsed slab leaning on the wall
 		_box(xf, Vector3(2.0, 1.1, 0.4), Vector3(4.0, 0.28, 3.0), m, Vector3(rng.randf_range(-0.2, 0.2), rng.randf_range(-0.4, 0.4), 0.55))
 		_box(xf, Vector3(-3.2, 0.2, 1.0), Vector3(1.6, 0.35, 1.2), m, Vector3(0.1, 0.8, 0))
+	# the near face of the long wall, at chest height
+	_attach_hint = {"pos": Vector3(gap - span * 0.75, 1.45, -3.0 + 0.16), "n": Vector3(0, 0, 1)}
 
 
 func _tunnel(xf: Transform3D) -> void:
@@ -537,6 +537,7 @@ func _tunnel(xf: Transform3D) -> void:
 	# both ends are broken open with random rubble
 	_box(xf, Vector3(rng.randf_range(-1.4, 1.4), h * 0.5, ln * 0.5), Vector3(rng.randf_range(1.6, 3.4), h, 0.35), m)
 	_box(xf, Vector3(rng.randf_range(-1.4, 1.4), h * 0.42, -ln * 0.5), Vector3(rng.randf_range(1.4, 3.0), h * 0.85, 0.35), m)
+	_attach_hint = {"pos": Vector3(-2.2 + 0.225, 1.45, 0.0), "n": Vector3(1, 0, 0)}
 	# spilled rubble outside
 	for i in rng.randi_range(3, 6):
 		_box(xf, Vector3(rng.randf_range(-3.5, 3.5), 0.16, rng.randf_range(ln * 0.5, ln * 0.5 + 2.5)),
@@ -556,6 +557,9 @@ func _silo(xf: Transform3D) -> void:
 	for i in int(h / 0.7):
 		_box(xf, Vector3(0, 0.6 + i * 0.7, r + 0.06), Vector3(1.05, 0.05, 0.05), _mats["rust"], Vector3.ZERO, false)
 	_box(xf, Vector3(0, 1.0, r + 0.09), Vector3(1.0, 1.9, 0.05), _mats["dark"], Vector3.ZERO, false)
+	# on the shell, away from the ladder and the hatch
+	var sa := 0.85
+	_attach_hint = {"pos": Vector3(cos(sa) * r, 1.45, sin(sa) * r), "n": Vector3(cos(sa), 0.0, sin(sa))}
 
 
 func _truck(xf: Transform3D) -> void:
@@ -569,6 +573,7 @@ func _truck(xf: Transform3D) -> void:
 	for wx in [-1.12, 1.12]:
 		for wz in [-ln * 0.32, -ln * 0.06, ln * 0.3]:
 			_cyl(xf, Vector3(wx, 0.5, wz), 0.5, 0.34, _mats["dark"])
+	_attach_hint = {"pos": Vector3(1.125, 1.55, 0.0), "n": Vector3(1, 0, 0)}
 
 
 func _shed(xf: Transform3D) -> void:
@@ -589,11 +594,13 @@ func _shed(xf: Transform3D) -> void:
 	_box(xf, Vector3(0, h + 0.09, 0), Vector3(w + 0.7, 0.16, d + 0.7), _mats["dark"], Vector3(rng.randf_range(-0.03, 0.03), 0, rng.randf_range(-0.04, 0.04)))
 	# broken plank leaning by the door
 	_box(xf, Vector3(door_x + door_w, 0.9, d * 0.5 + 0.6), Vector3(0.9, 1.6, 0.08), m, Vector3(0.15, rng.randf_range(-0.3, 0.3), 0.35), false)
+	_attach_hint = {"pos": Vector3(0.0, 1.45, -d * 0.5 - 0.12), "n": Vector3(0, 0, -1)}
 
 
 func _rock_circle(xf: Transform3D) -> void:
 	var n := rng.randi_range(7, 11)
 	var radius := rng.randf_range(2.8, 4.0)
+	var stone_hint := {}
 	for i in n:
 		var a := TAU * float(i) / n + rng.randf_range(-0.15, 0.15)
 		var rr := radius * rng.randf_range(0.9, 1.12)
@@ -602,8 +609,13 @@ func _rock_circle(xf: Transform3D) -> void:
 		var rad := rng.randf_range(0.45, 0.75)
 		var body := _cyl(xf, p + Vector3(0, hh * 0.5, 0), rad, hh, _mats["stone"], rad * 0.55)
 		body.rotation = xf.basis.get_rotation_quaternion().get_euler() + Vector3(rng.randf_range(-0.08, 0.08), rng.randf() * 0.6, rng.randf_range(-0.08, 0.08))
+		if stone_hint.is_empty() and hh >= 1.7 and rad >= 0.55:
+			var dir := Vector3(cos(a), 0.0, sin(a))
+			stone_hint = {"pos": p + dir * rad * 0.96 + Vector3(0, 1.45, 0), "n": dir}
 	# toppled stone in the middle
 	_box(xf, Vector3(rng.randf_range(-0.8, 0.8), 0.4, rng.randf_range(-0.8, 0.8)), Vector3(1.5, 0.8, 0.9), _mats["stone"], Vector3(0.3, rng.randf() * TAU, 0.2))
+	if not stone_hint.is_empty():
+		_attach_hint = stone_hint
 
 
 func _bathroom(xf: Transform3D) -> void:
@@ -624,6 +636,7 @@ func _bathroom(xf: Transform3D) -> void:
 	for i in 2:
 		_box(xf, Vector3(rng.randf_range(-1.2, 1.2), 1.0, -d * 0.5 + 1.4 + i * 1.5), Vector3(w - 0.7, 2.0, 0.12), m)
 	_box(xf, Vector3(0, 0.45, d * 0.5 + 0.4), Vector3(0.6, 0.5, 0.5), _mats["dark"])  # drain
+	_attach_hint = {"pos": Vector3(0.0, 1.45, -d * 0.5 + 0.14), "n": Vector3(0, 0, 1)}
 
 
 func _tower(xf: Transform3D) -> void:
@@ -645,6 +658,9 @@ func _tower(xf: Transform3D) -> void:
 		_box(xf, Vector3(0, top + 0.75, dz), Vector3(half_w * 2.6, 0.06, 0.06), m, Vector3.ZERO, false)
 	for dx in [-half_w, half_w]:
 		_box(xf, Vector3(dx, top + 0.75, 0), Vector3(0.06, 0.06, half_w * 2.6), m, Vector3.ZERO, false)
+	# a scrap board nailed across the legs, so the page here has something to hang on
+	_box(xf, Vector3(0, 1.45, half_w + 0.02), Vector3(half_w * 1.7, 0.46, 0.05), _mats["wood"], Vector3.ZERO, true)
+	_attach_hint = {"pos": Vector3(0.0, 1.45, half_w + 0.065), "n": Vector3(0, 0, 1)}
 
 
 # --------------------------------------------------------------------------- #

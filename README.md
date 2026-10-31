@@ -37,9 +37,20 @@ to walk. A 4 km collision slab sits under all of it.
 Each page is a small **verlet cloth sheet** — 7×9 vertices pinned along its top
 edge, integrated at a fixed 60 Hz, three constraint passes, shear links so it
 cannot fold into a fan of triangles, and smoothed per-vertex normals computed from
-the live geometry. It sags under its own weight and stirs in the draft. The pages
-carry **no light of their own**; a whisper of emission keeps them readable at the
-edge of the beam, and everything else you see on them is the flashlight.
+the live geometry. It sags under its own weight, stirs in the draft, and cannot be
+pushed through the wall behind it.
+
+Every page is **nailed to a real surface**: the face of the broken wall, the inside
+of the tunnel, the silo shell, the truck's side panel, the shed's back wall, a
+standing stone, the back of the ruined bathroom, and a scrap board nailed across
+the watchtower's legs. Each landmark reports a surface point and an outward normal,
+so a page is never left floating in a clearing.
+
+They carry **no light of their own** — no lamp, no emission. Measured against the
+wall beside it, a page reads 0.81× as bright under the torch and 0.86× in the
+camera's IR mode: it is lit, not lit-up. And the **note is on the page**: the eight
+messages are baked into `assets/textures/note_N.png` by `tools/gen_notes.py` and
+used as the sheet's albedo, so what you read in the world is the message you get.
 
 ### Concrete that holds up close
 
@@ -206,7 +217,7 @@ eight_pages/
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 43 world assertions
+│   ├── selftest.gd          # 47 world assertions
 │   ├── camera_test.gd       # 30 assertions on the handheld camera rig
 │   ├── controls_test.gd     # 20 assertions on the control paths
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
@@ -227,6 +238,7 @@ eight_pages/
 │   ├── gen_trees.gd         # bakes the bare-tree meshes into assets/models
 │   ├── gen_title_bg.gd      # renders the menu backdrop from the tree meshes
 │   ├── gen_concrete.py      # 2048² concrete albedo/normal/rough, isotropic
+│   ├── gen_notes.py         # bakes the eight page notes into note_N.png
 │   ├── setup_toolchain.sh   # JDK 21 + Android SDK + keystores + templates
 │   ├── run_sway.sh          # headless sway compositor + Godot runner
 │   ├── capture_screens.sh   # full screenshot capture inside sway
@@ -242,7 +254,7 @@ eight_pages/
 Everything below runs headless — no physical display required.
 
 ```bash
-tools/test_all.sh                  # 43 world + 30 rig + 20 control checks + scripted runs in sway
+tools/test_all.sh                  # 47 world + 30 rig + 20 control checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 

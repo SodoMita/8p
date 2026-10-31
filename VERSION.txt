@@ -12,6 +12,27 @@ Godot 4.7.2 · GL Compatibility · GDScript
      on any device, and the cursor free-vs-captured rule is explicit. 34 selftests
      + 30 rig + 20 control checks green.
 
+1.5.1 pages: pinned to real surfaces, dark, and carrying their message.
+     * every page is now attached to the thing it belongs to - the face of the
+       broken wall, the inside of the tunnel, the silo shell, the truck's side,
+       the shed's back wall, a standing stone, the back of the bathroom, and a
+       scrap board nailed across the tower's legs - instead of floating in a
+       clearing. Each landmark reports a surface point plus an outward normal.
+     * no light of their own at all: the per-page OmniLight went earlier, now
+       the emission is gone too. Measured against the wall beside it, a page is
+       0.81x as bright with the torch on and 0.86x in the IR mode - it is lit,
+       not lit-up.
+     * the note is on the page. The eight messages are baked into
+       assets/textures/note_N.png by tools/gen_notes.py (runtime SubViewport
+       capture was tried and is unreliable with eight live viewports), and the
+       cloth sheet uses that image as its albedo, so what you read in the world
+       is what you collect.
+     * the sheet hangs off its nails: top edge pinned, wall-side clamped to the
+       surface, calm flutter instead of a flag, two nail heads drawn in.
+     * the inverted-face bug is gone and is now guarded: winding and normals
+       both point out of the wall, asserted per page in world space.
+     * map_builder: page spots carry a normal; a wall page used to be invisible
+       from the front because the visible face was a back face.
 1.5  the map is closed and the world outside it keeps going.
      * boundary: a real chain-link fence, built the way one is built — 3 m
        mesh bays, galvanised posts, top rail, bottom tension wire, and a

@@ -340,10 +340,20 @@ func _run_shots() -> void:
 		var pnode: Node3D = world.pages[0]["node"]
 		var pp: Vector3 = pnode.global_position
 		# stand along the sheet's own +Z normal, or the shot is a paper edge
-		var face: Vector3 = pnode.global_transform.basis.z.normalized()
-		await _set_camera(pp + face * 0.95 + Vector3(0.0, 0.16, 0.0), pp + Vector3(0.0, -0.05, 0.0))
+		var face: Vector3 = (world.pages[0]["normal"] as Vector3).normalized()
+		await _set_camera(pp + face * 0.62 + Vector3(0.0, -0.28, 0.0), pp + Vector3(0.0, -0.32, 0.0))
 		await _wait(1.4)
+		print("[dbg] page shot cam=", world.player.camera.global_position,
+			" page=", pp, " torch=", world.player.flashlight_on,
+			" flash_energy=", world.player.flashlight.light_energy,
+			" visible=", world.player.flashlight.visible,
+			" spot_angle=", world.player.flashlight.spot_angle)
 		await _shot("page_cloth")
+		# same frame with the torch off: the page must be as black as the wall
+		world.player.flashlight_on = false
+		await _wait(0.7)
+		await _shot("page_in_the_dark")
+		world.player.flashlight_on = true
 
 	# 2d) concrete close up: texel density / stretching check
 	var cw: Dictionary = {}

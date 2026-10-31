@@ -165,27 +165,32 @@ func _spawn_pages() -> void:
 		var tmp: int = note_order[i]
 		note_order[i] = note_order[j]
 		note_order[j] = tmp
-	# keep landmark order, notes are handed out in that same order
 	var cloth_script: Script = load("res://scripts/page_cloth.gd")
 	for i in spots.size():
 		var spot: Dictionary = spots[i]
+		var note_index: int = note_order[i] if i < note_order.size() else 0
+		var note: String = PAGE_NOTES[note_index % PAGE_NOTES.size()]
 		var root := Node3D.new()
 		root.name = "Page_%d" % i
-		# The sheet itself is a live cloth grid: it hangs from its top edge,
-		# sags under its own weight and moves in the draft. It carries no light.
+		# Pin it to the surface the landmark reported: the spot is a point on
+		# that surface and `normal` points out of it. The sheet hangs off the
+		# nail from its top edge, so the node sits at nail height.
+		var pos: Vector3 = spot["pos"]
+		var n: Vector3 = spot.get("normal", Vector3(0, 0, 1))
+		n = n.normalized()
+		var basis := Basis(Vector3.UP, atan2(n.x, n.z))
+		root.transform = Transform3D(basis, pos + n * 0.035)
 		var sheet: Node3D = cloth_script.new()
 		sheet.name = "Sheet"
 		sheet.set("hang_phase", randf() * TAU)
+		sheet.set("note_index", (note_index % PAGE_NOTES.size()) + 1)
 		root.add_child(sheet)
-		var pos: Vector3 = spot["pos"]
-		root.position = Vector3(pos.x, 0.62, pos.z)
-		root.rotation = Vector3(0.0, randf() * TAU, 0.0)
 		add_child(root)
-		var note_index: int = note_order[i] if i < note_order.size() else 0
 		pages.append({
 			"node": root,
 			"cloth": sheet,
-			"note": PAGE_NOTES[note_index % PAGE_NOTES.size()],
+			"note": note,
+			"normal": n,
 			"landmark": spot["name"],
 			"taken": false,
 			"phase": randf() * TAU,
@@ -216,7 +221,7 @@ func _update_pages(delta: float) -> void:
 		if p["taken"]:
 			continue
 		var node: Node3D = p["node"]
-		var d := player.global_position.distance_to(node.global_position)
+		var d := player.global_position.distance_to(node.global_position + Vector3(0, -0.29, 0))
 		if d < PICKUP_RADIUS and not autotest_no_pickup:
 			_collect(i)
 			return

@@ -416,3 +416,52 @@ if __name__ == "__main__":
     make_grass()
     make_litter()
     print("done.")
+
+def make_page_blank(size=(512, 672)):
+    """Clean aged paper stock for the page notes (no printed lines).
+
+    paper.png already carries ruled handwriting, so it cannot be used as the
+    substrate for a page that has its own text drawn on it.
+    """
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    w, h = size
+    rng = np.random.default_rng(7)
+
+    def fbm(octaves, base, gain, seed):
+        r = np.random.default_rng(seed)
+        acc = np.zeros((h, w), np.float32)
+        amp, tot = 1.0, 0.0
+        for o in range(octaves):
+            g = r.random((max(2, base * 2 ** o), max(2, base * 2 ** o)), dtype=np.float32)
+            g = np.asarray(Image.fromarray((g * 255).astype(np.uint8)).resize((w, h), Image.BICUBIC), np.float32) / 255.0
+            acc += g * amp
+            tot += amp
+            amp *= gain
+        return acc / tot
+
+    macro, mid, fine = fbm(4, 3, 0.58, 11), fbm(5, 9, 0.55, 12), fbm(4, 64, 0.5, 13)
+    base_col = np.stack([0.855, 0.822, 0.752], axis=-1)[None, None, :]
+    out = base_col * (0.90 + 0.22 * macro[..., None])
+    out = out * (0.96 + 0.09 * mid[..., None])
+    out = out * (0.985 + 0.03 * fine[..., None])
+
+    fib = Image.new("L", (w, h), 0)
+    px = fib.load()
+    for _ in range(1400):
+        x0, y0 = int(rng.integers(0, w)), int(rng.integers(0, h))
+        ln, a = int(rng.integers(4, 22)), float(rng.random() * 6.283)
+        for t in range(ln):
+            x, y = int(x0 + np.cos(a) * t), int(y0 + np.sin(a) * t)
+            if 0 <= x < w and 0 <= y < h:
+                px[x, y] = int(rng.integers(90, 160))
+    fib_a = np.asarray(fib.filter(ImageFilter.GaussianBlur(0.6)), np.float32) / 255.0
+    out = out * (1.0 - 0.16 * fib_a[..., None])
+
+    yy, xx = np.mgrid[0:h, 0:w]
+    edge = 1.0 - 0.16 * np.clip(((xx - w / 2) ** 2 / (w * 0.62) ** 2 + (yy - h / 2) ** 2 / (h * 0.62) ** 2), 0.0, 1.2)
+    out = out * edge[..., None]
+    Image.fromarray(np.clip(out * 255.0, 0, 255).astype(np.uint8)).save("assets/textures/page_blank.png")
+    print("  texture: page_blank.png")
+
