@@ -1,6 +1,12 @@
-EIGHT PAGES 1.5.1
+EIGHT PAGES 1.5.2
 Godot 4.7.2 · GL Compatibility · GDScript
 ----------------------------------------
+1.5.2 effects restored (#28): the camcorder pass had quietly turned the old
+     static-grain overlay off and halved the vignette (0.92 -> 0.35) to avoid
+     stacking two of each. Both are back at full strength on top of the tape,
+     as they were before the camcorder existed; four selftest assertions pin
+     them, including across a CAMCORDER FX toggle. Costs ~9 ms of a 497 ms
+     llvmpipe frame at quality 1.
 1.5.1 control audit: five input bugs fixed and pinned by a new 20-check harness
      (--autotest=controls). A finger produced look twice (touch overlay plus the
      emulated mouse motion from pointing/emulate_mouse_from_touch) so the touch

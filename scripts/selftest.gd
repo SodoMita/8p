@@ -502,6 +502,29 @@ func _run() -> void:
 	sl.set_process(true)
 	sl.visible = false
 
+	# ------------------------------------------------- post-effects are intact
+	# #28 /re 21: the camcorder pass had quietly turned the old grain overlay off
+	# and halved the vignette. Both are back, stacked over the tape, so assert the
+	# composites exist at full strength whatever the camcorder is doing.
+	var hud: Node = world.hud
+	check("hud_static_overlay_present", hud.static_rect != null and hud.static_mat != null)
+	check("hud_static_overlay_visible", hud.static_rect.visible)
+	var vig_strength: float = float(hud.vignette_mat.get_shader_parameter("strength"))
+	check("hud_vignette_full_strength", is_equal_approx(vig_strength, 0.92),
+		"%.2f" % vig_strength)
+	var cam_on: bool = Settings.camcorder
+	Settings.camcorder = not cam_on
+	hud.refresh_camcorder()
+	await _wait(0.1)
+	check("hud_effects_survive_camcorder_toggle",
+		hud.static_rect.visible and is_equal_approx(
+			float(hud.vignette_mat.get_shader_parameter("strength")), 0.92),
+		"static=%s vig=%.2f" % [str(hud.static_rect.visible),
+			float(hud.vignette_mat.get_shader_parameter("strength"))])
+	Settings.camcorder = cam_on
+	hud.refresh_camcorder()
+	await _wait(0.1)
+
 	# ------------------------------------------------------------- death flow
 	sl.visible = true
 	sl.global_position = player.global_position + Vector3(0, 0, -2.0)
