@@ -6,7 +6,9 @@ func _initialize() -> void:
 func _run() -> void:
 	var label := "after"
 	var view := "front"
+	var animate := false
 	for arg in OS.get_cmdline_user_args():
+		if arg == "--animate": animate = true
 		if arg.begins_with("--label="): label = arg.get_slice("=", 1)
 		if arg.begins_with("--view="): view = arg.get_slice("=", 1)
 	var stage := Node3D.new()
@@ -48,6 +50,16 @@ func _run() -> void:
 	cam.look_at(Vector3(0, 1.9, 0))
 	cam.fov = 38
 	cam.current = true
+	if animate:
+		DirAccess.make_dir_recursive_absolute("res://screenshots/animation_frames")
+		for i in 144:
+			var chasing := i >= 72
+			var watched := i >= 36 and i < 72
+			sl._animation.advance(1.0 / 24.0, chasing, watched, chasing)
+			await process_frame
+			await RenderingServer.frame_post_draw
+			root.get_texture().get_image().save_png("res://screenshots/animation_frames/%03d.png" % i)
+		print("[preview] captured 144 animation frames")
 	for i in 12: await process_frame
 	await RenderingServer.frame_post_draw
 	var path := "res://screenshots/slender_%s_%s.png" % [label, view]

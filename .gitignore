@@ -14,3 +14,6 @@ build/
 # python tooling
 __pycache__/
 *.pyc
+
+# Reproducible animation capture intermediates (GIF is committed)
+screenshots/animation_frames/
