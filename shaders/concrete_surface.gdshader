@@ -111,7 +111,9 @@ void fragment() {
  mat3 frame = mat3(normalize(frame_x),normalize(frame_y),normalize(frame_z));
  vec3 world_n = frame * normalize(n + perturb * normal_strength);
  NORMAL = normalize((VIEW_MATRIX * vec4(world_n,0.0)).xyz) * (FRONT_FACING ? 1.0 : -1.0);
- ALBEDO = clamp(base,vec3(0.0),vec3(1.0));
+ // Batched geometry (labyrinth floor/walls) carries its tint in COLOR; the old
+ // StandardMaterial3D path got that from vertex_color_use_as_albedo.
+ ALBEDO = clamp(base * COLOR.rgb,vec3(0.0),vec3(1.0));
  ROUGHNESS = clamp(rough * roughness_multiplier + cracks * 0.08,0.35,1.0);
  METALLIC = 0.0;
  SPECULAR = 0.35;

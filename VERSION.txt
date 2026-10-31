@@ -1,34 +1,44 @@
-EIGHT PAGES 1.5.3
+EIGHT PAGES 1.6.0
 Godot 4.7.2 · GL Compatibility · GDScript
-----------------------------------------
-1.5.3 mouse look, for real this time: 1.5.1 had gated mouse look on Game.touch_mode,
-     which _detect_touch() sets for ANY machine reporting a touchscreen -- a
-     Windows laptop, a desktop browser with navigator.maxTouchPoints > 0 -- so on
-     those PCs the camera could not be turned at all without holding a button.
-     Look is now decided by the origin of the event, never by the mode: a real
-     mouse always looks, a finger never does (emulation device tag, plus a
-     finger-down state so untracked platforms are covered too). Dismissing a note
-     also actually dismisses it now: the fade-in tween used to keep running and
-     drag it back, eating the next key press as well. 48 selftests + 30 rig + 23
-     control checks, the control ones headless and again inside sway where pointer
-     capture is real.
-1.5.2 effects restored (#28): the camcorder pass had quietly turned the old
-     static-grain overlay off and halved the vignette (0.92 -> 0.35) to avoid
-     stacking two of each. Both are back at full strength on top of the tape,
-     as they were before the camcorder existed; four selftest assertions pin
-     them, including across a CAMCORDER FX toggle. Costs ~9 ms of a 497 ms
-     llvmpipe frame at quality 1.
-1.5.1 control audit: five input bugs fixed and pinned by a new 20-check harness
-     (--autotest=controls). A finger produced look twice (touch overlay plus the
-     emulated mouse motion from pointing/emulate_mouse_from_touch) so the touch
-     camera ran ~1.7x too fast; a free cursor in touch mode turned the camera on
-     every move; the touch overlay kept steering and could latch a stick while
-     paused or dead; add_look() ignored frozen/paused; and the key that dismisses
-     a note also fired flashlight/interact/pause. Pause now silences the overlay,
-     the death freeze holds the view still, a real click re-captures the pointer
-     on any device, and the cursor free-vs-captured rule is explicit. 34 selftests
-     + 30 rig + 20 control checks green.
-
+-----------------------------------------
+1.6.0 branch integration. Six agent branches merged into main and made to run
+     together. What actually needed fixing to make them coexist:
+     * translations (RU/ZH): the branch's manager could not load at all -- it
+       declared get_instance() returning a class it never named, called the
+       Godot 3 find_node(), and used get_tree() from a static function. Both
+       language files were also invalid JSON (a literal backslash-n before every
+       real newline) and translations.json was markdown. Rewritten as a real
+       singleton with an English fallback table, a Language enum, and the choice
+       persisted in settings.cfg. en.json is generated from the diff that
+       replaced the literals, so fallbacks are the original wording.
+     * labyrinth: it returned early from _build_landmark and appended its own
+       page spot at the maze centre with no normal and no height -- a ninth page
+       lying on the sanctum floor and no page on a wall. It now leaves a real
+       anchor (a standing corridor wall, face turned into the cell) and goes
+       through the same page path as every other landmark. Its lab_* materials
+       use the triplanar stone path, and the orphaned appear.wav the OGG
+       migration left behind is gone.
+     * bathroom page: it hung on the back wall, which the stall dividers seal
+       off (they span w-0.7, wider than either side gap). Moved to the side wall
+       in the open floor between the stalls and the door.
+     * truck: the model pass's detailed wheels and hub merged with our pinned
+       page anchor on the driver's door.
+     * concrete: the rotation-following metre projection now also drives the
+       concrete material (it blends cracks into the real stone maps instead of
+       faking them with noise). ShaderMaterial has no
+       vertex_color_use_as_albedo, so the shader multiplies COLOR itself to keep
+       the labyrinth's batched tints.
+     * bark keeps the 1.5.2 fix (lifted albedo, softened relief, wrapped
+       diffuse) on top of the new world-anchored projection.
+     Also merged: 3D model pass (detailed trees, snags, pumpkins, truck, batched
+     prop details, weathered metal), mouse look decided by event origin, and the
+     restored grain/vignette.
+     Not merged: improve/slender-model. It is a competing Slender (procedural
+     anatomy, 1.13 m hips, one mesh per limb) against the Anny/MakeHuman body
+     already on main (5 batched surfaces, 2.26 m hips, IK deformation through
+     slender_motion.gdshader). Its animation is the same algorithm already
+     retargeted to anny; merging it would replace the reviewed asset work.
+     64 world + 30 rig + 23 control checks.
 1.5.2 fence orientation + bark at glancing light.
      * fence panels and gate leaves were rotated 90 degrees: the yaw put the
        plane's WIDTH along the outward normal, so every bay stood sideways to the

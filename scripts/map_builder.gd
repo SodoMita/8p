@@ -180,7 +180,9 @@ func _make_materials() -> void:
 	# 2048 px over 1.2 m -> ~1700 px/m on every concrete and stone face,
 	# independent of how big the surface is
 	_mats["stone"] = _triplanar("stone", 1.2, 0.95, 1.0)
-	_mats["concrete"] = _procedural_surface("weathered_concrete")
+	# concrete goes through the rotation-following metre projection too, now that it
+	# blends cracks into the real stone maps rather than faking them with noise
+	_mats["concrete"] = _triplanar("stone", 1.2, 1.0, 0.85)
 	_mats["metal"] = _weathered_metal(Color(0.19, 0.23, 0.20), 0.46)
 	_mats["rust"] = _weathered_metal(Color(0.22, 0.18, 0.14), 0.78)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
@@ -230,8 +232,13 @@ func _make_materials() -> void:
 	litter.roughness = 1.0
 	_mats["litter"] = litter
 
+	# StandardMaterial3D can fold vertex colour into albedo; ShaderMaterial cannot
+	# (the concrete/stone shader multiplies COLOR in itself), so only touch the
+	# ones that actually have the property.
 	for key in ["bark", "wood", "lab_wall", "lab_floor", "lab_metal", "lab_wire"]:
-		_mats[key].vertex_color_use_as_albedo = true
+		var m: Material = _mats[key]
+		if m is StandardMaterial3D:
+			(m as StandardMaterial3D).vertex_color_use_as_albedo = true
 
 
 func _procedural_surface(shader_name: String) -> ShaderMaterial:
