@@ -1,0 +1,238 @@
+# 8p Game Translation Project
+
+## Original English Strings (from Title.gd)
+
+### Title Screen
+- "EIGHT PAGES" (Title)
+- "a forest · eight notes · one tall figure" (Subtitle)
+- "BEGIN" (Start button)
+- "HOW TO PLAY" (How to play button)
+- "SETTINGS" (Settings button)
+- "QUIT" (Quit button)
+- "no escape recorded yet" (Best time when none)
+- "best escape: %s   ·   %d/8 pages" (Best time format)
+- "drag left to walk · drag right to look" (Touch controls text)
+- "WASD move · SHIFT sprint · F light · E take · ESC pause" (Keyboard controls text)
+- "a tribute to Slender: The Eight Pages" (Credit)
+
+### How to Play Panel
+- "HOW TO PLAY" (Header)
+- "You are alone in a dark forest. Eight pages are pinned to landmarks: concrete walls, a tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a watchtower.\n\nCollect all eight, then get out.\n\nHe appears at the edge of the trees. Looking at him slows him down — but if you stare too long he will know, and he will run.\n\nStatic is his voice. When it rises, look away — or run." (Body text)
+- "KEYBOARD:  WASD move · SHIFT sprint · F flashlight · E take page · ESC pause" (Keyboard keys)
+- "TOUCH:  left side = virtual stick · right side = look · RUN to sprint · TAKE to pick up" (Touch keys)
+- "BACK" (Back button)
+
+### Settings Panel
+- "SETTINGS" (Header)
+- "MOUSE SENSITIVITY" (Slider label)
+- "VOLUME" (Slider label)
+- "INVERT LOOK Y" (Checkbox label)
+- "FORCE TOUCH CONTROLS" (Checkbox label)
+- "BACK" (Back button)
+
+## Original English Strings (from HUD.gd)
+
+### HUD Elements
+- "PAGES" (Pages counter label)
+- "0 / 8" (Pages counter format)
+- "BREATH" (Stamina label)
+- "FIND THE EIGHT PAGES" (Objective)
+- "LEFT STICK — MOVE     RIGHT SIDE — LOOK     HOLD RUN TO SPRINT" (Touch hint)
+- "ROTATE YOUR DEVICE  ·  BEST IN LANDSCAPE" (Rotate hint)
+- "II" (Pause button)
+
+### Pause Menu
+- "PAUSED" (Header)
+- "RESUME" (Resume button)
+- "RESTART RUN" (Restart button)
+- "TOUCH CONTROLS: AUTO" (Touch toggle button - changes to ON/OFF)
+- "QUIT TO TITLE" (Quit button)
+
+### End Screens
+#### Win Screen
+- "THE PAGES ARE YOURS" (Win title)
+- "Eight pages. The forest lets you go.\nFor now." (Win subtitle)
+- "PAGES  %d / 8        TIME  %s%s" (Stats format with optional BEST line)
+- "BEST: %s" (Best time line)
+
+#### Lose Screen
+- "HE FOUND YOU" (Lose title)
+- "You cannot outrun him. You can only refuse to look." (Lose subtitle)
+- "PAGES  %d / 8        TIME  %s%s" (Stats format with optional BEST line)
+- "BEST: %s" (Best time line)
+
+### End Buttons
+- "TRY AGAIN" (Retry button)
+- "TITLE SCREEN" (Menu button)
+
+## Translation Targets
+
+### Russian (ru)
+- Language: Russian
+- Script: Cyrillic
+- Considerations:
+  - Gendered nouns and adjectives
+  - Formal vs informal (informal preferred for games)
+  - Line breaks should be preserved
+  - Font compatibility (DejaVu supports Cyrillic)
+
+### Chinese (zh-CN)
+- Language: Simplified Chinese
+- Script: Hanzi
+- Considerations:
+  - Character count reduction (Chinese is more compact)
+  - Line breaks should be preserved
+  - Font compatibility (DejaVu supports Chinese)
+
+## Implementation Plan
+
+1. Create translation files (JSON or CSV format)
+2. Modify Title.gd and HUD.gd to use translation system
+3. Add language selection in Settings
+4. Test both translations
+
+## Translation Files Structure
+
+```json
+{
+  "en": {
+    "title_main": "EIGHT PAGES",
+    "title_subtitle": "a forest · eight notes · one tall figure",
+    "button_begin": "BEGIN",
+    "button_how": "HOW TO PLAY",
+    "button_settings": "SETTINGS",
+    "button_quit": "QUIT",
+    "best_none": "no escape recorded yet",
+    "best_format": "best escape: %s   ·   %d/8 pages",
+    "controls_touch": "drag left to walk · drag right to look",
+    "controls_keyboard": "WASD move · SHIFT sprint · F light · E take · ESC pause",
+    "credit": "a tribute to Slender: The Eight Pages",
+    "how_header": "HOW TO PLAY",
+    "how_body": "You are alone in a dark forest. Eight pages are pinned to landmarks: concrete walls, a tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a watchtower.\n\nCollect all eight, then get out.\n\nHe appears at the edge of the trees. Looking at him slows him down — but if you stare too long he will know, and he will run.\n\nStatic is his voice. When it rises, look away — or run.",
+    "how_keys_keyboard": "KEYBOARD:  WASD move · SHIFT sprint · F flashlight · E take page · ESC pause",
+    "how_keys_touch": "TOUCH:  left side = virtual stick · right side = look · RUN to sprint · TAKE to pick up",
+    "button_back": "BACK",
+    "settings_header": "SETTINGS",
+    "setting_mouse": "MOUSE SENSITIVITY",
+    "setting_volume": "VOLUME",
+    "setting_invert": "INVERT LOOK Y",
+    "setting_touch": "FORCE TOUCH CONTROLS",
+    "hud_pages": "PAGES",
+    "hud_breath": "BREATH",
+    "hud_objective": "FIND THE EIGHT PAGES",
+    "hud_touch": "LEFT STICK — MOVE     RIGHT SIDE — LOOK     HOLD RUN TO SPRINT",
+    "hud_rotate": "ROTATE YOUR DEVICE  ·  BEST IN LANDSCAPE",
+    "pause_button": "II",
+    "pause_header": "PAUSED",
+    "pause_resume": "RESUME",
+    "pause_restart": "RESTART RUN",
+    "pause_touch": "TOUCH CONTROLS: AUTO",
+    "pause_touch_on": "TOUCH CONTROLS: ON",
+    "pause_touch_off": "TOUCH CONTROLS: OFF",
+    "pause_menu": "QUIT TO TITLE",
+    "end_win_title": "THE PAGES ARE YOURS",
+    "end_win_sub": "Eight pages. The forest lets you go.\nFor now.",
+    "end_lose_title": "HE FOUND YOU",
+    "end_lose_sub": "You cannot outrun him. You can only refuse to look.",
+    "end_stats": "PAGES  %d / 8        TIME  %s%s",
+    "end_best": "\nBEST: %s",
+    "button_retry": "TRY AGAIN",
+    "button_menu": "TITLE SCREEN"
+  },
+  "ru": {
+    "title_main": "",
+    "title_subtitle": "",
+    "button_begin": "",
+    "button_how": "",
+    "button_settings": "",
+    "button_quit": "",
+    "best_none": "",
+    "best_format": "",
+    "controls_touch": "",
+    "controls_keyboard": "",
+    "credit": "",
+    "how_header": "",
+    "how_body": "",
+    "how_keys_keyboard": "",
+    "how_keys_touch": "",
+    "button_back": "",
+    "settings_header": "",
+    "setting_mouse": "",
+    "setting_volume": "",
+    "setting_invert": "",
+    "setting_touch": "",
+    "hud_pages": "",
+    "hud_breath": "",
+    "hud_objective": "",
+    "hud_touch": "",
+    "hud_rotate": "",
+    "pause_button": "",
+    "pause_header": "",
+    "pause_resume": "",
+    "pause_restart": "",
+    "pause_touch": "",
+    "pause_touch_on": "",
+    "pause_touch_off": "",
+    "pause_menu": "",
+    "end_win_title": "",
+    "end_win_sub": "",
+    "end_lose_title": "",
+    "end_lose_sub": "",
+    "end_stats": "",
+    "end_best": "",
+    "button_retry": "",
+    "button_menu": ""
+  },
+  "zh": {
+    "title_main": "",
+    "title_subtitle": "",
+    "button_begin": "",
+    "button_how": "",
+    "button_settings": "",
+    "button_quit": "",
+    "best_none": "",
+    "best_format": "",
+    "controls_touch": "",
+    "controls_keyboard": "",
+    "credit": "",
+    "how_header": "",
+    "how_body": "",
+    "how_keys_keyboard": "",
+    "how_keys_touch": "",
+    "button_back": "",
+    "settings_header": "",
+    "setting_mouse": "",
+    "setting_volume": "",
+    "setting_invert": "",
+    "setting_touch": "",
+    "hud_pages": "",
+    "hud_breath": "",
+    "hud_objective": "",
+    "hud_touch": "",
+    "hud_rotate": "",
+    "pause_button": "",
+    "pause_header": "",
+    "pause_resume": "",
+    "pause_restart": "",
+    "pause_touch": "",
+    "pause_touch_on": "",
+    "pause_touch_off": "",
+    "pause_menu": "",
+    "end_win_title": "",
+    "end_win_sub": "",
+    "end_lose_title": "",
+    "end_lose_sub": "",
+    "end_stats": "",
+    "end_best": "",
+    "button_retry": "",
+    "button_menu": ""
+  }
+}
+```
+
+## Next Steps
+1. Fill in Russian translations
+2. Fill in Chinese translations
+3. Modify Title.gd and HUD.gd to use translation system
+4. Add language selection
+5. Test in Godot
