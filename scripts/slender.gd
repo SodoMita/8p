@@ -208,8 +208,18 @@ func _step_closer(factor: float) -> void:
 	if dir.length() < 0.1:
 		return
 	var new_dist := maxf(5.5, dir.length() * factor)
-	global_position = target - dir.normalized() * new_dist
-	global_position.y = 0.0
+	var cand := target - dir.normalized() * new_dist
+	cand.y = 0.0
+	if map_builder != null and not map_builder.is_walkable(cand, 0.45):
+		# If stepping along the sightline lands inside stone, step one cell down the maze path.
+		var flow: Vector3 = map_builder.labyrinth_flow_dir(global_position, target)
+		if flow != Vector3.ZERO:
+			var alt := global_position + flow * 2.6
+			alt.y = 0.0
+			if map_builder.is_walkable(alt, 0.4):
+				global_position = alt
+		return
+	global_position = cand
 
 
 func _move_toward_player(speed: float, delta: float) -> void:
@@ -219,9 +229,18 @@ func _move_toward_player(speed: float, delta: float) -> void:
 	if dir.length() < 0.05:
 		return
 	dir = dir.normalized()
-	# steer around anything solid (trunks, walls, silo, truck, shed...)
 	var space := get_world_3d().direct_space_state
-	if space != null:
+	var used_maze := false
+	if map_builder != null and space != null and (map_builder.in_labyrinth(global_position, 1.8) or map_builder.in_labyrinth(target, 0.5)):
+		var los_q := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1.1, 0), target + Vector3(0, 1.1, 0), 1)
+		los_q.collide_with_areas = false
+		if not space.intersect_ray(los_q).is_empty():
+			var flow: Vector3 = map_builder.labyrinth_flow_dir(global_position, target)
+			if flow != Vector3.ZERO:
+				dir = flow
+				used_maze = true
+	# steer around anything solid (trunks, walls, silo, truck, shed...)
+	if space != null and not used_maze:
 		var hit := _probe_hit(space, dir)
 		if hit:
 			var side := Vector3(-dir.z, 0, dir.x)
@@ -239,8 +258,18 @@ func _move_toward_player(speed: float, delta: float) -> void:
 				# boxed in: retreat along the clearest axis
 				dir = (dir * -0.6 + side).normalized()
 	var step := dir * speed * delta
-	global_position += step
-	global_position.y = 0.0
+	var next_pos := global_position + step
+	next_pos.y = 0.0
+	if map_builder != null and map_builder.point_in_labyrinth_wall(next_pos, 0.28):
+		# Slide along corridor axis instead of clipping through a stone corner
+		var sx := Vector3(global_position.x + step.x, 0.0, global_position.z)
+		var sz := Vector3(global_position.x, 0.0, global_position.z + step.z)
+		if not map_builder.point_in_labyrinth_wall(sx, 0.28):
+			global_position = sx
+		elif not map_builder.point_in_labyrinth_wall(sz, 0.28):
+			global_position = sz
+		return
+	global_position = next_pos
 
 
 func _probe_hit(space: PhysicsDirectSpaceState3D, dir: Vector3) -> bool:
@@ -259,7 +288,22 @@ func _find_spot(min_d: float, max_d: float) -> Vector3:
 	var fwd := -player.global_transform.basis.z
 	fwd.y = 0.0
 	fwd = fwd.normalized()
-	for i in 28:
+	# If the player is inside the stone labyrinth, occasionally materialize in a
+	# corridor cell out of their direct cone of sight.
+	if map_builder != null and map_builder.in_labyrinth(ppos, 0.5) and min_d < 24.0:
+		for _k in 14:
+			var cp: Vector3 = map_builder.random_labyrinth_corridor_spot(rng)
+			if cp == Vector3.INF:
+				break
+			var cd := Vector2(cp.x - ppos.x, cp.z - ppos.z).length()
+			if cd < 8.5:
+				continue
+			var cdir := (cp - ppos)
+			cdir.y = 0.0
+			if fwd.dot(cdir.normalized()) > 0.35:
+				continue
+			return cp
+	for i in 32:
 		var ang := rng.randf() * TAU
 		var d := rng.randf_range(min_d, max_d)
 		var p := ppos + Vector3(cos(ang), 0, sin(ang)) * d
@@ -269,9 +313,9 @@ func _find_spot(min_d: float, max_d: float) -> Vector3:
 		dir.y = 0.0
 		dir = dir.normalized()
 		# prefer to appear outside of the view cone
-		if fwd.dot(dir) > 0.45 and i < 20:
+		if fwd.dot(dir) > 0.45 and i < 22:
 			continue
-		if map_builder != null and map_builder.nearest_tree_distance(p, 300) < 1.0:
+		if map_builder != null and not map_builder.is_walkable(p, 0.55):
 			continue
 		return Vector3(p.x, 0.0, p.z)
 	return Vector3.INF

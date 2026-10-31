@@ -11,16 +11,17 @@ scream read as a *throat* instead of a hiss of noise.  Everything else —
 inharmonic metal shrieks, sub impacts, chirped air risers, wet gasps,
 whispered syllables, room reverb — is noise and sine layers on top.
 
-The ambient beds (wind, drone, static, heartbeat) and the small foley sounds
-(steps, page, branch, UI) live here too, so the whole audio set is reproducible:
+The ambient beds (wind, drone, static, heartbeat, wire hum) and the small foley
+sounds (steps, stone steps, page, branch, UI) live here too, so the whole audio
+set is reproducible:
 
-    python3 tools/gen_sfx.py            # writes assets/audio/*.wav
+    python3 tools/gen_sfx.py            # writes assets/audio/*.ogg
 """
 import math
 import os
-import wave
 
 import numpy as np
+import soundfile as sf
 from scipy.signal import butter, sosfilt, fftconvolve
 
 SR = 22050
@@ -356,16 +357,13 @@ def limit(x, drive=1.0, peak=0.97):
     return normalise(x, peak)
 
 
-def write_wav(path, data, sr=SR):
+def write_ogg(path, data, sr=SR):
     data = np.clip(np.asarray(data, dtype=np.float32), -1, 1)
-    if data.ndim == 1:
-        data = data[:, None]
-    with wave.open(path, "wb") as f:
-        f.setnchannels(data.shape[1])
-        f.setsampwidth(2)
-        f.setframerate(sr)
-        f.writeframes((data * 32767.0).astype("<i2").tobytes())
-    print("  %-18s %5.2fs %d ch" % (os.path.basename(path), len(data) / sr, data.shape[1]))
+    if data.ndim == 2 and data.shape[1] == 1:
+        data = data[:, 0]
+    sf.write(path, data, sr, format="OGG", subtype="VORBIS", compression_level=0.25)
+    ch = 1 if data.ndim == 1 else data.shape[1]
+    print("  %-22s %5.2fs %d ch" % (os.path.basename(path), len(data) / sr, ch))
 
 # --------------------------------------------------------------------------- #
 # ambient beds + foley
@@ -438,6 +436,28 @@ def foley_steps(sr=SR, seed=5):
         thump = np.sin(2 * math.pi * (72 - i * 6) * t) * np.exp(-t * 38)
         s = (body * 0.8 + snap + thump * 0.7) * np.exp(-t * 22)
         out.append(normalise(s, 0.55))
+    return out
+
+
+def foley_stone_steps(sr=SR, seed=9):
+    """Cold boot-on-flagstone steps for the labyrinth (dry; room comes from Sfx)."""
+    rng = np.random.default_rng(seed)
+    out = []
+    for i in range(4):
+        n = int(sr * 0.30)
+        t = np.arange(n) / sr
+        nz = noise(n, rng)
+        # heel impact at t=0, sole slap ~42-54 ms later + fine grit scrape
+        heel = (bp(nz, 1100 + i * 90, 4200) * 0.85 + lp(nz, 420) * 0.55) * np.exp(-t * 62.0)
+        heel += 0.55 * np.sin(2 * math.pi * (108 - i * 7) * t) * np.exp(-t * 52.0)
+        sole = np.zeros(n, dtype=np.float32)
+        d0 = int((0.042 + 0.004 * i) * sr)
+        tt = np.arange(n - d0) / sr
+        nz2 = noise(n - d0, rng)
+        sole[d0:] = (bp(nz2, 900, 3400) * 0.65 + 0.35 * np.sin(2 * math.pi * (195 + i * 14) * tt)) * np.exp(-tt * 48.0)
+        grit = bp(noise(n, rng), 2400, 6200) * np.exp(-t * 28.0) * 0.18
+        s = fade(heel + sole + grit, 0.002, 0.04, sr)
+        out.append(normalise(s, 0.62))
     return out
 
 
@@ -748,6 +768,32 @@ def make_win(sr=SR):
     out *= np.clip((n / sr - t) / 1.2, 0, 1) ** 1.2
     return normalise(out, 0.8)
 
+def bed_wire_hum(sr=SR, seed=10):
+    """50 Hz transformer buzz + mains harmonics + damp corona micro-arcs."""
+    rng = np.random.default_rng(seed)
+    n = int(sr * 5.2)
+    t = np.arange(n) / sr
+    hum = np.zeros(n, dtype=np.float32)
+    for f, a, ph in [(50.0, 0.34, 0.0), (100.0, 0.42, 0.7), (150.0, 0.28, 1.5),
+                     (200.0, 0.14, 2.1), (250.0, 0.11, 0.3), (300.0, 0.16, 1.9),
+                     (450.0, 0.06, 2.8), (600.0, 0.03, 0.9)]:
+        wob = 1.0 + 0.16 * np.sin(2 * math.pi * (0.23 + 0.04 * (f / 100.0)) * t + ph)
+        hum += a * wob * np.sin(2 * math.pi * f * t + ph)
+    # sporadic corona sizzle bursts across wet porcelain insulators
+    sizzle = np.zeros(n, dtype=np.float32)
+    for b_at in [0.65, 1.78, 2.95, 3.82]:
+        i0 = int(b_at * sr)
+        ln = int(rng.uniform(0.06, 0.16) * sr)
+        if i0 + ln >= n:
+            continue
+        tt = np.arange(ln) / sr
+        arc = bp(noise(ln, rng), 1800, 6600) * (0.5 + 0.5 * np.sin(2 * math.pi * 100.0 * tt))
+        env = env_ad(ln, 0.004, 0.035, sr)
+        sizzle[i0:i0 + ln] += arc * env * rng.uniform(0.28, 0.52)
+    out = normalise(hum * 0.55 + sizzle, 0.65)
+    return crossfade_loop(out, sr, 0.7)
+
+
 # --------------------------------------------------------------------------- #
 # everything
 # --------------------------------------------------------------------------- #
@@ -755,24 +801,27 @@ def generate(audio_dir=AUDIO, sr=SR):
     os.makedirs(audio_dir, exist_ok=True)
     p = lambda name: os.path.join(audio_dir, name)  # noqa: E731
 
-    write_wav(p("wind_loop.wav"), bed_wind(sr))
-    write_wav(p("drone_loop.wav"), bed_drone(sr))
-    write_wav(p("static_loop.wav"), bed_static(sr))
-    write_wav(p("heartbeat_loop.wav"), bed_heartbeat(sr))
-    write_wav(p("breath_loop.wav"), make_breath_loop(sr))
+    write_ogg(p("wind_loop.ogg"), bed_wind(sr))
+    write_ogg(p("drone_loop.ogg"), bed_drone(sr))
+    write_ogg(p("static_loop.ogg"), bed_static(sr))
+    write_ogg(p("heartbeat_loop.ogg"), bed_heartbeat(sr))
+    write_ogg(p("breath_loop.ogg"), make_breath_loop(sr))
+    write_ogg(p("wire_hum_loop.ogg"), bed_wire_hum(sr))
 
     for i, s in enumerate(foley_steps(sr)):
-        write_wav(p("step_%d.wav" % i), s)
-    write_wav(p("page.wav"), foley_page(sr))
-    write_wav(p("branch.wav"), foley_branch(sr))
-    write_wav(p("ui_click.wav"), foley_click(sr))
+        write_ogg(p("step_%d.ogg" % i), s)
+    for i, s in enumerate(foley_stone_steps(sr)):
+        write_ogg(p("stone_step_%d.ogg" % i), s)
+    write_ogg(p("page.ogg"), foley_page(sr))
+    write_ogg(p("branch.ogg"), foley_branch(sr))
+    write_ogg(p("ui_click.ogg"), foley_click(sr))
 
-    write_wav(p("jumpscare.wav"), make_jumpscare(sr))
-    write_wav(p("appear_near.wav"), make_appear_near(301, sr))
-    write_wav(p("chase.wav"), make_chase(401, sr))
-    write_wav(p("win.wav"), make_win(sr))
+    write_ogg(p("jumpscare.ogg"), make_jumpscare(sr))
+    write_ogg(p("appear_near.ogg"), make_appear_near(301, sr))
+    write_ogg(p("chase.ogg"), make_chase(401, sr))
+    write_ogg(p("win.ogg"), make_win(sr))
     for v in range(3):
-        write_wav(p("appear_%d.wav" % v), make_appear(201 + 10 * v, v, sr))
+        write_ogg(p("appear_%d.ogg" % v), make_appear(201 + 10 * v, v, sr))
 
 
 if __name__ == "__main__":

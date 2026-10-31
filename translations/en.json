@@ -17,7 +17,7 @@
   "end_stats": "PAGES  %d / 8        TIME  %s%s",
   "end_win_sub": "Eight pages. The forest lets you go.\\nFor now.",
   "end_win_title": "THE PAGES ARE YOURS",
-  "how_body": "Static is his voice. When it rises, look away — or run.",
+  "how_body": "You are alone in a dark forest. Eight pages are pinned to landmarks: a stone labyrinth, a tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a watchtower.\n\nCollect all eight, then get out.\n\nHe appears at the edge of the trees. Looking at him slows him down — but if you stare too long he will know, and he will run.\n\nStatic is his voice. When it rises, look away — or run.",
   "how_header": "HOW TO PLAY",
   "how_keys_keyboard": "TOUCH:  left side = virtual stick · right side = look · RUN to sprint · TAKE to pick up",
   "how_keys_touch": "drag left to walk · drag right to look",

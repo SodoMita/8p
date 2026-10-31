@@ -168,8 +168,23 @@ the lens/tape pass (and the on-screen REC/timecode furniture) off, and
 
 ## The rules of the forest
 
-* Eight pages are pinned to eight landmarks: **concrete walls, a tunnel, a silo,
-  a truck, a shed, a ring of stones, a ruined bathroom and a watchtower**.
+* Eight pages are pinned to eight landmarks: **a procedural stone labyrinth, a
+  tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a
+  watchtower**.
+* **Procedural stone labyrinth, electric wire network & reverb zone.** Every
+  seed carves a fresh 10×10 stone maze (24.5×24.5 m across 4 batched meshes:
+  jointed flagstone pavement + intersection iron storm grates, plinth-and-cornice
+  stonework with iron-barred grille windows and exposed rebar, wall-mounted
+  twin steel conduits + junction boxes + two dead-end transformer substations
+  with flickering bulkhead lamps and spatial 3D 50 Hz `wire_hum_loop.ogg`
+  transformer buzz, and 140–240 sagging catenary electric cables + severed
+  copper-tipped drops converging on an overhead collector ring above the 2×2
+  Central Sanctum). An `Area3D` reverb zone (`scripts/reverb_zone.gd`) wraps
+  the labyrinth: crossing the threshold swaps footsteps from forest leaves to
+  cold flagstone, opens a 34 ms-predelay stone reverb tail on both 3D substation
+  hum emitters and the `World` bus (footsteps, breathing, whispers, screams),
+  and low-passes exterior wind behind the walls. Slender navigates its corridors
+  around corners via 100-cell centerline-aligned BFS.
 * **Pumpkins and dead bushes.** Patches of ribbed, dirt-streaked pumpkins grow
   in the clearings and around every landmark (some knocked over), and dense
   leafless bushes — branched twig clumps, not painted billboards — fill the
@@ -208,10 +223,11 @@ eight_pages/
 ├── scripts/
 │   ├── game.gd              # autoload: state, input routing, quality/touch detection
 │   ├── settings.gd          # autoload: persisted settings (user://settings.cfg)
-│   ├── sfx.gd               # autoload: looping ambience + one-shot pool
+│   ├── sfx.gd               # autoload: buses, reverb, ambience + one-shot pool
+│   ├── reverb_zone.gd       # Area3D stone-hall reverb + wind-occlusion zone
 │   ├── title.gd             # title screen UI
 │   ├── world.gd             # run orchestration, pages, static feedback, endings
-│   ├── map_builder.gd       # procedural forest, eight landmarks, chain-link boundary
+│   ├── map_builder.gd       # procedural forest, eight landmarks, 10x10 wired labyrinth, fence
 │   ├── endless_terrain.gd   # streamed forest + road outside the fence
 │   ├── page_cloth.gd        # verlet cloth sheet for each collectible page
 │   ├── road_ribbon.gd       # crowned ribbon mesh builder for the road
@@ -231,7 +247,7 @@ eight_pages/
 │   ├── static.gdshader      # legacy film-grain overlay (A/B path)
 │   └── vignette.gdshader
 ├── assets/
-│   ├── audio/*.wav          # synthesised wind, drone, static, heartbeat, steps…
+│   ├── audio/*.ogg          # Ogg Vorbis beds, footsteps, wire hum, screams, stings
 │   ├── textures/*.png       # PBR ground/bark/stone/grass/litter, paper, noise
 │   ├── models/*.res         # baked tree / snag / log / stump / shrub / pumpkin / bush meshes
 │   └── fonts/               # DejaVu Sans + Serif (licence: Bitstream Vera / public)
@@ -383,6 +399,7 @@ exponential spring instead of a body.
 
 ```bash
 python3 tools/gen_assets.py       # base textures, audio, paper — run this FIRST
+python3 tools/gen_sfx.py          # audio only (assets/audio/*.ogg)
 python3 tools/gen_textures_real.py   # PBR ground / bark / stone / grass / litter
 godot --headless --path . --script tools/gen_trees.gd     # bare-tree meshes
 godot --path . --script tools/gen_title_bg.gd             # menu backdrop (needs GL)
@@ -401,9 +418,19 @@ painted ones.
 * **Meshes** — `gen_trees.gd` bakes six trunks, two snags, a fallen log, a stump
   and a dead shrub as `.res` meshes with world-space bark UVs and visible root
   flares; they are drawn with `MultiMesh` and per-instance tints.
-* **Audio** — all WAVs are synthesised: wind and drone beds (cross-faded into
-  seamless loops at runtime), heartbeat, breathing, four footstep variants,
-  page rustle, apparition swell, jumpscare, win sting and UI click.
+* **Audio** — all 24 Ogg Vorbis streams (`assets/audio/*.ogg`) are synthesised
+  in `tools/gen_sfx.py`. The screams are not
+  noise bursts: a voice is an additive stack of harmonics whose amplitudes follow
+  five time-varying formants, driven by an unstable pitch contour (vibrato,
+  jitter, a break where the voice gives out) with a torn aspiration layer under
+  it — so the death sting reads as a throat, not a hiss. layered under it are a
+  subharmonic growl, an inharmonic metal shriek, a sub impact and a chirped
+  intake of air, all through a synthetic room. Three takes of the apparition
+  sting, a close whisper for when he is already beside you, and a chase roar are
+  picked at random so he never sounds the same twice. The beds (wind, a
+  minor-second drone, static, heartbeat, strained breathing) are cross-faded
+  into seamless loops at runtime; a limiter on the Master bus keeps the sting
+  from clipping.
 
 ## Mobile notes
 

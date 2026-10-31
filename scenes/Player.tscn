@@ -46,6 +46,9 @@ fov = 74.0
 near = 0.05
 far = 78.0
 
+[node name="Listener" type="AudioListener3D" parent="Head/Handle/CameraMount/Camera"]
+current = true
+
 [node name="Flashlight" type="SpotLight3D" parent="Head/Handle/CameraMount/Camera"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.12, -0.1, 0)
 light_color = Color(1, 0.94, 0.78, 1)
