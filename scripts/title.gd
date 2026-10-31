@@ -222,7 +222,7 @@ func _build_info() -> void:
 	(_info as VBoxContainer).add_child(head)
 	var body := _plain(
 		"You are alone in a dark forest. Eight pages are pinned to landmarks: " +
-		"concrete walls, a tunnel, a silo, a truck, a shed, a ring of stones, " +
+		"a stone labyrinth, a tunnel, a silo, a truck, a shed, a ring of stones, " +
 		"a ruined bathroom and a watchtower.\n\n" +
 		"Collect all eight, then get out.\n\n" +
 		"He appears at the edge of the trees. Looking at him slows him down — " +

@@ -1,6 +1,11 @@
-EIGHT PAGES 1.3.0
+EIGHT PAGES 1.4.0
 Godot 4.7.2 · GL Compatibility · GDScript
 ----------------------------------------
+1.4  procedural 8x8 stone labyrinth (22x22 m, single-draw-call world-UV
+     stonework, 2x2 Central Sanctum, 4 outer lintel archways, braided loops +
+     dead ends, Slender 64-cell BFS corridor steering) + Area3D ReverbZone
+     (World-bus stone reverb, Exterior wind low-pass occlusion, flagstone
+     footsteps). 38 selftest checks green.
 1.3  audio rebuilt around a formant voice engine (tools/gen_sfx.py): the death
      sting is a real scream now (harmonic stack + 5 formants + pitch break +
      torn breath) layered over a subharmonic growl, a metal shriek and a sub

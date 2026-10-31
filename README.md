@@ -89,8 +89,18 @@ controls**, or toggle it live in the pause menu.
 
 ## The rules of the forest
 
-* Eight pages are pinned to eight landmarks: **concrete walls, a tunnel, a silo,
-  a truck, a shed, a ring of stones, a ruined bathroom and a watchtower**.
+* Eight pages are pinned to eight landmarks: **a procedural stone labyrinth, a
+  tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a
+  watchtower**.
+* **Procedural stone labyrinth & reverb zone.** Every seed carves a fresh 8×8
+  stone maze (22×22 m, single-draw-call world-UV stonework) around a 2×2 Central
+  Sanctum framed by four corner steles, with lintel archways on all four outer
+  walls and braided chase loops mixed with dead ends. An `Area3D` reverb zone
+  (`scripts/reverb_zone.gd`) wraps the labyrinth: crossing the threshold swaps
+  footsteps from forest leaves to cold flagstone, opens a 34 ms-predelay stone
+  reverb tail on the `World` bus (footsteps, breathing, whispers, screams), and
+  low-passes the exterior wind behind the walls. Slender navigates its corridors
+  around corners via 64-cell BFS.
 * **Pumpkins and dead bushes.** Patches of ribbed, dirt-streaked pumpkins grow
   in the clearings and around every landmark (some knocked over), and dense
   leafless bushes — branched twig clumps, not painted billboards — fill the
@@ -128,16 +138,17 @@ eight_pages/
 ├── scripts/
 │   ├── game.gd              # autoload: state, input routing, quality/touch detection
 │   ├── settings.gd          # autoload: persisted settings (user://settings.cfg)
-│   ├── sfx.gd               # autoload: looping ambience + one-shot pool
+│   ├── sfx.gd               # autoload: buses, reverb, ambience + one-shot pool
+│   ├── reverb_zone.gd       # Area3D stone-hall reverb + wind-occlusion zone
 │   ├── title.gd             # title screen UI
 │   ├── world.gd             # run orchestration, pages, static feedback, endings
-│   ├── map_builder.gd       # procedural forest + eight landmark set pieces
+│   ├── map_builder.gd       # procedural forest, 8x8 labyrinth + set pieces
 │   ├── player.gd            # FPS controller (mouse + touch), stamina, head bob
-│   ├── slender.gd           # the tall one: apparitions, gaze logic, chase, kill
+│   ├── slender.gd           # the tall one: apparitions, gaze, maze BFS, kill
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 29 functional assertions
+│   ├── selftest.gd          # 38 functional assertions
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
 ├── shaders/
 │   ├── static.gdshader      # film-grain / VHS static overlay

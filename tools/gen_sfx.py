@@ -441,6 +441,28 @@ def foley_steps(sr=SR, seed=5):
     return out
 
 
+def foley_stone_steps(sr=SR, seed=9):
+    """Cold boot-on-flagstone steps for the labyrinth (dry; room comes from Sfx)."""
+    rng = np.random.default_rng(seed)
+    out = []
+    for i in range(4):
+        n = int(sr * 0.30)
+        t = np.arange(n) / sr
+        nz = noise(n, rng)
+        # heel impact at t=0, sole slap ~42-54 ms later + fine grit scrape
+        heel = (bp(nz, 1100 + i * 90, 4200) * 0.85 + lp(nz, 420) * 0.55) * np.exp(-t * 62.0)
+        heel += 0.55 * np.sin(2 * math.pi * (108 - i * 7) * t) * np.exp(-t * 52.0)
+        sole = np.zeros(n, dtype=np.float32)
+        d0 = int((0.042 + 0.004 * i) * sr)
+        tt = np.arange(n - d0) / sr
+        nz2 = noise(n - d0, rng)
+        sole[d0:] = (bp(nz2, 900, 3400) * 0.65 + 0.35 * np.sin(2 * math.pi * (195 + i * 14) * tt)) * np.exp(-tt * 48.0)
+        grit = bp(noise(n, rng), 2400, 6200) * np.exp(-t * 28.0) * 0.18
+        s = fade(heel + sole + grit, 0.002, 0.04, sr)
+        out.append(normalise(s, 0.62))
+    return out
+
+
 def foley_page(sr=SR, seed=6):
     """Paper, and under it the sound of something breathing in your ear."""
     rng = np.random.default_rng(seed)
@@ -763,6 +785,8 @@ def generate(audio_dir=AUDIO, sr=SR):
 
     for i, s in enumerate(foley_steps(sr)):
         write_wav(p("step_%d.wav" % i), s)
+    for i, s in enumerate(foley_stone_steps(sr)):
+        write_wav(p("stone_step_%d.wav" % i), s)
     write_wav(p("page.wav"), foley_page(sr))
     write_wav(p("branch.wav"), foley_branch(sr))
     write_wav(p("ui_click.wav"), foley_click(sr))

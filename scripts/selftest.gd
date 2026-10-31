@@ -76,6 +76,72 @@ func _run() -> void:
 	print("[selftest] second signature: ", sig2)
 	check("procedural_layout_unique", sig != sig2)
 
+	var lab: Dictionary = world.map_builder.labyrinth
+	var lab2: Dictionary = other.labyrinth
+	var lab_mesh_node: MeshInstance3D = world.map_builder.get_node_or_null("LabyrinthMesh")
+	var lab_body_node: StaticBody3D = world.map_builder.get_node_or_null("LabyrinthBody")
+	var lab_rzone: Area3D = world.map_builder.get_node_or_null("LabyrinthReverbZone")
+	check("labyrinth_built",
+		not lab.is_empty() and int(lab.get("wall_count", 0)) > 40
+		and lab_mesh_node != null and lab_body_node != null and lab_rzone != null,
+		"walls=%d" % int(lab.get("wall_count", 0)))
+	check("labyrinth_unique_per_seed",
+		String(lab.get("signature", "")) != "" and lab.get("signature") != lab2.get("signature"))
+	check("labyrinth_solvable",
+		int(lab.get("shortest_path", -1)) >= 3 and int(lab.get("longest_path", -1)) >= 5,
+		"shortest=%d longest=%d" % [int(lab.get("shortest_path", -1)), int(lab.get("longest_path", -1))])
+	other.queue_free()
+
+	# verify Slender's BFS corridor steering reaches the Central Sanctum from an outer gate
+	var nav_ok := false
+	var ents_chk: Array = lab.get("entrances", [])
+	if not ents_chk.is_empty():
+		var walker: Vector3 = ents_chk[0]
+		var goal: Vector3 = lab.get("sanctum_pos", Vector3.ZERO)
+		# nudge walker 0.8 m inside the gate so it starts on the first corridor cell
+		var inward := (goal - walker)
+		inward.y = 0.0
+		walker += inward.normalized() * 0.8
+		var hit_wall := false
+		for _step in 160:
+			if Vector2(walker.x - goal.x, walker.z - goal.z).length() < 2.2:
+				nav_ok = not hit_wall
+				break
+			var fdir: Vector3 = world.map_builder.labyrinth_flow_dir(walker, goal)
+			if fdir == Vector3.ZERO:
+				break
+			walker += fdir * 0.55
+			if world.map_builder.point_in_labyrinth_wall(walker, 0.05):
+				hit_wall = true
+				break
+	check("labyrinth_slender_navigates", nav_ok)
+
+	# labyrinth mesh outward-winding normal guard + tree exclusion guard
+	var lab_normals_ok := false
+	if lab_mesh_node != null and lab_mesh_node.mesh is ArrayMesh:
+		var lm_arr := (lab_mesh_node.mesh as ArrayMesh).surface_get_arrays(0)
+		var lverts: PackedVector3Array = lm_arr[Mesh.ARRAY_VERTEX]
+		var lnorms: PackedVector3Array = lm_arr[Mesh.ARRAY_NORMAL]
+		var lidx: PackedInt32Array = lm_arr[Mesh.ARRAY_INDEX]
+		var bad_lab := 0
+		for t in lidx.size() / 3:
+			var a0: Vector3 = lverts[lidx[t * 3]]
+			var a1: Vector3 = lverts[lidx[t * 3 + 1]]
+			var a2: Vector3 = lverts[lidx[t * 3 + 2]]
+			var g := (a1 - a0).cross(a2 - a0)
+			var n_avg := lnorms[lidx[t * 3]] + lnorms[lidx[t * 3 + 1]] + lnorms[lidx[t * 3 + 2]]
+			if g.length() > 1e-8 and n_avg.length() > 1e-6 and g.dot(n_avg) <= 0.0:
+				bad_lab += 1
+		lab_normals_ok = (lidx.size() > 0 and bad_lab == 0)
+	check("labyrinth_normals_outward", lab_normals_ok)
+
+	var trees_clear_of_lab := true
+	for tp in world.map_builder.tree_positions:
+		if world.map_builder.in_labyrinth(tp, 0.5):
+			trees_clear_of_lab = false
+			break
+	check("labyrinth_trees_excluded", trees_clear_of_lab)
+
 	var all_reachable := true
 	for spot in world.map_builder.page_spots:
 		var sp: Vector3 = spot["pos"]
@@ -217,10 +283,10 @@ func _run() -> void:
 	check("look_rotates_player", absf(player.rotation.y - yaw_before) > 0.1, "%.3f rad" % (player.rotation.y - yaw_before))
 
 	# -------------------------------------------------------------- collision
-	# walk straight into the concrete walls and make sure we do not pass through
+	# walk straight into the outer stone labyrinth wall and verify it stops us
 	var walls: Dictionary = world.map_builder.landmarks[0]
 	var wall_pos: Vector3 = walls["pos"]
-	player.global_position = wall_pos + Vector3(0, 0.15, 12.0)
+	player.global_position = wall_pos + Vector3(0, 0.15, 13.8)
 	player.rotation.y = 0.0
 	await _wait(0.2)
 	start = player.global_position
@@ -228,11 +294,31 @@ func _run() -> void:
 	await _wait(2.0)
 	player.set_touch_move(Vector2.ZERO)
 	var travelled: float = (player.global_position - start).length()
-	check("wall_blocks_player", travelled < 12.5, "travelled %.2f m toward a 9 m gap" % travelled)
+	check("wall_blocks_player", travelled > 0.5 and travelled < 3.6,
+		"travelled %.2f m before stone wall (unblocked ~5.8 m)" % travelled)
 
 	# ground: player stays on the floor
 	await _wait(0.3)
 	check("player_on_floor", player.is_on_floor(), str(player.global_position.y))
+
+	# ----------------------------------------------------------- reverb zone
+	player.global_position = Vector3(0, 0.15, 0)
+	await _wait(0.2)
+	check("reverb_zone_outside_dry",
+		not Sfx.in_reverb_zone() and Sfx.reverb_wet() < 0.01 and Sfx.wind_cutoff_hz() > 18000.0,
+		"wet=%.3f lpf=%.0f" % [Sfx.reverb_wet(), Sfx.wind_cutoff_hz()])
+	var sanctum_p: Vector3 = lab.get("sanctum_pos", Vector3.ZERO)
+	player.global_position = Vector3(sanctum_p.x, 0.15, sanctum_p.z + 1.0)
+	await _wait(0.25)
+	check("reverb_zone_inside_wet",
+		Sfx.in_reverb_zone() and Sfx.reverb_wet() > 0.45 and Sfx.wind_cutoff_hz() < 1200.0
+		and lab_rzone.reverb_bus_enabled,
+		"wet=%.3f lpf=%.0f" % [Sfx.reverb_wet(), Sfx.wind_cutoff_hz()])
+	player.global_position = Vector3(0, 0.15, 0)
+	await _wait(0.2)
+	check("reverb_zone_exits_clean",
+		not Sfx.in_reverb_zone() and Sfx.reverb_wet() < 0.01,
+		"wet=%.3f" % Sfx.reverb_wet())
 
 	# ---------------------------------------------------------------- pickups
 	world.autotest_no_pickup = false
