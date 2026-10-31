@@ -1,6 +1,21 @@
-EIGHT PAGES 1.5.3
+EIGHT PAGES 1.5.4
 Godot 4.7.2 · GL Compatibility · GDScript
 ----------------------------------------
+1.5.4 "the mouse still does not turn the camera" -- found, and it was not the
+     input code at all. The HUD's crosshair dot is a 4x4 ColorRect that never had
+     its mouse_filter set, so it inherited STOP and sat at the exact centre of the
+     screen, which is where a captured pointer lives. Godot's GUI layer runs
+     before unhandled input and marks a hovered Control's motion as handled, so
+     every real mouse motion was eaten and the camera never turned -- while
+     injected test events carrying position (0,0) sailed past it. Found by driving
+     a REAL X11 pointer with xdotool on an Xvfb display and watching 600 px of
+     motion produce 0.0000 rad. Fixes: that dot is IGNORE now; look is read in
+     _input so no widget can swallow it again; touch-mode look only defers to the
+     cursor when it is actually over a widget. New tools/mouse_live_test.sh is a
+     permanent end-to-end stage that moves a genuine pointer and asserts the
+     camera turns; a new controls check asserts nothing opaque covers screen
+     centre and fails with the culprit's path (verified by re-introducing the bug).
+     F3 in game now shows the live input path for this exact class of report.
 1.5.3 mouse look, for real this time: 1.5.1 had gated mouse look on Game.touch_mode,
      which _detect_touch() sets for ANY machine reporting a touchscreen -- a
      Windows laptop, a desktop browser with navigator.maxTouchPoints > 0 -- so on

@@ -71,6 +71,19 @@ func _mouse_move(rel: Vector2, held := false) -> void:
 	Input.parse_input_event(e)
 
 
+## Every visible Control that would swallow mouse motion at `point` (i.e. a
+## non-IGNORE filter under the cursor). The GUI marks motion handled when one of
+## these is hovered, which is how the camera once went dead.
+func _blocking_controls(point: Vector2, out: Array, n: Node) -> void:
+	if n is Control:
+		var c := n as Control
+		if c.is_visible_in_tree() and c.mouse_filter != Control.MOUSE_FILTER_IGNORE \
+				and c.get_global_rect().has_point(point):
+			out.append("%s (filter %d)" % [c.get_path(), c.mouse_filter])
+	for ch in n.get_children():
+		_blocking_controls(point, out, ch)
+
+
 ## Yaw of the camera the player is actually looking through, i.e. the direction
 ## the picture points. The rig lags behind the yaw on purpose, so this is
 ## measured after letting it settle.
@@ -144,6 +157,30 @@ func _run() -> void:
 	var d_mouse: float = wrapf(_yaw(), -PI, PI)
 	check("mouse_look_yaw", absf(d_mouse - (-60.0 * mouse_sens)) < 0.01,
 		"%.4f rad, expected %.4f" % [d_mouse, -60.0 * mouse_sens])
+
+	# ------------------------------- the GUI must not eat the mouse
+	# A real captured pointer sits at the CENTRE of the screen, and Godot's GUI
+	# layer consumes mouse motion when a Control with mouse_filter != IGNORE is
+	# hovered there. The crosshair dot (4x4, default STOP) did exactly that, so
+	# every real mouse motion was swallowed while injected tests carrying
+	# position (0,0) passed. These two checks are the ones that would have caught
+	# "moving the mouse does not rotate the camera".
+	var centre := get_viewport().get_visible_rect().size * 0.5
+	var blockers: Array = []
+	_blocking_controls(centre, blockers, get_tree().root)
+	check("no_widget_blocks_the_crosshair", blockers.is_empty(),
+		"%d control(s) over the centre: %s" % [blockers.size(), str(blockers)])
+	# ... and motion that arrives mid-screen (position = centre, like a captured
+	# pointer) still turns the view
+	_reset_view()
+	var mid := InputEventMouseMotion.new()
+	mid.relative = Vector2(60, 0)
+	mid.position = centre
+	Input.parse_input_event(mid)
+	await _frames(2)
+	check("mouse_look_from_screen_centre",
+		absf(wrapf(_yaw(), -PI, PI) - (-60.0 * mouse_sens)) < 0.01,
+		"%.4f rad at position %s" % [wrapf(_yaw(), -PI, PI), str(centre)])
 
 	# ... and the view itself must turn: the yaw number is not what the player
 	# sees, the camera is, and it hangs off the physics handle now
