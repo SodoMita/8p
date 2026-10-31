@@ -25,11 +25,11 @@ var _lang: Language = Language.EN
 static func get_instance() -> TranslationManager:
 	if _instance != null and is_instance_valid(_instance):
 		return _instance
+	# Deliberately NOT added to the scene tree: it needs no _process, no signals
+	# and no viewport, and adding a node from inside another node's _ready() is
+	# what produced "Parent node is busy setting up children".
 	_instance = TranslationManager.new()
 	_instance.name = "TranslationManager"
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree != null and tree.root != null:
-		tree.root.add_child(_instance)
 	return _instance
 
 

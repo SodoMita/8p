@@ -196,7 +196,7 @@ func _run() -> void:
 		var hits := stand_space.intersect_shape(qs, 1)
 		if hits.size() > 0:
 			all_reachable = false
-			print("[selftest]   nowhere to stand at ", sp)
+			print("[selftest]   nowhere to stand at ", sp, " for page ", spot.get("name", "?"), " pinned at ", spot["pos"])
 	check("pages_reachable", all_reachable)
 	var landmark_spread := _min_landmark_distance(world.map_builder)
 	# the algorithm targets >= 24 m centre-to-centre; 18 m still guarantees the

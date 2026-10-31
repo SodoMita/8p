@@ -458,7 +458,12 @@ func _build_landmark(type: String, base: Vector3, rot: float, s: float) -> void:
 	# all local geometry is rotated by `rot` and uniformly scaled by `s`
 	var xf := Transform3D(Basis(Vector3.UP, rot).scaled(Vector3(s, s, s)), base)
 	if type == "labyrinth":
+		# _labyrinth() builds its own geometry and leaves the page anchor in
+		# _attach_hint, so it has to go through the same page-spot path as every
+		# other landmark instead of returning early (that early return is why the
+		# maze had no pinned page once its hand-rolled one was removed).
 		_labyrinth(xf, base, rot)
+		_add_page_spot(type, xf)
 		return
 	match type:
 		"walls": _concrete_walls(xf)
@@ -729,6 +734,42 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 	var ge := Vector3(LAB_HALF, 0.0, _lab_cell_coord(ke))
 	archways.append({"pos": ge, "horiz": false, "outer": true})
 	entrance_world.append(xf * ge)
+
+	# 6b) Where the page hangs. The maze has no open plaza to pin a sheet to, so
+	# pick a corridor cell and one of the walls that is still standing around it,
+	# then use the face that looks INTO the cell: the sheet is then on stone, at
+	# hand height, with the corridor in front of it rather than a wall.
+	var hint_set := false
+	for attempt in 60:
+		var sc := Vector2i(rng.randi_range(0, LAB_CELLS - 1), rng.randi_range(0, LAB_CELLS - 1))
+		var faces_open: Array[String] = []
+		if _lab_h_wall[sc.y][sc.x]:
+			faces_open.append("north")
+		if _lab_h_wall[sc.y + 1][sc.x]:
+			faces_open.append("south")
+		if _lab_v_wall[sc.y][sc.x]:
+			faces_open.append("west")
+		if _lab_v_wall[sc.y][sc.x + 1]:
+			faces_open.append("east")
+		if faces_open.is_empty():
+			continue
+		var face: String = faces_open[rng.randi_range(0, faces_open.size() - 1)]
+		var cx := _lab_cell_coord(sc.x)
+		var cz := _lab_cell_coord(sc.y)
+		var half_t := LAB_WALL_THICK * 0.5
+		match face:
+			"north":
+				_attach_hint = {"pos": Vector3(cx, 1.45, -LAB_HALF + sc.y * LAB_CELL + half_t), "n": Vector3(0, 0, 1)}
+			"south":
+				_attach_hint = {"pos": Vector3(cx, 1.45, -LAB_HALF + (sc.y + 1) * LAB_CELL - half_t), "n": Vector3(0, 0, -1)}
+			"west":
+				_attach_hint = {"pos": Vector3(-LAB_HALF + sc.x * LAB_CELL + half_t, 1.45, cz), "n": Vector3(1, 0, 0)}
+			_:
+				_attach_hint = {"pos": Vector3(-LAB_HALF + (sc.x + 1) * LAB_CELL - half_t, 1.45, cz), "n": Vector3(-1, 0, 0)}
+		hint_set = true
+		break
+	if not hint_set:
+		push_warning("labyrinth: no standing corridor wall found for the page")
 
 	# 7) Batched mesh builders: Floor, Stonework, Industrial Metal, Electric Wires.
 	var body := StaticBody3D.new()
@@ -1345,8 +1386,10 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 		min_path = mini(min_path, d)
 		max_path = maxi(max_path, d)
 
-	var sanctum_page := xf * Vector3.ZERO
-	page_spots.append({"pos": sanctum_page, "name": "labyrinth"})
+	# The page for this landmark is appended by _add_page_spot() from the hint set
+	# in 6b, pinned to a corridor wall at hand height. The old code appended a
+	# second spot at the maze centre with no normal and no height, which produced a
+	# ninth page lying on the ground in the middle of the sanctum.
 	landmarks.append({"name": "labyrinth", "pos": base, "radius": 16.4, "rot": rot, "scale": 1.0})
 
 	labyrinth = {
@@ -1364,7 +1407,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 		"dead_ends": dead_ends.size(),
 		"entrances": entrance_world,
 		"entrance_cells": entrance_cells,
-		"sanctum_pos": sanctum_page,
+		"sanctum_pos": xf * Vector3.ZERO,   # maze centre, world space
 		"shortest_path": min_path,
 		"longest_path": max_path,
 		"signature": _lab_signature(),
@@ -1785,7 +1828,10 @@ func _bathroom(xf: Transform3D) -> void:
 	for i in 2:
 		_box(xf, Vector3(rng.randf_range(-1.2, 1.2), 1.0, -d * 0.5 + 1.4 + i * 1.5), Vector3(w - 0.7, 2.0, 0.12), m)
 	_box(xf, Vector3(0, 0.45, d * 0.5 + 0.4), Vector3(0.6, 0.5, 0.5), _mats["dark"])  # drain
-	_attach_hint = {"pos": Vector3(0.0, 1.45, -d * 0.5 + 0.14), "n": Vector3(0, 0, 1)}
+	# The back wall is sealed off by the stall dividers (they span w-0.7, wider
+	# than the gap either side), so a page there cannot be reached. Hang it on the
+	# side wall in the open floor between the stalls and the door.
+	_attach_hint = {"pos": Vector3(-w * 0.5 + 0.14, 1.45, d * 0.5 - 1.7), "n": Vector3(1, 0, 0)}
 
 
 func _tower(xf: Transform3D) -> void:
