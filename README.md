@@ -277,7 +277,7 @@ static/slender signal the audio uses and calls `hud.set_dread()`.
 | grain + dirt | sensor noise weighted by signal (never louder than the picture), low-frequency lens smudges |
 | grade | gamma lift + shoulder instead of a 0.5-pivot contrast (which would blacken a night forest), cold shadows / warm highlights |
 | night vision | with the torch in its IR mode: 5-tap softening, steep tube transfer, monochrome green |
-| chrome | corner brackets, blinking REC, 25 fps timecode, battery, IR lamp flag |
+| chrome | corner brackets, blinking REC, 25 fps timecode, tape counter (bottom centre, clear of the touch stick), battery, IR lamp flag |
 
 **The camera rig.** `scenes/Player.tscn` puts the `Camera3D` under
 `Head/Handle/CameraMount`, where `Handle` is a `RigidBody3D`. `Handle` is
