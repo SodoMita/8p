@@ -87,7 +87,7 @@ otherwise whatever `godot` is on your PATH.
 | Platform | File | Notes |
 |---|---|---|
 | **Web / mobile browsers** | `build/web/index.html` | pre-built; serve over HTTP (see below) |
-| **Android** | `build/android/eight_pages.apk` | signed release APK v1.5.0 (arm64-v8a) |
+| **Android** | `build/android/eight_pages.apk` | signed release APK v1.5.0 (arm64-v8a), 45 MB |
 | **Linux** | build it yourself (preset included) | `--export-release "Linux" build/linux/EightPages.x86_64` |
 
 Build them yourself:
