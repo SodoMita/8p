@@ -305,10 +305,12 @@ All of these were rendered by the game itself inside headless sway:
 | | |
 |---|---|
 | ![title](screenshots/00_title.jpg) | ![landmark](screenshots/01_page_1_walls.jpg) |
-| ![silo](screenshots/03_page_3_silo.jpg) | ![apparition](screenshots/09_slender_apparition.jpg) |
-| ![note](screenshots/12_note.jpg) | ![touch](screenshots/13_touch_ui.jpg) |
+| ![silo](screenshots/08_page_8_silo.jpg) | ![apparition](screenshots/12_slender_apparition.jpg) |
+| ![fence](screenshots/17_gate_road.jpg) | ![fence line](screenshots/19_fence_line.jpg) |
+| ![page cloth](screenshots/10_page_cloth.jpg) | ![concrete](screenshots/11_concrete_detail.jpg) |
+| ![note](screenshots/15_note.jpg) | ![touch](screenshots/16_touch_ui.jpg) |
 | ![pause](screenshots/00_pause_menu.jpg) | ![death](screenshots/02_death_screen.jpg) |
-| ![win](screenshots/01_win_screen.jpg) | ![grain](screenshots/10_slender_close.jpg) |
+| ![win](screenshots/01_win_screen.jpg) | ![close](screenshots/13_slender_close.jpg) |
 
 Portrait phone / web build: `screenshots/mobile_web_portrait.jpg`,
 touch-UI tour at phone resolution: `screenshots/mobile/`,

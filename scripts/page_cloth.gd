@@ -37,12 +37,16 @@ func _ready() -> void:
 	_mat.albedo_texture = load("res://assets/textures/paper.png")
 	_mat.roughness = 0.92
 	_mat.metallic = 0.0
-	# a whisper of self-glow so a page is still spottable at the edge of a beam,
-	# but it casts no light and lights nothing around it
+	# Paper is thin: it lights up a little on its own, and light striking the
+	# back of the sheet comes through the front. Without the wrap/backlight pair
+	# a page approached from behind is a black rectangle, which reads as a bug.
 	_mat.emission_enabled = true
 	_mat.emission_texture = load("res://assets/textures/paper.png")
-	_mat.emission_energy_multiplier = 0.10
+	_mat.emission_energy_multiplier = 0.18
 	_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_mat.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+	_mat.backlight_enabled = true
+	_mat.backlight = Color(0.92, 0.89, 0.80)
 	_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 
 	_mi = MeshInstance3D.new()

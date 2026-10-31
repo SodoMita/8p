@@ -299,7 +299,9 @@ func _run_shots() -> void:
 	if world.pages.size() > 0:
 		var pnode: Node3D = world.pages[0]["node"]
 		var pp: Vector3 = pnode.global_position
-		await _set_camera(pp + Vector3(0.42, 0.42, 0.85), pp + Vector3(0.0, -0.08, 0.0))
+		# stand along the sheet's own +Z normal, or the shot is a paper edge
+		var face: Vector3 = pnode.global_transform.basis.z.normalized()
+		await _set_camera(pp + face * 0.95 + Vector3(0.0, 0.16, 0.0), pp + Vector3(0.0, -0.05, 0.0))
 		await _wait(1.4)
 		await _shot("page_cloth")
 
@@ -311,7 +313,7 @@ func _run_shots() -> void:
 			break
 	if not cw.is_empty():
 		var base: Vector3 = cw["pos"]
-		await _set_camera(base + Vector3(6.0, 1.5, 6.0), base + Vector3(0.0, 1.1, 0.0))
+		await _set_camera(base + Vector3(9.5, 1.7, 9.5), base + Vector3(0.0, 1.2, 0.0))
 		await _wait(0.6)
 		await _shot("concrete_detail")
 

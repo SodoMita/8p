@@ -210,20 +210,23 @@ def make_concrete(size=SIZE):
     micro = fbm(h, w, 5, 360, 0.50, seed=7106)
     fine = fbm(h, w, 7, 28, 0.55, seed=7107)
 
+    # Aggregate, not blotches. Real concrete varies mostly at the aggregate
+    # scale inside a 1.2 m tile; the low-frequency terms used to dominate and
+    # made the wall look like camouflage once the contrast was stretched.
     tone = (0.335
-            + (macro - 0.5) * 0.185
-            + (mid - 0.5) * 0.075
-            + (cement - 0.5) * 0.045
-            + (aggregate - 0.5) * 0.030
-            + (micro - 0.5) * 0.020)
+            + (macro - 0.5) * 0.080
+            + (mid - 0.5) * 0.045
+            + (cement - 0.5) * 0.038
+            + (aggregate - 0.5) * 0.080
+            + (micro - 0.5) * 0.045)
     albedo = np.stack([tone * 1.012, tone * 0.998, tone * 0.966], axis=-1)
     del tone
 
-    pale = curve(patch, 0.56, 0.83) * 0.42
+    pale = curve(patch, 0.56, 0.83) * 0.28
     albedo = overlay(albedo, (0.445, 0.438, 0.420), pale)
     del pale
 
-    grime = curve(1.0 - patch, 0.55, 0.84) * 0.34
+    grime = curve(1.0 - patch, 0.55, 0.84) * 0.24
     albedo = overlay(albedo, (0.255, 0.258, 0.255), grime)
     del grime
 
@@ -231,10 +234,10 @@ def make_concrete(size=SIZE):
     albedo = overlay(albedo, (0.375, 0.370, 0.356), mottle)
     del mottle
 
-    grains = curve(aggregate, 0.58, 0.79) * 0.30
+    grains = curve(aggregate, 0.58, 0.79) * 0.44
     albedo = overlay(albedo, (0.455, 0.448, 0.430), grains)
     del grains
-    dark_grains = curve(1.0 - aggregate, 0.63, 0.84) * 0.30
+    dark_grains = curve(1.0 - aggregate, 0.63, 0.84) * 0.44
     albedo = overlay(albedo, (0.252, 0.251, 0.246), dark_grains)
     del dark_grains
 
@@ -315,6 +318,10 @@ def make_concrete(size=SIZE):
     del moss_detail
     moss = np.clip(moss * 0.95, 0.0, 1.0)
     albedo = overlay(albedo, (0.205, 0.225, 0.175), moss * 0.85)
+
+    # A 2048 map with std 7.5/255 reads as flat grey paint once it is lit by a
+    # torch. Stretch the tonal range around the mean before the maps are saved.
+    albedo = np.clip(0.335 + (albedo - 0.335) * 1.85, 0.055, 0.80)
 
     crack_layer = _make_cracks(rng, size)
     cracks = _mask(crack_layer, 0.3)
