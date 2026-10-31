@@ -4,6 +4,9 @@ func _initialize() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
+	var label := "after"
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--label="): label = arg.get_slice("=",1)
 	change_scene_to_file("res://scenes/World.tscn")
 	await create_timer(2.0).timeout
 	var world := current_scene
@@ -20,6 +23,6 @@ func _run() -> void:
 	slender.visible = true
 	await create_timer(1.0).timeout
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png("res://screenshots/slender_after_game.png")
+	root.get_texture().get_image().save_png("res://screenshots/slender_%s_game.png" % label)
 	print("[preview] saved actual forest view")
 	quit()

@@ -58,3 +58,36 @@ constrained-particle solver, not full cloth/self-collision. Godot standalone
 model scripts report pre-existing shutdown ObjectDB/resource warnings.
 
 Latest-base gameplay/camera/packaging results are appended after integration.
+
+## Latest-base integration results
+
+Changes were replayed onto **main e71822d** as a new branch
+`improve/slender-anny`; no merge of an old environment/material tree and no
+changes to main. Latest audio calls and input/camera changes are preserved.
+
+- Gameplay selftest: **43 passed, 0 failed** (latest controls add two checks to
+  the previously announced 41). Separate headless Godot run, fixed 60 Hz,
+  `--quality=0 --autotest=selftest`.
+- Camera test: **30 passed, 0 failed**, separate headless fixed-60-Hz run with
+  `--quality=1 --autotest=camtest`. Quality 1 is required by this suite's physics
+  assertions: quality 0 deliberately disables the physical camera and yielded
+  26/30, not a Slender regression. No camera code was changed.
+- All anatomy/model/attachment/animation tests rerun on this base: PASS.
+- **Export-pack check PASS**: Web PCK exports successfully, contains actual
+  JSON anatomy data, and packaged `slender_model.gd` builds five material
+  batches when loaded from the PCK. This is not a browser/WebAssembly or mobile
+  device test, nor a full executable/template export.
+- Actual GL rendering under Sway/pixman: front/back/side/tie, 216-frame
+  accelerate/travel/turn/brake/settle study and actual latest forest/camcorder
+  scene. Representative moving poses and forest capture visually inspected.
+  `screenshots/slender_anny_motion.gif`, `slender_anny_game.png`.
+- High-concurrency rendering/export/review exceeded this small sandbox's memory;
+  final functional and packaging tests were therefore run separately. Initial
+  GL functional attempts were stopped, not counted as passing.
+- Native Wayland forest capture reports `pointed_win is null` on mouse capture
+  in this virtual compositor, plus existing shutdown resource warnings; actual
+  forest and model images render correctly. No new shader/mesh errors observed.
+
+Push of the new branch currently requires GitHub authentication (HTTPS remote
+reports no username/credential). The local branch/commits are complete; this
+must not be described as merged or published until an authenticated push.

@@ -1,3 +1,6 @@
+> Historical pass. Geometry/counts/screenshots below precede continuous Anny anatomy.
+> Current source, licensing and validation: [slender-anny.md](slender-anny.md).
+
 # Slender model pass
 
 ## Changes

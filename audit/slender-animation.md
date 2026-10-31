@@ -1,3 +1,6 @@
+> Historical pass. Geometry/counts/screenshots below precede continuous Anny anatomy.
+> Current source, licensing and validation: [slender-anny.md](slender-anny.md).
+
 # Slender animation pass
 
 Follow-up to `7da1abf`, on `improve/slender-model`. User chose a blend of unnatural stillness under observation and articulated chase motion.
