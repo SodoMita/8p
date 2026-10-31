@@ -181,6 +181,11 @@ func _make_materials() -> void:
 	# plates came out about 12 cm wide on a 40 cm trunk and read as scales rather
 	# than bark. Stretching the repeat makes each plate a hand's width.
 	_mats["bark"] = _pbr("bark", 0.62, 1.0, 0.75)
+	# OBJECT space, not world space, for bark and planks. World-space projection
+	# anchors the texture to the world, so as soon as the trunk bends or sways the
+	# surface slides through the pattern instead of turning with it - the bark
+	# appears to crawl. Object space rides the deformation.
+	_mats["bark"].uv1_world_triplanar = false
 	_mats["bark"].albedo_color = Color(1.55, 1.50, 1.42)
 	_mats["bark"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
 	_mats["bark_coll"] = _mats["bark"]
@@ -196,6 +201,7 @@ func _make_materials() -> void:
 	_mats["rust"] = _weathered_metal(Color(0.22, 0.18, 0.14), 0.78)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
 	_mats["wood"] = _pbr("bark", 0.75, 1.0, 0.65)
+	_mats["wood"].uv1_world_triplanar = false
 	_mats["wood"].albedo_color = Color(1.42, 1.38, 1.31)
 	_mats["wood"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
 	# approved pumpkin rind from the restore branch (its own shader material)
@@ -500,13 +506,16 @@ func _blank_tints(n: int) -> Array:
 
 
 func _gate_leaves(body: StaticBody3D, panels: Array, rails: Array, open_half: float) -> void:
-	# two leaves hinged on the gate posts, swung open into the forest
+	# Two leaves hinged on the gate posts. They start CLOSED and shut the opening:
+	# they used to be modelled swung open into the forest, so the road left through
+	# a permanently open gate and the fence had a hole in it from the first frame.
+	# The opening is still a real opening - the leaves are the thing that closes it.
 	gate_centre = Vector3(FENCE_SIDE, 0.0, 0.0)
 	var out := Vector3(1, 0, 0)
 	for sgn_f in [-1.0, 1.0]:
 		var sgn: float = sgn_f
 		var hinge: Vector3 = gate_centre + Vector3(0, 0, sgn * open_half)
-		var swing: float = 0.62 * sgn     # radians, opening inward
+		var swing: float = 0.0           # starts CLOSED; see _gate_leaves note
 		var yaw: float = swing
 		var leaf_w := open_half - 0.1
 		var leaf_dir: Vector3 = Vector3(cos(yaw), 0, sin(yaw)) * sgn
