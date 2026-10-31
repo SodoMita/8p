@@ -34,6 +34,8 @@ func _ready() -> void:
 		_run_flow()
 	elif mode == "demo":
 		_run_demo()
+	elif mode == "perf":
+		_run_perf()
 	else:
 		_run_play()
 
@@ -120,6 +122,44 @@ func _run_winscreen() -> void:
 	await _shot("win_screen")
 	_log_line("win screen visible=%s" % str(world.hud.end_root.visible))
 	get_tree().quit(0)
+
+
+## Frame-time budget for the camcorder pass and the camera rig.
+## Reports average frame time with each feature on and off, on this machine.
+func _run_perf() -> void:
+	await _wait(2.0)
+	world.autotest_no_pickup = true
+	await _set_camera(Vector3(0, 0, 2), Vector3(0, 1.4, -14))
+	await _wait(1.0)
+	var cam = world.hud.camcorder
+	var handle = world.player.handle
+
+	var on := await _measure(90)
+	cam.set_enabled(false)
+	var off := await _measure(90)
+	cam.set_enabled(true)
+	handle.set_physics_mode(false)
+	var proc := await _measure(90)
+	handle.set_physics_mode(true)
+	var back := await _measure(90)
+	_log_line("perf camcorder_on=%.2fms off=%.2fms (%.1f%%)" % [on, off, (on / off - 1.0) * 100.0])
+	_log_line("perf rig_physics=%.2fms rig_procedural=%.2fms" % [back, proc])
+	_log_line("perf draw_calls=%d objects=%d" % [
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
+		RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME)])
+	_log_line("perf done")
+	get_tree().quit(0)
+
+
+func _measure(frames: int) -> float:
+	# discard a few frames so shader/pipeline warm-up is not in the average
+	for i in 10:
+		await RenderingServer.frame_post_draw
+	var t0 := Time.get_ticks_usec()
+	for i in frames:
+		await RenderingServer.frame_post_draw
+	var dt := float(Time.get_ticks_usec() - t0) / float(frames) / 1000.0
+	return dt
 
 
 func _run_endings() -> void:
@@ -313,6 +353,21 @@ func _run_shots() -> void:
 	world.hud.static_burst(0.8)
 	await _wait(0.35)
 	await _shot("slender_close")
+
+	# 4b) the camcorder's own night-vision lamp: torch off, IR on
+	world.player.toggle_flashlight()   # torch -> IR lamp
+	world.hud.set_static(0.12)
+	world.hud.set_dread(0.35)
+	await _set_camera(Vector3(0, 0, 8), Vector3(0, 1.6, -12))
+	await _wait(1.2)
+	await _shot("night_vision")
+	# and the same spot with the tape tearing itself apart
+	world.hud.camcorder_glitch(1.0)
+	world.hud.set_dread(1.0)
+	await _wait(0.25)
+	await _shot("signal_loss")
+	world.hud.set_dread(0.0)
+	world.player.toggle_flashlight()   # back to the torch
 
 	# 5) HUD with some pages collected, framed on the spawn clearing
 	sl.visible = false
