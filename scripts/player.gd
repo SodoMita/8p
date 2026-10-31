@@ -69,12 +69,24 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if frozen:
 		return
-	# The mouse always looks. Nothing about touch mode disables it: a phone with
-	# a mouse, a tablet with a trackpad, or a desktop where touch auto-detection
-	# fired by mistake all get the same controls. On a real touchscreen nobody
-	# is moving a mouse, so there is nothing to fight over.
-	if event is InputEventMouseMotion:
+	# --- mouse look -------------------------------------------------------
+	# Desktop: the pointer is captured, every motion is a look.
+	# Touch mode: the cursor stays visible so the on-screen stick and menus work,
+	# so plain motion must NOT spin the camera (moving the pointer over the RUN
+	# button would turn you around). There, hold a mouse button to drag-look.
+	# Either way the keyboard is live: touch mode adds controls, it never takes
+	# the desktop ones away.
+	if event is InputEventMouseMotion and _mouse_look_allowed(event):
 		add_look(event.relative)
+	# A real mouse click on the world captures the pointer: that is how you get
+	# full mouse look on a hybrid device whose touch mode is on, and it is also
+	# how the web build recovers pointer-lock after an alt-tab (browsers refuse
+	# to lock the pointer without a gesture). Fingers are excluded: their
+	# emulated clicks must never steal the cursor from the on-screen controls.
+	if event is InputEventMouseButton and event.pressed \
+			and event.device != InputEvent.DEVICE_ID_EMULATION \
+			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# keyboard actions are never disabled by touch mode either
 	if event.is_action_pressed("flashlight"):
 		toggle_flashlight()
@@ -82,7 +94,25 @@ func _unhandled_input(event: InputEvent) -> void:
 		interact()
 
 
+func _mouse_look_allowed(event: InputEventMouseMotion) -> bool:
+	# pointing/emulate_mouse_from_touch makes every finger emit a mouse motion
+	# too, with the emulation device id. touch_controls already turns that finger
+	# into look, so counting it again made the touch camera ~1.7x too fast.
+	if event.device == InputEvent.DEVICE_ID_EMULATION:
+		return false
+	if Game.touch_mode:
+		# Touch mode keeps the cursor usable for the on-screen stick and menus, so
+		# a plain pointer move is just a pointer move; hold a button to drag-look,
+		# or click once (below) to capture the pointer and get full mouse look.
+		return Input.mouse_mode == Input.MOUSE_MODE_CAPTURED or event.button_mask != 0
+	return true
+
+
 func add_look(delta_px: Vector2) -> void:
+	# one choke point for mouse, trackpad and finger: a frozen player (death,
+	# win, cutscene) and a paused tree must not be able to look around
+	if frozen or get_tree().paused:
+		return
 	var s := MOUSE_SENS * Settings.mouse_sensitivity
 	rotate_y(-delta_px.x * s)
 	var dy := delta_px.y * s

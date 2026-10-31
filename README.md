@@ -101,7 +101,15 @@ controls**, or toggle it live in the pause menu.
 **Keyboard and mouse are always live.** Touch mode adds the on-screen stick, it
 never disables `WASD`, `Shift`, `E`, `F`, `Esc` or mouse look — a phone with a
 mouse, a tablet with a trackpad or a desktop where touch auto-detection fired all
-get the same controls. Clicking back into the window re-captures the mouse.
+get the same controls.
+
+The pointer follows one rule: **a free cursor never turns the camera.** In touch
+mode the cursor belongs to the stick and the menus, so look is *drag*-look — hold
+the left button and move. A real click on the world captures the pointer and
+gives you full mouse look (this is also how the web build gets pointer-lock back
+after an alt-tab, since the browser only grants it on a gesture). A finger never
+triggers that capture: its emulated mouse click is ignored, and its emulated
+mouse motion never looks twice — the touch overlay owns the finger's look.
 
 The camcorder is not forced on anyone: **CAMCORDER FX** in the pause menu turns
 the lens/tape pass (and the on-screen REC/timecode furniture) off, and
@@ -197,7 +205,7 @@ eight_pages/
 Everything below runs headless — no physical display required.
 
 ```bash
-tools/test_all.sh                  # 32 unit checks + 30 rig checks + scripted runs in sway
+tools/test_all.sh                  # 34 unit + 30 rig + 20 control checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 
@@ -205,6 +213,7 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 
 | Check | What it proves |
 |---|---|
+| `controls` | the control paths, measured: mouse yaw/pitch scale and sign (with `invert_y` and sensitivity applied exactly once), `WASD` walks ~1.15 m in 1.2 s **and still does with touch mode on**, a finger's drag looks once (a double-application would be 2×), moving the cursor in touch mode or an absolute event turns the camera **not at all**, drag-look in touch mode does, the stick never moves the view, pitch clamps, `F` toggles the lamp, pause stops movement and resume restores it, the stick is not latched across a pause, and the overlay is silent while paused or frozen |
 | `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports and 180° cuts resync, a stalled tick is clamped, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
 | `selftest` | **every mesh triangle is wound to match its vertex normals** (the inverted-normal guard), pumpkins and bushes present, world builds, 8 distinct pages in bounds, **procedural layouts differ between seeds**, landmarks spread ≥18 m, every page spot walkable, boundary fence is a real ring, win bookkeeping saves a best time, walking/sprinting numbers, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD counter → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |
@@ -221,6 +230,7 @@ The game itself also ships with the harness used by those tests:
 # inside sway (real Wayland session):
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=selftest
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=camtest --quality=2
+tools/run_sway.sh res://scenes/World.tscn -- --autotest=controls
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=perf --quality=1
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=1
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=0 --touch
