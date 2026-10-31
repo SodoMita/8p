@@ -129,37 +129,132 @@ func _run() -> void:
 	check("bushes_present", world.map_builder.bush_count() > 60,
 		str(world.map_builder.bush_count()))
 
-	# boundary must be a ring of thin slabs on the edges, not plates across the map
+	# --- boundary fence: pure geometry, no physics stepping ------------------
+	# every fabric/pole collider must sit ON one of the four fence lines at the
+	# right height, its long axis must run along the fence, and the ring must be
+	# closed except for the gate opening
 	var fence_ok := true
-	var fence: Node = world.find_child("BoundaryFence", true, false)
+	var fence: Node = world.map_builder.find_child("FenceBody", true, false)
+	var fabric_spans: Array[float] = []
+	var gate_gap := 0.0
 	if fence == null:
 		fence_ok = false
+		print("[selftest]   no FenceBody")
 	else:
-		var slab_count := 0
+		var on_line := 0
+		var bad := 0
 		for c in fence.get_children():
 			if c is not CollisionShape3D:
 				continue
 			var cs: CollisionShape3D = c
-			var box: BoxShape3D = cs.shape
-			var ext := box.size
-			var thin := minf(ext.x, ext.z)
-			var long_side := maxf(ext.x, ext.z)
-			var ctr := cs.global_position
-			var on_edge := absf(absf(ctr.x) - 61.0) < 2.0 or absf(absf(ctr.z) - 61.0) < 2.0
-			if thin > 2.0 or long_side < 100.0 or not on_edge:
-				fence_ok = false
-				print("[selftest]   bad fence slab at ", ctr)
-			slab_count += 1
-		if slab_count != 4:
+			var p := cs.global_position
+			# gate leaves hang off the line on purpose, swung open into the forest
+			var near_gate := absf(p.x - 61.0) < 2.6 and absf(p.z) < 6.5
+			var dist := minf(minf(absf(absf(p.x) - 61.0), absf(absf(p.z) - 61.0)), 1.0)
+			var on_fence := dist < 0.35 or near_gate
+			var in_terrain := p.y > -1.0 and p.y < 3.0
+			if on_fence and in_terrain:
+				on_line += 1
+				if cs.shape is BoxShape3D:
+					var box := cs.shape as BoxShape3D
+					var long_axis := maxf(box.size.x, box.size.z)
+					# the long axis must point along the fence, not through it
+					var x_axis := (cs.global_transform.basis * Vector3.RIGHT).normalized()
+					var along_x := absf(absf(x_axis.x) - 1.0) < 0.2
+					var along_z := absf(absf(x_axis.z) - 1.0) < 0.2
+					# a run sitting at z = +-61 stretches along X, and vice versa
+					var run_at_z := absf(absf(p.z) - 61.0) < 0.35
+					if long_axis < 2.0 or (not near_gate and not (along_x if run_at_z else along_z)):
+						bad += 1
+					else:
+						fabric_spans.append(long_axis)
+			else:
+				bad += 1
+				print("[selftest]   fence collider off-line at ", p)
+		if on_line < 100 or bad > 0:
 			fence_ok = false
+		print("[selftest]   fence: %d colliders on the ring, %d bad" % [on_line, bad])
+		# total fabric length vs the perimeter minus the 5 m gate opening
+		var covered := 0.0
+		for span in fabric_spans:
+			covered += span
+		# four 120 m runs, less the 5 m gate opening (one 3 m bay is skipped)
+		var expected := 4.0 * 120.0 - 3.0
+		if absf(covered - expected) > 12.0:
+			fence_ok = false
+			print("[selftest]   fence covers %.1f m, expected ~%.1f" % [covered, expected])
 	check("boundary_fence_ring", fence_ok)
+	# the gate must actually be an opening you can drive a road through
+	var gate: Vector3 = world.map_builder.gate_centre
+	var gate_clear := true
+	for c in fence.get_children() if fence != null else []:
+		if c is CollisionShape3D:
+			var gp: Vector3 = (c as CollisionShape3D).global_position
+			if absf(gp.x - gate.x) < 0.4 and absf(gp.z) < 2.2 and gp.y > 0.5:
+				gate_clear = false
+	check("gate_is_open", gate_clear, str(gate))
+
+	# --- pages: cloth simulation, and no light of their own ------------------
+	var pages_list: Array = world.pages
+	var cloth_ok: bool = pages_list.size() >= 8
+	var light_free := cloth_ok
+	var sags := cloth_ok
+	for p in pages_list:
+		var sheet: Node3D = p.get("cloth")
+		if sheet == null or sheet.vertex_count() != 63:
+			cloth_ok = false
+			continue
+		if sheet.has_light():
+			light_free = false
+		var before: PackedVector3Array = sheet.snapshot()
+		var top_y: float = before[0].y
+		for k in 90:
+			sheet._simulate(1.0 / 60.0)
+		var after: PackedVector3Array = sheet.snapshot()
+		# the free (bottom) edge must have dropped and must not have exploded
+		if after[63 - 1].y > top_y - 0.05 or after[63 - 1].length() > 20.0:
+			sags = false
+	# the sheet's smoothed normals must agree with its own winding (+Z), or the
+	# page is lit from behind and reads as a black rectangle in the beam
+	var norm_ok := cloth_ok
+	for p in pages_list:
+		var sh: Node3D = p.get("cloth")
+		if sh == null:
+			continue
+		sh._simulate(1.0 / 60.0)
+		var ns: PackedVector3Array = sh.surface_normals()
+		var acc2 := 0.0
+		for nvec in ns:
+			acc2 += nvec.dot(Vector3.BACK)
+		if ns.size() == 0 or acc2 / float(ns.size()) < 0.9:
+			norm_ok = false
+	check("page_cloth_normals_forward", norm_ok)
+
+	check("pages_are_cloth", cloth_ok, "%d pages" % pages_list.size())
+	check("pages_have_no_light", light_free)
+	check("page_cloth_sags", sags)
+
+	# --- outside the fence: endless terrain + the road out of the gate --------
+	var st: Dictionary = world.terrain.stats() if world.terrain != null else {}
+	var terrain_ok: bool = not st.is_empty() and int(st.get("chunks", 0)) >= 9
+	check("terrain_chunks", terrain_ok, str(st.get("chunks", 0)))
+	check("terrain_has_trees", int(st.get("trees", 0)) > 300, str(st.get("trees", 0)))
+	check("road_out_of_gate", bool(st.get("road", false)))
+	var floor_ok := false
+	for c in world.terrain.get_children() if world.terrain != null else []:
+		if c is StaticBody3D and c.name == "WorldFloor":
+			for s2 in c.get_children():
+				if s2 is CollisionShape3D and (s2 as CollisionShape3D).shape is BoxShape3D:
+					var box := (s2 as CollisionShape3D).shape as BoxShape3D
+					floor_ok = box.size.x >= 1000.0 and box.size.z >= 1000.0
+	check("outer_floor_covers_world", floor_ok)
 
 	check("landmarks_count", world.map_builder.landmarks.size() == 8, str(world.map_builder.landmarks.size()))
 	check("page_spots_count", world.map_builder.page_spots.size() == 8)
 	check("tree_count", world.map_builder.tree_count() > 400, str(world.map_builder.tree_count()))
 	check("pages_spawned", world.pages.size() == 8)
 	var all_inside := true
-	for p in world.pages:
+	for p in pages_list:
 		var pos: Vector3 = (p["node"] as Node3D).global_position
 		if Vector2(pos.x, pos.z).length() > 59.0:
 			all_inside = false

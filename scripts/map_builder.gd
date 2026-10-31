@@ -107,18 +107,54 @@ func _pbr(name: String, uv_scale := 1.0, rough := 1.0, normal_scale := 1.0) -> S
 	return m
 
 
+## World-space triplanar PBR: the texture is projected in metres on all three
+## axes, so a 2048 px map at `metres_per_repeat` gives the same texel density on
+## a 1 m pillar and a 20 m wall - nothing stretches, nothing looks low-res.
+func _triplanar(tex: String, metres_per_repeat: float, rough: float, normal_scale: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load("res://assets/textures/%s_albedo.png" % tex)
+	m.normal_enabled = true
+	m.normal_texture = load("res://assets/textures/%s_normal.png" % tex)
+	m.normal_scale = normal_scale
+	m.roughness_texture = load("res://assets/textures/%s_rough.png" % tex)
+	m.roughness = rough
+	m.metallic = 0.0
+	m.metallic_specular = 0.35
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3.ONE * (1.0 / maxf(metres_per_repeat, 0.05))
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	m.texture_repeat = true
+	return m
+
+
 func _make_materials() -> void:
 	# trees use world-space UVs baked in the mesh generator, so scale 1
 	_mats["bark"] = _pbr("bark", 1.0, 1.0, 1.15)
 	_mats["bark_coll"] = _mats["bark"]
-	_mats["ground"] = _pbr("ground", 26.0, 1.0, 1.0)
-	_mats["stone"] = _pbr("stone", 1.6, 0.95, 1.0)
-	_mats["concrete"] = _pbr("stone", 1.45, 1.0, 0.85)
+	# 2048 px over 2 m -> ~1000 px/m of dirt detail everywhere
+	_mats["ground"] = _triplanar("ground", 2.0, 1.0, 1.0)
+	# 2048 px over 1.2 m -> ~1700 px/m on every concrete and stone face,
+	# independent of how big the surface is
+	_mats["stone"] = _triplanar("stone", 1.2, 0.95, 1.0)
+	_mats["concrete"] = _triplanar("stone", 1.2, 1.0, 0.85)
 	_mats["metal"] = _flat(Color(0.13, 0.135, 0.14), 0.42, 0.65)
 	_mats["rust"] = _flat(Color(0.30, 0.17, 0.10), 0.85, 0.3)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
 	_mats["wood"] = _pbr("bark", 1.0, 1.0, 1.0)
 	_mats["pumpkin"] = _pbr("pumpkin", 1.0, 1.0, 1.35)
+
+	var link := StandardMaterial3D.new()
+	link.albedo_texture = load("res://assets/textures/chainlink.png")
+	link.albedo_color = Color(0.72, 0.74, 0.78)
+	link.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	link.alpha_scissor_threshold = 0.42
+	link.cull_mode = BaseMaterial3D.CULL_DISABLED
+	link.metallic = 0.55
+	link.roughness = 0.62
+	link.uv1_scale = Vector3(6.0, 4.2, 1.0)   # ~5 cm diamonds on a 3 m panel
+	link.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	_mats["chainlink"] = link
 	_mats["fabric"] = _flat(Color(0.16, 0.15, 0.13), 1.0, 0.0)
 
 	var grass := StandardMaterial3D.new()
@@ -181,22 +217,130 @@ func _ground() -> void:
 	add_child(floor_body)
 
 
+# --------------------------------------------------------------------------- #
+# boundary: a real chain-link fence — posts, fabric panels, rails and a gate
+# --------------------------------------------------------------------------- #
+const FENCE_SIDE := 61.0        # distance of each fence run from the centre
+const PANEL_WIDTH := 3.0        # one fabric panel / one post spacing, metres
+const POST_HEIGHT := 2.35
+const FENCE_FABRIC_H := 2.05
+const GATE_HALF := 2.5          # half the opening, metres
+
+var gate_centre := Vector3(FENCE_SIDE, 0.0, 0.0)
+
+
 func _boundary() -> void:
-	# invisible square fence so you cannot leave the forest
-	var fence := StaticBody3D.new()
-	fence.name = "BoundaryFence"
-	var span := (HALF + 1.0) * 2.0
-	for i in 4:
+	var body := StaticBody3D.new()
+	body.name = "FenceBody"
+	add_child(body)
+
+	# --- shared meshes -----------------------------------------------------
+	var post_mesh := CylinderMesh.new()
+	post_mesh.top_radius = 0.042
+	post_mesh.bottom_radius = 0.052
+	post_mesh.height = POST_HEIGHT
+	post_mesh.radial_segments = 6
+	post_mesh.rings = 1
+
+	var rail_mesh := BoxMesh.new()
+	rail_mesh.size = Vector3(PANEL_WIDTH, 0.05, 0.05)
+
+	var panel_mesh := PlaneMesh.new()
+	panel_mesh.size = Vector2(PANEL_WIDTH, FENCE_FABRIC_H)
+	panel_mesh.orientation = PlaneMesh.FACE_Z
+
+	var posts: Array = []
+	var rails: Array = []
+	var panels: Array = []
+
+	# four runs; side 0 (+X) carries the gate
+	for side in 4:
+		var ang := TAU * float(side) / 4.0
+		var out := Vector3(cos(ang), 0.0, sin(ang))
+		var along := Vector3(-sin(ang), 0.0, cos(ang))
+		var face_yaw := atan2(out.z, out.x)          # plane normal -> outward
+		var run_length := PANEL_WIDTH * 2.0 * float(int(FENCE_SIDE / PANEL_WIDTH))
+		var bays := int(run_length / PANEL_WIDTH)
+		for bay in bays:
+			# panel centre, measured along the run
+			var t := (float(bay) + 0.5) / float(bays) - 0.5
+			var centre: Vector3 = out * FENCE_SIDE + along * (t * run_length)
+			var in_gate := side == 0 and absf(t * run_length) < GATE_HALF
+			if in_gate:
+				continue
+			var b := Basis.from_euler(Vector3(0, face_yaw, 0))
+			panels.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)))
+			# top rail
+			rails.append(Transform3D(Basis.from_euler(Vector3(0, face_yaw + PI * 0.5, 0)),
+				centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
+			# one fabric collider per panel: thin slab exactly on the fence line
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(PANEL_WIDTH, FENCE_FABRIC_H, 0.1)
+			var col := CollisionShape3D.new()
+			col.shape = shape
+			col.rotation.y = face_yaw + PI * 0.5
+			col.position = centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)
+			body.add_child(col)
+		# posts between bays (shared, so bays + 1)
+		for p_i in bays + 1:
+			var t2 := float(p_i) / float(bays) - 0.5
+			var ppos: Vector3 = out * FENCE_SIDE + along * (t2 * run_length)
+			if side == 0 and absf(t2 * run_length) <= GATE_HALF + 0.01:
+				continue
+			# sunk 0.35 m into the ground so the fence sits IN the terrain
+			posts.append(Transform3D(Basis.IDENTITY, ppos + Vector3(0, POST_HEIGHT * 0.5 - 0.35, 0)))
+			var pshape := CylinderShape3D.new()
+			pshape.radius = 0.09
+			pshape.height = POST_HEIGHT + 0.7
+			var pcol := CollisionShape3D.new()
+			pcol.shape = pshape
+			pcol.position = ppos + Vector3(0, POST_HEIGHT * 0.5 - 0.35, 0)
+			body.add_child(pcol)
+		if side == 0:
+			_gate_leaves(body, panels, rails)
+
+	_add_multimesh(panel_mesh, _mats["chainlink"], panels, _blank_tints(panels.size()), "FencePanels")
+	_add_multimesh(post_mesh, _mats["metal"], posts, _blank_tints(posts.size()), "FencePosts")
+	_add_multimesh(rail_mesh, _mats["metal"], rails, _blank_tints(rails.size()), "FenceRails")
+
+
+func _blank_tints(n: int) -> Array:
+	var out: Array = []
+	for i in n:
+		out.append(Color(1, 1, 1))
+	return out
+
+
+func _gate_leaves(body: StaticBody3D, panels: Array, rails: Array) -> void:
+	# two leaves hinged on the gate posts, swung open into the forest
+	gate_centre = Vector3(FENCE_SIDE, 0.0, 0.0)
+	var out := Vector3(1, 0, 0)
+	for sgn_f in [-1.0, 1.0]:
+		var sgn: float = sgn_f
+		var hinge: Vector3 = gate_centre + Vector3(0, 0, sgn * GATE_HALF)
+		var swing: float = 0.62 * sgn     # radians, opening inward
+		var yaw: float = swing
+		var leaf_w := GATE_HALF - 0.1
+		var centre: Vector3 = hinge + Vector3(cos(yaw), 0, sin(yaw)) * (leaf_w * 0.5) * sgn
+		var b := Basis.from_euler(Vector3(0, PI * 0.5 - yaw * sgn, 0))
+		panels.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)))
+		rails.append(Transform3D(Basis.from_euler(Vector3(0, PI - yaw * sgn, 0)),
+			centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
 		var shape := BoxShape3D.new()
-		shape.size = Vector3(span, 24.0, 1.0)
+		shape.size = Vector3(leaf_w, FENCE_FABRIC_H, 0.1)
 		var col := CollisionShape3D.new()
 		col.shape = shape
-		var ang := TAU * float(i) / 4.0
-		col.position = Vector3(cos(ang), 6.0, sin(ang)) * (HALF + 1.0)
-		# thin axis must point radially outward, long axis along the edge
-		col.rotation.y = PI / 2.0 - ang
-		fence.add_child(col)
-	add_child(fence)
+		col.rotation.y = PI * 0.5 - yaw * sgn
+		col.position = centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)
+		body.add_child(col)
+		# gate post
+		var pshape := CylinderShape3D.new()
+		pshape.radius = 0.1
+		pshape.height = POST_HEIGHT + 0.7
+		var pcol := CollisionShape3D.new()
+		pcol.shape = pshape
+		pcol.position = hinge + Vector3(0, POST_HEIGHT * 0.5 - 0.35, 0)
+		body.add_child(pcol)
 
 
 # --------------------------------------------------------------------------- #

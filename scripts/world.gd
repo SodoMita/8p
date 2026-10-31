@@ -17,6 +17,7 @@ const PAGE_NOTES := [
 ]
 
 @onready var map_builder: Node3D = $MapBuilder
+var terrain: Node3D = null
 @onready var player: CharacterBody3D = $Player
 @onready var slender: Node3D = $Slender
 @onready var hud: CanvasLayer = $HUD
@@ -43,6 +44,7 @@ func _ready() -> void:
 	_setup_environment()
 	_setup_moon()
 	map_builder.build(world_seed, Game.quality)
+	_setup_terrain()
 	_spawn_pages()
 	player.global_position = Vector3(0, 0.15, 2.0)
 	player.rotation.y = 0.0
@@ -104,12 +106,12 @@ func _setup_environment() -> void:
 	env.background_color = Color(0.012, 0.015, 0.021)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.17, 0.22, 0.33)
-	env.ambient_light_energy = 0.30
+	env.ambient_light_energy = 0.42
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.02
 	env.fog_enabled = true
 	env.fog_light_color = Color(0.014, 0.018, 0.026)
-	env.fog_light_energy = 0.30
+	env.fog_light_energy = 0.38
 	env.fog_density = 0.062 if Game.quality >= 1 else 0.072
 	env.fog_sky_affect = 1.0
 	env.fog_aerial_perspective = 0.4
@@ -122,10 +124,17 @@ func _setup_environment() -> void:
 		player.camera.far = 70.0 if Game.quality >= 1 else 55.0
 
 
+func _setup_terrain() -> void:
+	terrain = load("res://scripts/endless_terrain.gd").new()
+	terrain.name = "Terrain"
+	add_child(terrain)
+	terrain.setup(map_builder, player, Game.quality)
+
+
 func _setup_moon() -> void:
 	var moon := DirectionalLight3D.new()
 	moon.light_color = Color(0.52, 0.62, 0.92)
-	moon.light_energy = 0.16
+	moon.light_energy = 0.24
 	moon.rotation = Vector3(deg_to_rad(-58), deg_to_rad(28), 0)
 	moon.shadow_enabled = Game.quality >= 2
 	moon.directional_shadow_max_distance = 60.0
@@ -134,15 +143,6 @@ func _setup_moon() -> void:
 
 
 func _spawn_pages() -> void:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load("res://assets/textures/paper.png")
-	mat.emission_enabled = true
-	mat.emission_texture = load("res://assets/textures/paper.png")
-	mat.emission_energy_multiplier = 0.75
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-
 	var spots: Array = map_builder.page_spots
 	var note_order := range(spots.size())
 	var nrng := Game.rng()
@@ -152,32 +152,25 @@ func _spawn_pages() -> void:
 		note_order[i] = note_order[j]
 		note_order[j] = tmp
 	# keep landmark order, notes are handed out in that same order
+	var cloth_script: Script = load("res://scripts/page_cloth.gd")
 	for i in spots.size():
 		var spot: Dictionary = spots[i]
 		var root := Node3D.new()
 		root.name = "Page_%d" % i
-		var quad := QuadMesh.new()
-		quad.size = Vector2(0.44, 0.58)
-		var mi := MeshInstance3D.new()
-		mi.mesh = quad
-		mi.material_override = mat
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		root.add_child(mi)
-		if Game.quality >= 1:
-			var light := OmniLight3D.new()
-			light.light_color = Color(1.0, 0.94, 0.78)
-			light.light_energy = 1.1
-			light.omni_range = 4.2
-			light.omni_attenuation = 1.6
-			light.shadow_enabled = false
-			root.add_child(light)
+		# The sheet itself is a live cloth grid: it hangs from its top edge,
+		# sags under its own weight and moves in the draft. It carries no light.
+		var sheet: Node3D = cloth_script.new()
+		sheet.name = "Sheet"
+		sheet.set("hang_phase", randf() * TAU)
+		root.add_child(sheet)
 		var pos: Vector3 = spot["pos"]
 		root.position = Vector3(pos.x, 0.62, pos.z)
-		root.rotation = Vector3(-0.3, randf() * TAU, 0.0)
+		root.rotation = Vector3(0.0, randf() * TAU, 0.0)
 		add_child(root)
 		var note_index: int = note_order[i] if i < note_order.size() else 0
 		pages.append({
 			"node": root,
+			"cloth": sheet,
 			"note": PAGE_NOTES[note_index % PAGE_NOTES.size()],
 			"landmark": spot["name"],
 			"taken": false,
@@ -209,9 +202,6 @@ func _update_pages(delta: float) -> void:
 		if p["taken"]:
 			continue
 		var node: Node3D = p["node"]
-		var phase: float = p["phase"]
-		node.position.y = 0.62 + sin(_start_grace * 1.6 + phase) * 0.06
-		node.rotation.y += delta * 0.5
 		var d := player.global_position.distance_to(node.global_position)
 		if d < PICKUP_RADIUS and not autotest_no_pickup:
 			_collect(i)

@@ -12,10 +12,43 @@ meshes, and the ground is a procedural PBR material — albedo, normal and
 roughness maps generated from layered value noise, scattered needle litter,
 twigs and pebbles, moss settling into the hollows. Nothing is painted by hand.
 
-**It is genuinely dark.** Ambient light is a cold 0.30 with the moon at 0.16, so
+**It is genuinely dark.** Ambient light is a cold 0.42 with the moon at 0.24, so
 the flashlight is the only real light source: a 30° cone that carves a pool of
 dirt and bark out of black. The far distance dissolves into fog rather than
 fading into grey.
+
+### The boundary, and what lies past it
+
+The playable wood is a 122 m square, and the square is **fenced**. The boundary is
+built the way a real chain-link fence is built: 3 m wire-mesh bays between
+galvanised posts, a top rail, bottom tension wire, and a two-leaf vehicle gate at
+the east side that hangs open. The mesh is a genuine alpha-scissor diamond weave,
+not a painted-on band, and every post, bay and gate leaf carries its own collider
+(a ring of 325 shapes, verified arithmetically in the test suite rather than by
+watching a character walk into it).
+
+Past the gate there is **no edge to fall off**. An endless, procedurally streamed
+forest continues in 32 m chunks around the player, and a dirt road leaves through
+the gate and wanders off to the horizon, so an escaped player always has somewhere
+to walk. A 4 km collision slab sits under all of it.
+
+### Pages you can touch
+
+Each page is a small **verlet cloth sheet** — 7×9 vertices pinned along its top
+edge, integrated at a fixed 60 Hz, three constraint passes, shear links so it
+cannot fold into a fan of triangles, and smoothed per-vertex normals computed from
+the live geometry. It sags under its own weight and stirs in the draft. The pages
+carry **no light of their own**; a whisper of emission keeps them readable at the
+edge of the beam, and everything else you see on them is the flashlight.
+
+### Concrete that holds up close
+
+Concrete and stone use a **world-space triplanar** projection at 1.2 m per texture
+repeat: 2048² maps give ~1700 px/m on every face regardless of whether that face
+belongs to a 1 m pillar or a 20 m wall. Before that, box-mesh UVs gave 100–3500
+px/m on the same wall with up to 46:1 stretch. The maps themselves are isotropic
+layered noise with Poisson-scattered aggregate, pits, bubbles, chips and hairline
+cracks, mipmapped and anisotropic-filtered.
 
 ![title](screenshots/00_title.jpg)
 ![gameplay](screenshots/gameplay.gif)
@@ -41,7 +74,7 @@ otherwise whatever `godot` is on your PATH.
 | Platform | File | Notes |
 |---|---|---|
 | **Web / mobile browsers** | `build/web/index.html` | pre-built; serve over HTTP (see below) |
-| **Android** | `build/android/eight_pages.apk` | signed release APK v1.2.0 (arm64-v8a), 35 MB |
+| **Android** | `build/android/eight_pages.apk` | signed release APK v1.3.0 (arm64-v8a) |
 | **Linux** | build it yourself (preset included) | `--export-release "Linux" build/linux/EightPages.x86_64` |
 
 Build them yourself:
@@ -131,19 +164,22 @@ eight_pages/
 │   ├── sfx.gd               # autoload: looping ambience + one-shot pool
 │   ├── title.gd             # title screen UI
 │   ├── world.gd             # run orchestration, pages, static feedback, endings
-│   ├── map_builder.gd       # procedural forest + eight landmark set pieces
+│   ├── map_builder.gd       # procedural forest, eight landmarks, chain-link boundary
+│   ├── endless_terrain.gd   # streamed forest + road outside the fence
+│   ├── page_cloth.gd        # verlet cloth sheet for each collectible page
+│   ├── road_ribbon.gd       # crowned ribbon mesh builder for the road
 │   ├── player.gd            # FPS controller (mouse + touch), stamina, head bob
 │   ├── slender.gd           # the tall one: apparitions, gaze logic, chase, kill
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 29 functional assertions
+│   ├── selftest.gd          # 38 functional assertions
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
 ├── shaders/
 │   ├── static.gdshader      # film-grain / VHS static overlay
 │   └── vignette.gdshader
 ├── assets/
-│   ├── audio/*.wav          # synthesised beds, footsteps, screams, stings
+│   ├── audio/*.wav          # synthesised wind, drone, static, heartbeat, steps…
 │   ├── textures/*.png       # PBR ground/bark/stone/grass/litter, paper, noise
 │   ├── models/*.res         # baked tree / snag / log / stump / shrub / pumpkin / bush meshes
 │   └── fonts/               # DejaVu Sans + Serif (licence: Bitstream Vera / public)
@@ -151,10 +187,10 @@ eight_pages/
 ├── VERSION.txt
 ├── tools/
 │   ├── gen_assets.py        # regenerates base textures, sounds, title plate
-│   ├── gen_sfx.py           # the whole audio set: formant voice engine + beds
 │   ├── gen_textures_real.py # PBR ground/bark/stone/grass/litter maps
 │   ├── gen_trees.gd         # bakes the bare-tree meshes into assets/models
 │   ├── gen_title_bg.gd      # renders the menu backdrop from the tree meshes
+│   ├── gen_concrete.py      # 2048² concrete albedo/normal/rough, isotropic
 │   ├── setup_toolchain.sh   # JDK 21 + Android SDK + keystores + templates
 │   ├── run_sway.sh          # headless sway compositor + Godot runner
 │   ├── capture_screens.sh   # full screenshot capture inside sway
@@ -170,7 +206,7 @@ eight_pages/
 Everything below runs headless — no physical display required.
 
 ```bash
-tools/test_all.sh                  # 29 unit-style checks + scripted runs in sway
+tools/test_all.sh                  # 38 assertions + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 
@@ -178,11 +214,11 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 
 | Check | What it proves |
 |---|---|
-| `selftest` | **every mesh triangle is wound to match its vertex normals** (the inverted-normal guard), pumpkins and bushes present, world builds, 8 distinct pages in bounds, **procedural layouts differ between seeds**, landmarks spread ≥18 m, every page spot walkable, boundary fence is a real ring, win bookkeeping saves a best time, walking/sprinting numbers, stamina, mouse & touch look, wall + floor collision, pickup → HUD counter → note → Slender woken, gaze detection, chase → capture → death screen |
+| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), set pieces built, **the chain-link fence is a closed ring of 325 colliders with an open 5 m gate**, pages are live cloth with no light of their own and normals facing forward, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping saves a best time, walking/sprinting, stamina, mouse & touch look, wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |
 | `death path` | Slender catches the player, jumpscare, death screen shown |
 | `flow` | **Title → BEGIN → World → pause → resume → movement → first pickup**, inside sway, plus *picking up a page while paused is impossible* |
-| `desktop shots` | 14 sway-rendered screenshots of every landmark, Slender, HUD, note overlay |
+| `desktop shots` | 20 sway-rendered screenshots of every landmark, Slender, HUD, note overlay |
 | `mobile shots` | same tour at phone resolution with touch UI; asserts the injected virtual-stick drag produced the expected move vector |
 | `endings` | pause menu, jumpscare and death screen captures |
 | `win screen` | win sequence capture |
@@ -200,7 +236,10 @@ tools/run_sway.sh res://scenes/Title.tscn -- --flow
 ### Code audit
 
 `audit/` keeps the prompts and transcripts of the static-audit passes run with
-[opencode](https://opencode.ai). The `glm-5.3-flash` pass over the nine gameplay
+[opencode](https://opencode.ai), including two deepseek agents run in parallel
+during the 1.3.0 correction cycle (`audit/agents/CONCRETE_PBR.md` measured texel
+density surface by surface; `audit/agents/CLOTH_TERRAIN.md` found eleven real
+bugs in the cloth solver and the terrain streamer, all fixed). The `glm-5.3-flash` pass over the nine gameplay
 scripts produced twelve findings; all twelve were applied and are covered by the
 suite (boundary-fence orientation, Slender facing/pathing, paused pickups,
 win-time bookkeeping, stamina, jumpscare framing, tween leaks, audio-loop tweens).
@@ -226,7 +265,6 @@ lighting so the game stays playable on phones and on `llvmpipe`.
 
 ```bash
 python3 tools/gen_assets.py       # base textures, audio, paper — run this FIRST
-python3 tools/gen_sfx.py          # audio only (assets/audio/*.wav)
 python3 tools/gen_textures_real.py   # PBR ground / bark / stone / grass / litter
 godot --headless --path . --script tools/gen_trees.gd     # bare-tree meshes
 godot --path . --script tools/gen_title_bg.gd             # menu backdrop (needs GL)
@@ -245,18 +283,9 @@ painted ones.
 * **Meshes** — `gen_trees.gd` bakes six trunks, two snags, a fallen log, a stump
   and a dead shrub as `.res` meshes with world-space bark UVs and visible root
   flares; they are drawn with `MultiMesh` and per-instance tints.
-* **Audio** — all WAVs are synthesised in `tools/gen_sfx.py`. The screams are not
-  noise bursts: a voice is an additive stack of harmonics whose amplitudes follow
-  five time-varying formants, driven by an unstable pitch contour (vibrato,
-  jitter, a break where the voice gives out) with a torn aspiration layer under
-  it — so the death sting reads as a throat, not a hiss. layered under it are a
-  subharmonic growl, an inharmonic metal shriek, a sub impact and a chirped
-  intake of air, all through a synthetic room. Three takes of the apparition
-  sting, a close whisper for when he is already beside you, and a chase roar are
-  picked at random so he never sounds the same twice. The beds (wind, a
-  minor-second drone, static, heartbeat, strained breathing) are cross-faded
-  into seamless loops at runtime; a limiter on the Master bus keeps the sting
-  from clipping.
+* **Audio** — all WAVs are synthesised: wind and drone beds (cross-faded into
+  seamless loops at runtime), heartbeat, breathing, four footstep variants,
+  page rustle, apparition swell, jumpscare, win sting and UI click.
 
 ## Mobile notes
 

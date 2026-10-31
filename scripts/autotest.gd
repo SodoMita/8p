@@ -295,6 +295,26 @@ func _run_shots() -> void:
 		await _shot("pumpkins")
 		_log_line("pumpkins=%d bushes=%d" % [world.map_builder.pumpkin_count(), world.map_builder.bush_count()])
 
+	# 2c) a page close up: the sheet is a live cloth grid with no light of its own
+	if world.pages.size() > 0:
+		var pnode: Node3D = world.pages[0]["node"]
+		var pp: Vector3 = pnode.global_position
+		await _set_camera(pp + Vector3(0.42, 0.42, 0.85), pp + Vector3(0.0, -0.08, 0.0))
+		await _wait(1.4)
+		await _shot("page_cloth")
+
+	# 2d) concrete close up: texel density / stretching check
+	var cw: Dictionary = {}
+	for lm in world.map_builder.landmarks:
+		if lm["name"] == "walls" or lm["name"] == "tower":
+			cw = lm
+			break
+	if not cw.is_empty():
+		var base: Vector3 = cw["pos"]
+		await _set_camera(base + Vector3(6.0, 1.5, 6.0), base + Vector3(0.0, 1.1, 0.0))
+		await _wait(0.6)
+		await _shot("concrete_detail")
+
 	# 3) Slender in the treeline, lit by the flashlight
 	var pl: Node3D = world.player
 	await _set_camera(Vector3(0, 0, 6), Vector3(0, 1.4, -20))
@@ -347,6 +367,20 @@ func _run_shots() -> void:
 	_touch_up(0, stick)
 	_touch_up(1, Vector2(vp.x * 0.8, vp.y * 0.5))
 	_log_line("touch stick vector=%s yaw=%.3f" % [str(move_vec), yaw])
+
+	# 5) the gate, the road leaving through it, and the fence running away
+	world.hud.note_root.modulate.a = 0.0
+	world.hud.show_prompt("")
+	var gate: Vector3 = world.map_builder.gate_centre
+	await _set_camera(gate + Vector3(-2.2, 0.05, 2.6), gate + Vector3(26.0, -1.2, -1.0))
+	await _wait(0.8)
+	await _shot("gate_road")
+	await _set_camera(gate + Vector3(14.0, 0.05, 1.2), gate + Vector3(-24.0, -1.4, -0.6))
+	await _wait(0.8)
+	await _shot("gate_from_outside")
+	await _set_camera(gate + Vector3(-9.0, 0.05, -3.0), gate + Vector3(30.0, -1.4, 14.0))
+	await _wait(0.8)
+	await _shot("fence_line")
 	_log_line("autotest shots done")
 	get_tree().quit(0)
 

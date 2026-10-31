@@ -244,7 +244,7 @@ func _begin_apparition() -> void:
 	seen_time = 0.0
 	enraged = false
 	apparition_started.emit()
-	Sfx.appear(-13.5)
+	Sfx.play("appear", -12.0, randf_range(0.92, 1.08))
 	if world != null:
 		world.on_apparition()
 
@@ -253,7 +253,7 @@ func _begin_chase() -> void:
 	mode = Mode.CHASE
 	enraged = true
 	lose_time = 0.0
-	Sfx.play("chase", -3.0)
+	Sfx.play("appear", -4.0, 0.7)
 	if world != null:
 		world.on_chase_start()
 

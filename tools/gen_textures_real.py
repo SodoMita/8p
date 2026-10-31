@@ -49,11 +49,21 @@ def anisotropic(h, w, res_x, res_y, seed=0):
 
 
 def normal_map(height, strength=2.0):
+    """Tangent-space normal map in the OpenGL convention the renderer expects:
+    +X in the map = toward the RIGHT of the image, +Y in the map = toward the TOP
+    of the image, +Z = out of the surface.
+
+    Image rows increase DOWNWARD, so with v_up = -y_image:
+      nx = +dH/du                      = +dH/dx   (project convention)
+      ny = -dH/dv_up = +dH/dy_image    = +dH/dy
+    Getting the green sign wrong makes every bump read as a dent - which is what
+    "inverted normals" looks like on bark ridges and stone pits.
+    """
     dx = np.gradient(height, axis=1) * strength
     dy = np.gradient(height, axis=0) * strength
     nz = np.ones_like(height)
     ln = np.sqrt(dx * dx + dy * dy + nz * nz)
-    nx, ny, nz = -dx / ln, -dy / ln, nz / ln
+    nx, ny, nz = dx / ln, dy / ln, nz / ln
     rgb = np.stack([nx * 0.5 + 0.5, ny * 0.5 + 0.5, nz * 0.5 + 0.5], axis=-1)
     return (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
 
@@ -290,6 +300,40 @@ def make_pumpkin(size=512):
 
 
 # --------------------------------------------------------------------------- #
+# chain-link fabric (alpha cutout, tiles as a diamond weave)
+# --------------------------------------------------------------------------- #
+def make_chainlink(size=512):
+    """Diamond-weave wire mesh with an alpha cutout. One tile == ~0.5 m of fence."""
+    h = w = size
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    rng = np.random.default_rng(77)
+    cell = size / 8.0          # 8 diamonds across the tile
+    wire = max(2.0, size / 190.0)
+    # two families of diagonals; drawn with wrap-around so the tile is seamless
+    for k in range(-9, 10):
+        off = k * cell
+        for sign in (1.0, -1.0):
+            x0, y0 = -size, off
+            x1, y1 = size * 2, off + sign * (size * 2)
+            shade = int(120 + rng.integers(-16, 22))
+            col = (shade, shade + 2, shade + 4, 255)
+            d.line([(x0, y0), (x1, y1)], fill=col, width=int(round(wire)))
+            # wrap copies one tile up and down
+            d.line([(x0, y0 - size), (x1, y1 - size)], fill=col, width=int(round(wire)))
+            d.line([(x0, y0 + size), (x1, y1 + size)], fill=col, width=int(round(wire)))
+    # the wire is round stock: brighten a thin highlight along its centre
+    hi = img.filter(ImageFilter.GaussianBlur(0.7))
+    arr = np.asarray(hi, dtype=np.float32)
+    alpha = arr[..., 3:4]
+    rgb = arr[..., :3] * (0.85 + 0.30 * (alpha / 255.0))
+    out = np.concatenate([np.clip(rgb, 0, 255), alpha], axis=-1)
+    Image.fromarray(out.astype(np.uint8), "RGBA").save(
+        os.path.join(TEX, "chainlink.png"), optimize=True)
+    print("  texture: chainlink.png")
+
+
+# --------------------------------------------------------------------------- #
 # dry grass / weed billboard (alpha cutout)
 # --------------------------------------------------------------------------- #
 def make_grass(size=512):
@@ -343,13 +387,32 @@ def make_litter(size=512):
     print("  texture: litter.png")
 
 
+def self_check() -> bool:
+    """Guards the normal-map sign. A ramp rising toward the bottom of the image
+    must encode green > 127 (normal tilting toward the TOP of the image), and a
+    ramp rising to the right must encode red > 127 via +dH/dx."""
+    n = 64
+    yy, xx = np.mgrid[0:n, 0:n].astype(np.float32)
+    nm_v = normal_map(yy / n, strength=40.0)
+    nm_h = normal_map(xx / n, strength=40.0)
+    green = float(nm_v[..., 1].mean())
+    red = float(nm_h[..., 0].mean())
+    ok = green > 170.0 and red > 170.0
+    print("  self-check normal sign: green=%.1f (want >170) red=%.1f (want >170) -> %s"
+          % (green, red, "PASS" if ok else "FAIL"))
+    return ok
+
+
 if __name__ == "__main__":
     os.makedirs(TEX, exist_ok=True)
+    if not self_check():
+        raise SystemExit("normal_map() green channel is inverted - refusing to write textures")
     print("Generating realistic PBR textures...")
     make_bark()
     make_ground()
     make_stone()
     make_pumpkin()
+    make_chainlink()
     make_grass()
     make_litter()
     print("done.")
