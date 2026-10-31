@@ -17,10 +17,10 @@ const DEAD_TREE_MESHES := 6
 const SNAG_MESHES := 2
 const PUMPKIN_MESHES := 3
 const BUSH_MESHES := 3
-const LAB_CELLS := 8
-const LAB_CELL := 2.75
+const LAB_CELLS := 10
+const LAB_CELL := 2.45
 const LAB_WALL_THICK := 0.36
-const LAB_HALF := LAB_CELLS * LAB_CELL * 0.5  # 11.0 m (22 x 22 m footprint)
+const LAB_HALF := LAB_CELLS * LAB_CELL * 0.5  # 12.25 m (24.5 x 24.5 m footprint)
 
 signal built
 
@@ -125,8 +125,10 @@ func _make_materials() -> void:
 	_mats["ground"] = _pbr("ground", 26.0, 1.0, 1.0)
 	_mats["stone"] = _pbr("stone", 1.6, 0.95, 1.0)
 	_mats["concrete"] = _pbr("stone", 1.45, 1.0, 0.85)
-	_mats["lab_wall"] = _pbr("stone", 1.0, 0.96, 1.3)
-	_mats["lab_floor"] = _pbr("stone", 1.0, 0.98, 1.1)
+	_mats["lab_wall"] = _pbr("stone", 1.0, 0.96, 1.35)
+	_mats["lab_floor"] = _pbr("stone", 1.0, 0.98, 1.15)
+	_mats["lab_metal"] = _flat(Color(1.0, 1.0, 1.0), 0.46, 0.72)
+	_mats["lab_wire"] = _flat(Color(1.0, 1.0, 1.0), 0.40, 0.22)
 	_mats["metal"] = _flat(Color(0.13, 0.135, 0.14), 0.42, 0.65)
 	_mats["rust"] = _flat(Color(0.30, 0.17, 0.10), 0.85, 0.3)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
@@ -156,7 +158,7 @@ func _make_materials() -> void:
 	litter.roughness = 1.0
 	_mats["litter"] = litter
 
-	for key in ["bark", "wood", "lab_wall", "lab_floor"]:
+	for key in ["bark", "wood", "lab_wall", "lab_floor", "lab_metal", "lab_wire"]:
 		_mats[key].vertex_color_use_as_albedo = true
 
 
@@ -219,12 +221,12 @@ func _place_landmarks(_quality: int) -> void:
 	# 1) Place the procedural stone labyrinth first so it gets clean ground
 	#    well clear of both the central spawn clearing and the outer fence.
 	var lab_ang := rng.randf() * TAU
-	var lab_dist := rng.randf_range(30.0, 40.5)
+	var lab_dist := rng.randf_range(31.5, 39.2)
 	var lab_pos := Vector3(cos(lab_ang) * lab_dist, 0.0, sin(lab_ang) * lab_dist)
-	var lab_rot := float(rng.randi_range(0, 3)) * (PI * 0.5) + rng.randf_range(-0.045, 0.045)
+	var lab_rot := float(rng.randi_range(0, 3)) * (PI * 0.5) + rng.randf_range(-0.04, 0.04)
 	_build_landmark("labyrinth", lab_pos, lab_rot, 1.0)
-	_occupied.append({"pos": lab_pos, "radius": 15.5})
-	_placed_spacing.append(28.0)
+	_occupied.append({"pos": lab_pos, "radius": 17.2})
+	_placed_spacing.append(29.0)
 
 	# 2) Scatter the remaining seven set pieces around the forest.
 	var types := ["tunnel", "silo", "truck", "shed", "rocks", "bathroom", "tower"]
@@ -232,10 +234,10 @@ func _place_landmarks(_quality: int) -> void:
 	var placed := 0
 	var tries := 0
 	# progressively relax spacing if the map gets crowded, so all eight always fit
-	while placed < types.size() and tries < 7000:
+	while placed < types.size() and tries < 8000:
 		tries += 1
-		var spacing := 29.0 if tries < 1400 else (26.0 if tries < 3200 else 23.0)
-		var lab_gap := 27.5 if tries < 3200 else 25.0
+		var spacing := 29.0 if tries < 1500 else (26.0 if tries < 3600 else 22.8)
+		var lab_gap := 28.8 if tries < 3600 else 25.8
 		var ang := rng.randf() * TAU
 		var dist := rng.randf_range(19.0, HALF - 13.0)
 		var pos := Vector3(cos(ang) * dist, 0.0, sin(ang) * dist)
@@ -389,8 +391,16 @@ func _point_inside_prop(p: Vector3) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# procedural stone labyrinth + spatial reverb zone
+# procedural stone labyrinth + electric wire network + spatial reverb zone
 # --------------------------------------------------------------------------- #
+func _lab_grid_coord(g: int) -> float:
+	return (float(g) - float(LAB_CELLS) * 0.5) * LAB_CELL
+
+
+func _lab_cell_coord(c: int) -> float:
+	return (float(c) - float(LAB_CELLS) * 0.5 + 0.5) * LAB_CELL
+
+
 func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 	_lab_built = true
 	_lab_xf = xf
@@ -399,7 +409,9 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 	_lab_h_wall.clear()
 	_lab_v_wall.clear()
 
-	# 1) Initialize 8x8 cell wall grids (all closed) + visited table.
+	var mid: int = LAB_CELLS / 2  # 5 on a 10x10 grid -> sanctum at (4..5, 4..5)
+
+	# 1) Initialize 10x10 cell wall grids (all closed) + visited table.
 	var visited: Array = []
 	for cz in LAB_CELLS + 1:
 		var row_h: Array[bool] = []
@@ -416,14 +428,14 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 			row_vis.append(false)
 		visited.append(row_vis)
 
-	# 2) Carve the 2x2 Central Sanctum at cells (3..4, 3..4).
-	_lab_v_wall[3][4] = false
-	_lab_v_wall[4][4] = false
-	_lab_h_wall[4][3] = false
-	_lab_h_wall[4][4] = false
-	for sz in [3, 4]:
-		for sx in [3, 4]:
-			visited[sz][sx] = true
+	# 2) Carve the 2x2 Central Sanctum at (mid-1..mid, mid-1..mid).
+	_lab_v_wall[mid - 1][mid] = false
+	_lab_v_wall[mid][mid] = false
+	_lab_h_wall[mid][mid - 1] = false
+	_lab_h_wall[mid][mid] = false
+	for sz in [mid - 1, mid]:
+		for sx in [mid - 1, mid]:
+			visited[int(sz)][int(sx)] = true
 
 	# 3) Open two Sanctum thresholds on distinct faces and seed DFS from them.
 	var faces := [0, 1, 2, 3]
@@ -432,29 +444,29 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 	var stack: Array[Vector2i] = []
 	for fi in 2:
 		var face: int = faces[fi]
-		var k := 3 if rng.randf() < 0.5 else 4
+		var k: int = (mid - 1) if rng.randf() < 0.5 else mid
 		var ring_cell := Vector2i.ZERO
 		match face:
-			0:  # North face of sanctum (cz=3 -> cz=2)
-				_lab_h_wall[3][k] = false
-				ring_cell = Vector2i(k, 2)
-				archways.append({"pos": Vector3((float(k) - 3.5) * LAB_CELL, 0.0, -LAB_CELL), "horiz": true, "outer": false})
-			1:  # South face of sanctum (cz=4 -> cz=5)
-				_lab_h_wall[5][k] = false
-				ring_cell = Vector2i(k, 5)
-				archways.append({"pos": Vector3((float(k) - 3.5) * LAB_CELL, 0.0, LAB_CELL), "horiz": true, "outer": false})
-			2:  # West face of sanctum (cx=3 -> cx=2)
-				_lab_v_wall[k][3] = false
-				ring_cell = Vector2i(2, k)
-				archways.append({"pos": Vector3(-LAB_CELL, 0.0, (float(k) - 3.5) * LAB_CELL), "horiz": false, "outer": false})
-			3:  # East face of sanctum (cx=4 -> cx=5)
-				_lab_v_wall[k][5] = false
-				ring_cell = Vector2i(5, k)
-				archways.append({"pos": Vector3(LAB_CELL, 0.0, (float(k) - 3.5) * LAB_CELL), "horiz": false, "outer": false})
+			0:  # North face of sanctum
+				_lab_h_wall[mid - 1][k] = false
+				ring_cell = Vector2i(k, mid - 2)
+				archways.append({"pos": Vector3(_lab_cell_coord(k), 0.0, _lab_grid_coord(mid - 1)), "horiz": true, "outer": false})
+			1:  # South face of sanctum
+				_lab_h_wall[mid + 1][k] = false
+				ring_cell = Vector2i(k, mid + 1)
+				archways.append({"pos": Vector3(_lab_cell_coord(k), 0.0, _lab_grid_coord(mid + 1)), "horiz": true, "outer": false})
+			2:  # West face of sanctum
+				_lab_v_wall[k][mid - 1] = false
+				ring_cell = Vector2i(mid - 2, k)
+				archways.append({"pos": Vector3(_lab_grid_coord(mid - 1), 0.0, _lab_cell_coord(k)), "horiz": false, "outer": false})
+			3:  # East face of sanctum
+				_lab_v_wall[k][mid + 1] = false
+				ring_cell = Vector2i(mid + 1, k)
+				archways.append({"pos": Vector3(_lab_grid_coord(mid + 1), 0.0, _lab_cell_coord(k)), "horiz": false, "outer": false})
 		visited[ring_cell.y][ring_cell.x] = true
 		stack.append(ring_cell)
 
-	# 4) Iterative randomized DFS backtracker over the 60 outer corridor cells.
+	# 4) Iterative randomized DFS backtracker over the 96 outer corridor cells.
 	var dirs: Array[Vector2i] = [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 	while not stack.is_empty():
 		var cur: Vector2i = stack.back()
@@ -472,7 +484,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 			visited[nxt.y][nxt.x] = true
 			stack.append(nxt)
 
-	# 5) Braid ~42% of dead ends so chases have loops while keeping dead-end traps.
+	# 5) Braid ~40% of dead ends for cat-and-mouse loops while preserving traps.
 	var dead_ends: Array[Vector2i] = []
 	for cz in LAB_CELLS:
 		for cx in LAB_CELLS:
@@ -481,7 +493,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 			if _lab_cell_open_degree(cx, cz) == 1:
 				dead_ends.append(Vector2i(cx, cz))
 	_shuffle(dead_ends)
-	var braid_target := int(dead_ends.size() * 0.42)
+	var braid_target := int(dead_ends.size() * 0.40)
 	for bi in braid_target:
 		var cell: Vector2i = dead_ends[bi]
 		var closed_nbs: Array[Vector2i] = []
@@ -497,110 +509,267 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 		if not closed_nbs.is_empty():
 			_lab_carve_between(cell, closed_nbs[rng.randi_range(0, closed_nbs.size() - 1)])
 
-	# 6) Carve 4 outer stone archways (off-axis slots {1,2,5,6} on N/S/W/E).
-	var edge_slots := [1, 2, 5, 6]
+	# 6) Carve 4 outer stone portals (off-axis slots {1,2,3,6,7,8} on N/S/W/E).
+	var edge_slots := [1, 2, 3, 6, 7, 8]
 	var entrance_cells: Array[Vector2i] = []
 	var entrance_world: Array[Vector3] = []
 
-	var kn: int = edge_slots[rng.randi_range(0, 3)]
+	var kn: int = edge_slots[rng.randi_range(0, edge_slots.size() - 1)]
 	_lab_h_wall[0][kn] = false
 	entrance_cells.append(Vector2i(kn, 0))
-	var gn := Vector3((float(kn) - 3.5) * LAB_CELL, 0.0, -LAB_HALF)
+	var gn := Vector3(_lab_cell_coord(kn), 0.0, -LAB_HALF)
 	archways.append({"pos": gn, "horiz": true, "outer": true})
 	entrance_world.append(xf * gn)
 
-	var ks: int = edge_slots[rng.randi_range(0, 3)]
+	var ks: int = edge_slots[rng.randi_range(0, edge_slots.size() - 1)]
 	_lab_h_wall[LAB_CELLS][ks] = false
 	entrance_cells.append(Vector2i(ks, LAB_CELLS - 1))
-	var gs := Vector3((float(ks) - 3.5) * LAB_CELL, 0.0, LAB_HALF)
+	var gs := Vector3(_lab_cell_coord(ks), 0.0, LAB_HALF)
 	archways.append({"pos": gs, "horiz": true, "outer": true})
 	entrance_world.append(xf * gs)
 
-	var kw: int = edge_slots[rng.randi_range(0, 3)]
+	var kw: int = edge_slots[rng.randi_range(0, edge_slots.size() - 1)]
 	_lab_v_wall[kw][0] = false
 	entrance_cells.append(Vector2i(0, kw))
-	var gw := Vector3(-LAB_HALF, 0.0, (float(kw) - 3.5) * LAB_CELL)
+	var gw := Vector3(-LAB_HALF, 0.0, _lab_cell_coord(kw))
 	archways.append({"pos": gw, "horiz": false, "outer": true})
 	entrance_world.append(xf * gw)
 
-	var ke: int = edge_slots[rng.randi_range(0, 3)]
+	var ke: int = edge_slots[rng.randi_range(0, edge_slots.size() - 1)]
 	_lab_v_wall[ke][LAB_CELLS] = false
 	entrance_cells.append(Vector2i(LAB_CELLS - 1, ke))
-	var ge := Vector3(LAB_HALF, 0.0, (float(ke) - 3.5) * LAB_CELL)
+	var ge := Vector3(LAB_HALF, 0.0, _lab_cell_coord(ke))
 	archways.append({"pos": ge, "horiz": false, "outer": true})
 	entrance_world.append(xf * ge)
 
-	# 7) Build single-draw-call stone floor + stonework mesh + single StaticBody3D.
+	# 7) Batched mesh builders: Floor, Stonework, Industrial Metal, Electric Wires.
 	var body := StaticBody3D.new()
 	body.name = "LabyrinthBody"
 	body.transform = xf
 	add_child(body)
 
-	# Raised dark flagstone floor slab (top at y = +0.035 above forest dirt)
 	var st_floor := SurfaceTool.new()
 	st_floor.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_st_add_box(st_floor, Vector3(0.0, -0.025, 0.0), Vector3(LAB_HALF * 2.0 + 0.85, 0.12, LAB_HALF * 2.0 + 0.85),
-		Color(0.56, 0.57, 0.60), Vector3.ZERO, false, 1.85)
-	st_floor.index()
-	st_floor.generate_tangents()
-	var floor_mi := MeshInstance3D.new()
-	floor_mi.name = "LabyrinthFloor"
-	floor_mi.transform = xf
-	floor_mi.mesh = st_floor.commit()
-	floor_mi.material_override = _mats["lab_floor"]
-	floor_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(floor_mi)
+	var st_wall := SurfaceTool.new()
+	st_wall.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var st_metal := SurfaceTool.new()
+	st_metal.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var st_wires := SurfaceTool.new()
+	st_wires.begin(Mesh.PRIMITIVE_TRIANGLES)
 
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var metal_dark := Color(0.18, 0.19, 0.21)
+	var metal_rust := Color(0.31, 0.19, 0.12)
+	var ceramic_col := Color(0.75, 0.74, 0.69)
+	var wire_black := Color(0.065, 0.068, 0.078)
+	var wire_braid := Color(0.115, 0.095, 0.080)
+	var wire_copper := Color(0.76, 0.45, 0.20)
+
+	# --- 7a) Jointed flagstone pavement + intersection iron drain grates ------
+	_st_add_box(st_floor, Vector3(0.0, -0.03, 0.0),
+		Vector3(LAB_HALF * 2.0 + 0.95, 0.12, LAB_HALF * 2.0 + 0.95),
+		Color(0.34, 0.35, 0.37), Vector3.ZERO, false, 1.85)
+	var slab_w := LAB_CELL * 0.455
+	var slab_step := LAB_CELL * 0.25
+	for cz in LAB_CELLS:
+		var cell_z := _lab_cell_coord(cz)
+		for cx in LAB_CELLS:
+			var cell_x := _lab_cell_coord(cx)
+			var in_sanc := _lab_is_sanctum(cx, cz)
+			for sz_i in 2:
+				for sx_i in 2:
+					var ox := (-slab_step if sx_i == 0 else slab_step)
+					var oz := (-slab_step if sz_i == 0 else slab_step)
+					var sh_f := rng.randf_range(0.50, 0.72) if not in_sanc else rng.randf_range(0.58, 0.78)
+					var h_j := rng.randf_range(0.036, 0.048)
+					_st_add_box(st_floor, Vector3(cell_x + ox, h_j * 0.5, cell_z + oz),
+						Vector3(slab_w, h_j, slab_w),
+						Color(sh_f * 0.93, sh_f * 0.97, sh_f), Vector3.ZERO, false, 1.45)
+			if not in_sanc and _lab_cell_open_degree(cx, cz) >= 3 and rng.randf() < 0.7:
+				# recessed iron storm grate at corridor junctions
+				_st_add_box(st_metal, Vector3(cell_x, 0.050, cell_z),
+					Vector3(0.72, 0.018, 0.72), metal_dark, Vector3.ZERO, false, 1.0)
+				for gi in 5:
+					var goff := (float(gi) - 2.0) * 0.13
+					_st_add_box(st_metal, Vector3(cell_x + goff, 0.062, cell_z),
+						Vector3(0.035, 0.014, 0.66), metal_rust, Vector3.ZERO, false, 1.0)
+
+	# --- 7b) Walls, plinths, cornices, barred windows, conduits & boxes -------
 	var wall_count := 0
+	var window_walls := 0
+	var conduit_count := 0
+	var wall_anchors: Array[Vector3] = []
 
 	# Horizontal walls (parallel to local X)
 	for cz in LAB_CELLS + 1:
 		var is_outer := (cz == 0 or cz == LAB_CELLS)
-		var z := (float(cz) - 4.0) * LAB_CELL
+		var z := _lab_grid_coord(cz)
 		for cx in LAB_CELLS:
 			if not _lab_h_wall[cz][cx]:
 				continue
-			var x := (float(cx) - 3.5) * LAB_CELL
-			var h := rng.randf_range(3.55, 3.88) if is_outer else rng.randf_range(3.26, 3.60)
-			var shade := rng.randf_range(0.62, 0.92)
-			var col := Color(shade * 0.94, shade * 0.97, shade)
-			var sz := Vector3(LAB_CELL + 0.04, h, LAB_WALL_THICK)
-			_st_add_box(st, Vector3(x, h * 0.5, z), sz, col)
-			_lab_add_collider(body, Vector3(x, h * 0.5, z), sz, true)
+			var x := _lab_cell_coord(cx)
+			var h := rng.randf_range(3.62, 3.96) if is_outer else rng.randf_range(3.30, 3.66)
+			var shade := rng.randf_range(0.58, 0.88)
+			var col := Color(shade * 0.93, shade * 0.97, shade)
 			wall_count += 1
-			# occasional weathered coping block on top of the wall
-			if rng.randf() < 0.42:
-				var cw := rng.randf_range(0.75, 1.45)
-				var ch := rng.randf_range(0.16, 0.34)
-				var cx_off := rng.randf_range(-0.45, 0.45)
-				_st_add_box(st, Vector3(x + cx_off, h + ch * 0.5, z),
-					Vector3(cw, ch, LAB_WALL_THICK * 1.12), col.darkened(0.12))
+			# full-height physics collider for every closed wall
+			_lab_add_collider(body, Vector3(x, h * 0.5, z), Vector3(LAB_CELL + 0.04, h, LAB_WALL_THICK), true)
+			# heavy chamfered stone base plinth
+			_st_add_box(st_wall, Vector3(x, 0.18, z),
+				Vector3(LAB_CELL + 0.04, 0.36, LAB_WALL_THICK + 0.10), col.darkened(0.18))
+
+			var make_window := (not is_outer) and (not _lab_touches_sanctum_h(cz, cx)) and rng.randf() < 0.19
+			if make_window:
+				window_walls += 1
+				# breast wall + sill + side masonry jambs + upper lintel + 5 iron grille bars
+				_st_add_box(st_wall, Vector3(x, 0.60, z), Vector3(LAB_CELL + 0.04, 1.20, LAB_WALL_THICK), col)
+				_st_add_box(st_wall, Vector3(x, 1.23, z), Vector3(LAB_CELL - 0.10, 0.08, LAB_WALL_THICK + 0.08), col.lightened(0.06))
+				var jamb_w := 0.42
+				for side_i in [-1.0, 1.0]:
+					var jx := x + float(side_i) * (LAB_CELL * 0.5 - jamb_w * 0.5)
+					_st_add_box(st_wall, Vector3(jx, 1.80, z), Vector3(jamb_w, 1.18, LAB_WALL_THICK), col.darkened(0.06))
+				var top_h := h - 2.36
+				_st_add_box(st_wall, Vector3(x, 2.36 + top_h * 0.5, z),
+					Vector3(LAB_CELL + 0.04, top_h, LAB_WALL_THICK), col, Vector3.ZERO, true)
+				_st_add_box(st_wall, Vector3(x, h + 0.07, z),
+					Vector3(LAB_CELL + 0.06, 0.14, LAB_WALL_THICK + 0.08), col.darkened(0.12), Vector3.ZERO, true)
+				var open_w := LAB_CELL - jamb_w * 2.0
+				_st_add_box(st_metal, Vector3(x, 1.80, z), Vector3(open_w, 0.045, 0.055), metal_rust, Vector3.ZERO, true)
+				for bi in 5:
+					var bx := x + (float(bi) - 2.0) * (open_w / 5.4)
+					_st_add_tube(st_metal, [Vector3(bx, 1.24, z), Vector3(bx, 2.37, z)], 0.022, 5, metal_rust)
+			else:
+				_st_add_box(st_wall, Vector3(x, h * 0.5, z), Vector3(LAB_CELL + 0.04, h, LAB_WALL_THICK), col)
+				# mid string-course ledge + overhanging top cornice
+				_st_add_box(st_wall, Vector3(x, 1.94, z),
+					Vector3(LAB_CELL + 0.02, 0.10, LAB_WALL_THICK + 0.06), col.darkened(0.10), Vector3.ZERO, true)
+				_st_add_box(st_wall, Vector3(x, h + 0.07, z),
+					Vector3(LAB_CELL + 0.04, 0.14, LAB_WALL_THICK + 0.09), col.darkened(0.14), Vector3.ZERO, true)
+				if rng.randf() < 0.46:
+					var cw := rng.randf_range(0.65, 1.35)
+					var ch := rng.randf_range(0.18, 0.38)
+					var cx_off := rng.randf_range(-0.42, 0.42)
+					_st_add_box(st_wall, Vector3(x + cx_off, h + 0.14 + ch * 0.5, z),
+						Vector3(cw, ch, LAB_WALL_THICK * 1.05), col.darkened(0.16))
+					# exposed bent steel rebar protruding from broken masonry top
+					if rng.randf() < 0.55:
+						var rx := x + cx_off + rng.randf_range(-0.22, 0.22)
+						var rb_top := h + 0.14 + ch
+						_st_add_tube(st_metal, [
+							Vector3(rx, rb_top - 0.05, z),
+							Vector3(rx + rng.randf_range(-0.06, 0.06), rb_top + 0.24, z),
+							Vector3(rx + rng.randf_range(-0.18, 0.18), rb_top + 0.40, z + rng.randf_range(-0.10, 0.10))
+						], 0.014, 4, metal_rust)
+
+				# wall-mounted twin electrical conduits + clamps + junction boxes
+				var face_sign := 1.0 if (cz == 0 or (cz < LAB_CELLS and rng.randf() < 0.5)) else -1.0
+				if cz == LAB_CELLS:
+					face_sign = -1.0
+				var z_pipe := z + face_sign * (LAB_WALL_THICK * 0.5 + 0.045)
+				if rng.randf() < 0.58:
+					conduit_count += 1
+					for py in [2.56, 2.72]:
+						_st_add_tube(st_metal, [
+							Vector3(x - LAB_CELL * 0.5, float(py), z_pipe),
+							Vector3(x + LAB_CELL * 0.5, float(py), z_pipe)
+						], 0.021, 5, metal_dark)
+					for cl_x in [-0.78, 0.0, 0.78]:
+						_st_add_box(st_metal, Vector3(x + float(cl_x), 2.64, z + face_sign * (LAB_WALL_THICK * 0.5 + 0.03)),
+							Vector3(0.05, 0.28, 0.06), metal_rust, Vector3.ZERO, true)
+				if rng.randf() < 0.24:
+					var bx_pos := x + rng.randf_range(-0.45, 0.45)
+					var bz_pos := z + face_sign * (LAB_WALL_THICK * 0.5 + 0.065)
+					_st_add_box(st_metal, Vector3(bx_pos, 1.86, bz_pos), Vector3(0.28, 0.36, 0.13), metal_dark, Vector3.ZERO, true)
+					_st_add_box(st_metal, Vector3(bx_pos, 1.86, bz_pos + face_sign * 0.07), Vector3(0.22, 0.28, 0.02), metal_rust, Vector3.ZERO, true)
+					_st_add_tube(st_metal, [Vector3(bx_pos, 2.04, bz_pos), Vector3(bx_pos, 2.94, bz_pos)], 0.018, 5, metal_dark)
+					var ins_tip := Vector3(bx_pos, 2.96, z + face_sign * (LAB_WALL_THICK * 0.5 + 0.20))
+					_st_add_box(st_metal, Vector3(bx_pos, 2.94, z + face_sign * (LAB_WALL_THICK * 0.5 + 0.11)),
+						Vector3(0.05, 0.05, 0.22), metal_dark, Vector3.ZERO, true)
+					_st_add_tube(st_metal, [ins_tip - Vector3(0, 0.05, 0), ins_tip + Vector3(0, 0.05, 0)], 0.036, 6, ceramic_col)
+					wall_anchors.append(ins_tip)
 
 	# Vertical walls (parallel to local Z)
 	for cz in LAB_CELLS:
-		var z := (float(cz) - 3.5) * LAB_CELL
+		var z := _lab_cell_coord(cz)
 		for cx in LAB_CELLS + 1:
 			if not _lab_v_wall[cz][cx]:
 				continue
 			var is_outer := (cx == 0 or cx == LAB_CELLS)
-			var x := (float(cx) - 4.0) * LAB_CELL
-			var h := rng.randf_range(3.55, 3.88) if is_outer else rng.randf_range(3.26, 3.60)
-			var shade := rng.randf_range(0.62, 0.92)
-			var col := Color(shade * 0.94, shade * 0.97, shade)
-			var sz := Vector3(LAB_WALL_THICK, h, LAB_CELL + 0.04)
-			_st_add_box(st, Vector3(x, h * 0.5, z), sz, col)
-			_lab_add_collider(body, Vector3(x, h * 0.5, z), sz, true)
+			var x := _lab_grid_coord(cx)
+			var h := rng.randf_range(3.62, 3.96) if is_outer else rng.randf_range(3.30, 3.66)
+			var shade := rng.randf_range(0.58, 0.88)
+			var col := Color(shade * 0.93, shade * 0.97, shade)
 			wall_count += 1
-			if rng.randf() < 0.42:
-				var cl := rng.randf_range(0.75, 1.45)
-				var ch := rng.randf_range(0.16, 0.34)
-				var cz_off := rng.randf_range(-0.45, 0.45)
-				_st_add_box(st, Vector3(x, h + ch * 0.5, z + cz_off),
-					Vector3(LAB_WALL_THICK * 1.12, ch, cl), col.darkened(0.12))
+			_lab_add_collider(body, Vector3(x, h * 0.5, z), Vector3(LAB_WALL_THICK, h, LAB_CELL + 0.04), true)
+			_st_add_box(st_wall, Vector3(x, 0.18, z),
+				Vector3(LAB_WALL_THICK + 0.10, 0.36, LAB_CELL + 0.04), col.darkened(0.18))
 
-	# Stone piers at grid corners where walls meet or terminate
+			var make_window := (not is_outer) and (not _lab_touches_sanctum_v(cz, cx)) and rng.randf() < 0.19
+			if make_window:
+				window_walls += 1
+				_st_add_box(st_wall, Vector3(x, 0.60, z), Vector3(LAB_WALL_THICK, 1.20, LAB_CELL + 0.04), col)
+				_st_add_box(st_wall, Vector3(x, 1.23, z), Vector3(LAB_WALL_THICK + 0.08, 0.08, LAB_CELL - 0.10), col.lightened(0.06))
+				var jamb_w := 0.42
+				for side_i in [-1.0, 1.0]:
+					var jz := z + float(side_i) * (LAB_CELL * 0.5 - jamb_w * 0.5)
+					_st_add_box(st_wall, Vector3(x, 1.80, jz), Vector3(LAB_WALL_THICK, 1.18, jamb_w), col.darkened(0.06))
+				var top_h := h - 2.36
+				_st_add_box(st_wall, Vector3(x, 2.36 + top_h * 0.5, z),
+					Vector3(LAB_WALL_THICK, top_h, LAB_CELL + 0.04), col, Vector3.ZERO, true)
+				_st_add_box(st_wall, Vector3(x, h + 0.07, z),
+					Vector3(LAB_WALL_THICK + 0.08, 0.14, LAB_CELL + 0.06), col.darkened(0.12), Vector3.ZERO, true)
+				var open_w := LAB_CELL - jamb_w * 2.0
+				_st_add_box(st_metal, Vector3(x, 1.80, z), Vector3(0.055, 0.045, open_w), metal_rust, Vector3.ZERO, true)
+				for bi in 5:
+					var bz := z + (float(bi) - 2.0) * (open_w / 5.4)
+					_st_add_tube(st_metal, [Vector3(x, 1.24, bz), Vector3(x, 2.37, bz)], 0.022, 5, metal_rust)
+			else:
+				_st_add_box(st_wall, Vector3(x, h * 0.5, z), Vector3(LAB_WALL_THICK, h, LAB_CELL + 0.04), col)
+				_st_add_box(st_wall, Vector3(x, 1.94, z),
+					Vector3(LAB_WALL_THICK + 0.06, 0.10, LAB_CELL + 0.02), col.darkened(0.10), Vector3.ZERO, true)
+				_st_add_box(st_wall, Vector3(x, h + 0.07, z),
+					Vector3(LAB_WALL_THICK + 0.09, 0.14, LAB_CELL + 0.04), col.darkened(0.14), Vector3.ZERO, true)
+				if rng.randf() < 0.46:
+					var cl := rng.randf_range(0.65, 1.35)
+					var ch := rng.randf_range(0.18, 0.38)
+					var cz_off := rng.randf_range(-0.42, 0.42)
+					_st_add_box(st_wall, Vector3(x, h + 0.14 + ch * 0.5, z + cz_off),
+						Vector3(LAB_WALL_THICK * 1.05, ch, cl), col.darkened(0.16))
+					if rng.randf() < 0.55:
+						var rz := z + cz_off + rng.randf_range(-0.22, 0.22)
+						var rb_top := h + 0.14 + ch
+						_st_add_tube(st_metal, [
+							Vector3(x, rb_top - 0.05, rz),
+							Vector3(x, rb_top + 0.24, rz + rng.randf_range(-0.06, 0.06)),
+							Vector3(x + rng.randf_range(-0.10, 0.10), rb_top + 0.40, rz + rng.randf_range(-0.18, 0.18))
+						], 0.014, 4, metal_rust)
+
+				var face_sign := 1.0 if (cx == 0 or (cx < LAB_CELLS and rng.randf() < 0.5)) else -1.0
+				if cx == LAB_CELLS:
+					face_sign = -1.0
+				var x_pipe := x + face_sign * (LAB_WALL_THICK * 0.5 + 0.045)
+				if rng.randf() < 0.58:
+					conduit_count += 1
+					for py in [2.56, 2.72]:
+						_st_add_tube(st_metal, [
+							Vector3(x_pipe, float(py), z - LAB_CELL * 0.5),
+							Vector3(x_pipe, float(py), z + LAB_CELL * 0.5)
+						], 0.021, 5, metal_dark)
+					for cl_z in [-0.78, 0.0, 0.78]:
+						_st_add_box(st_metal, Vector3(x + face_sign * (LAB_WALL_THICK * 0.5 + 0.03), 2.64, z + float(cl_z)),
+							Vector3(0.06, 0.28, 0.05), metal_rust, Vector3.ZERO, true)
+				if rng.randf() < 0.24:
+					var bz_pos := z + rng.randf_range(-0.45, 0.45)
+					var bx_pos := x + face_sign * (LAB_WALL_THICK * 0.5 + 0.065)
+					_st_add_box(st_metal, Vector3(bx_pos, 1.86, bz_pos), Vector3(0.13, 0.36, 0.28), metal_dark, Vector3.ZERO, true)
+					_st_add_box(st_metal, Vector3(bx_pos + face_sign * 0.07, 1.86, bz_pos), Vector3(0.02, 0.28, 0.22), metal_rust, Vector3.ZERO, true)
+					_st_add_tube(st_metal, [Vector3(bx_pos, 2.04, bz_pos), Vector3(bx_pos, 2.94, bz_pos)], 0.018, 5, metal_dark)
+					var ins_tip := Vector3(x + face_sign * (LAB_WALL_THICK * 0.5 + 0.20), 2.96, bz_pos)
+					_st_add_box(st_metal, Vector3(x + face_sign * (LAB_WALL_THICK * 0.5 + 0.11), 2.94, bz_pos),
+						Vector3(0.22, 0.05, 0.05), metal_dark, Vector3.ZERO, true)
+					_st_add_tube(st_metal, [ins_tip - Vector3(0, 0.05, 0), ins_tip + Vector3(0, 0.05, 0)], 0.036, 6, ceramic_col)
+					wall_anchors.append(ins_tip)
+
+	# --- 7c) Buttressed grid piers & weathered corner rubble ------------------
 	for gz in LAB_CELLS + 1:
 		for gx in LAB_CELLS + 1:
 			var deg := 0
@@ -612,69 +781,375 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 				deg += 1
 			if gz > 0 and _lab_v_wall[gz - 1][gx]:
 				deg += 1
-			if deg == 0 or deg == 2 and (
+			if deg == 0 or (deg == 2 and (
 					(gx > 0 and gx < LAB_CELLS and _lab_h_wall[gz][gx] and _lab_h_wall[gz][gx - 1]) or
-					(gz > 0 and gz < LAB_CELLS and _lab_v_wall[gz][gx] and _lab_v_wall[gz - 1][gx])):
+					(gz > 0 and gz < LAB_CELLS and _lab_v_wall[gz][gx] and _lab_v_wall[gz - 1][gx]))):
 				continue
-			var px := (float(gx) - 4.0) * LAB_CELL
-			var pz := (float(gz) - 4.0) * LAB_CELL
-			var ph := rng.randf_range(3.68, 4.02)
-			var pcol := Color(0.68, 0.70, 0.74).darkened(rng.randf_range(0.0, 0.22))
+			var px := _lab_grid_coord(gx)
+			var pz := _lab_grid_coord(gz)
+			var ph := rng.randf_range(3.75, 4.12)
+			var pcol := Color(0.66, 0.69, 0.73).darkened(rng.randf_range(0.0, 0.24))
+			_st_add_box(st_wall, Vector3(px, 0.22, pz), Vector3(0.58, 0.44, 0.58), pcol.darkened(0.16))
 			var psz := Vector3(0.48, ph, 0.48)
-			_st_add_box(st, Vector3(px, ph * 0.5, pz), psz, pcol)
+			_st_add_box(st_wall, Vector3(px, ph * 0.5, pz), psz, pcol)
+			_st_add_box(st_wall, Vector3(px, ph + 0.09, pz), Vector3(0.56, 0.18, 0.56), pcol.lightened(0.05), Vector3.ZERO, true)
 			_lab_add_collider(body, Vector3(px, ph * 0.5, pz), psz, true)
 
-	# Stone archways (heavy gateposts + overhead lintel with 2.98 m headroom)
+	# --- 7d) Grand portals (4 outer gates + 2 Sanctum thresholds) -------------
 	for arch in archways:
 		var ap: Vector3 = arch["pos"]
 		var horiz: bool = arch["horiz"]
 		var outer: bool = arch["outer"]
-		var post_h := 4.18 if outer else 3.92
+		var post_h := 4.30 if outer else 4.02
 		var span := LAB_CELL
-		var pcol := Color(0.74, 0.75, 0.78) if outer else Color(0.66, 0.68, 0.72)
+		var pcol := Color(0.74, 0.75, 0.79) if outer else Color(0.66, 0.68, 0.73)
 		var off := Vector3(span * 0.5, 0.0, 0.0) if horiz else Vector3(0.0, 0.0, span * 0.5)
-		var post_sz := Vector3(0.54, post_h, 0.58) if horiz else Vector3(0.58, post_h, 0.54)
+		var post_sz := Vector3(0.52, post_h, 0.62) if horiz else Vector3(0.62, post_h, 0.52)
+		var base_sz := Vector3(0.64, 0.46, 0.74) if horiz else Vector3(0.74, 0.46, 0.64)
 		for side in [-1.0, 1.0]:
-			var jp: Vector3 = ap + off * float(side) + Vector3(0.0, post_h * 0.5, 0.0)
-			_st_add_box(st, jp, post_sz, pcol)
+			var s_f := float(side)
+			var jp: Vector3 = ap + off * s_f + Vector3(0.0, post_h * 0.5, 0.0)
+			_st_add_box(st_wall, ap + off * s_f + Vector3(0.0, 0.23, 0.0), base_sz, pcol.darkened(0.18))
+			_st_add_box(st_wall, jp, post_sz, pcol)
 			_lab_add_collider(body, jp, post_sz, true)
-		# Overhead lintel (bottom at y = 2.98 m -> player & Slender walk cleanly under)
-		var lintel_sz := Vector3(span + 0.62, 0.52, 0.62) if horiz else Vector3(0.62, 0.52, span + 0.62)
-		var lp_pos := ap + Vector3(0.0, 3.24, 0.0)
-		_st_add_box(st, lp_pos, lintel_sz, pcol.darkened(0.08), Vector3.ZERO, true)
+			# stone corbel bracket supporting the lintel
+			var corb_off := off * (s_f * 0.72) + Vector3(0.0, 2.94, 0.0)
+			var corb_sz := Vector3(0.34, 0.26, 0.54) if horiz else Vector3(0.54, 0.26, 0.34)
+			_st_add_box(st_wall, ap + corb_off, corb_sz, pcol.darkened(0.10), Vector3.ZERO, true)
+		var lintel_sz := Vector3(span + 0.70, 0.52, 0.66) if horiz else Vector3(0.66, 0.52, span + 0.70)
+		var crown_sz := Vector3(span + 0.84, 0.18, 0.78) if horiz else Vector3(0.78, 0.18, span + 0.84)
+		var lp_pos := ap + Vector3(0.0, 3.30, 0.0)
+		_st_add_box(st_wall, lp_pos, lintel_sz, pcol.darkened(0.08), Vector3.ZERO, true)
+		_st_add_box(st_wall, ap + Vector3(0.0, 3.65, 0.0), crown_sz, pcol, Vector3.ZERO, true)
+		# iron tie-beam strapped across the lintel
+		var strap_sz := Vector3(span + 0.72, 0.10, 0.70) if horiz else Vector3(0.70, 0.10, span + 0.72)
+		_st_add_box(st_metal, ap + Vector3(0.0, 3.12, 0.0), strap_sz, metal_rust, Vector3.ZERO, true)
 		_lab_add_collider(body, lp_pos, lintel_sz, false)
 
-	# Central Sanctum set-piece: low carved stone dais at the centre + four
-	# weathered corner steles framing the chamber (leaves the whole central
-	# floor open from every cardinal approach).
-	_st_add_box(st, Vector3(0.0, 0.06, 0.0), Vector3(1.65, 0.12, 1.65), Color(0.60, 0.62, 0.66))
-	for sx in [-1.85, 1.85]:
-		for sz_c in [-1.85, 1.85]:
-			var sh := rng.randf_range(1.55, 2.15)
-			var st_sz := Vector3(0.46, sh, 0.46)
-			var spos := Vector3(float(sx), sh * 0.5, float(sz_c))
-			_st_add_box(st, spos, st_sz, Color(0.70, 0.72, 0.76))
-			_lab_add_collider(body, spos, st_sz, true)
+	# --- 7e) Central Sanctum: stepped dais, 4 corner obelisks, collector hub --
+	_st_add_box(st_wall, Vector3(0.0, 0.045, 0.0), Vector3(2.25, 0.09, 2.25), Color(0.52, 0.54, 0.58))
+	_st_add_box(st_wall, Vector3(0.0, 0.105, 0.0), Vector3(1.52, 0.09, 1.52), Color(0.62, 0.64, 0.68))
 
-	st.index()
-	st.generate_tangents()
+	var sanctum_hub := Vector3(0.0, 3.42, 0.0)
+	_st_add_box(st_metal, sanctum_hub, Vector3(4.50, 0.10, 0.12), metal_dark, Vector3.ZERO, true)
+	_st_add_box(st_metal, sanctum_hub, Vector3(0.12, 0.10, 4.50), metal_dark, Vector3.ZERO, true)
+	_st_add_box(st_metal, sanctum_hub + Vector3(0.0, -0.08, 0.0), Vector3(0.68, 0.16, 0.68), metal_rust, Vector3.ZERO, true)
+
+	var sanctum_pins: Array[Vector3] = []
+	for sx in [-1.72, 1.72]:
+		for sz_c in [-1.72, 1.72]:
+			var sx_f := float(sx)
+			var sz_f := float(sz_c)
+			var sh := rng.randf_range(2.90, 3.22)
+			_st_add_box(st_wall, Vector3(sx_f, 0.20, sz_f), Vector3(0.60, 0.40, 0.60), Color(0.54, 0.56, 0.60))
+			var st_sz := Vector3(0.46, sh, 0.46)
+			var spos := Vector3(sx_f, sh * 0.5, sz_f)
+			_st_add_box(st_wall, spos, st_sz, Color(0.68, 0.70, 0.75))
+			_st_add_box(st_wall, Vector3(sx_f, sh + 0.08, sz_f), Vector3(0.54, 0.16, 0.54), Color(0.74, 0.76, 0.80), Vector3.ZERO, true)
+			_lab_add_collider(body, spos, st_sz, true)
+			# steel insulator bracket atop each sanctum obelisk
+			var pin_top := Vector3(sx_f, sh + 0.28, sz_f)
+			_st_add_tube(st_metal, [Vector3(sx_f, sh + 0.16, sz_f), pin_top], 0.042, 6, ceramic_col)
+			sanctum_pins.append(pin_top)
+
+	# --- 7f) Overhead corridor steel gantries & ceramic insulators ------------
+	var gantry_pins := {}  # Vector2i(cx, cz) -> Array[Vector3] (3 insulator tips)
+	for cz in LAB_CELLS:
+		for cx in LAB_CELLS:
+			if _lab_is_sanctum(cx, cz):
+				continue
+			var deg := _lab_cell_open_degree(cx, cz)
+			var is_ent := Vector2i(cx, cz) in entrance_cells
+			if not is_ent and deg < 3 and (cx + cz) % 2 != 0 and rng.randf() > 0.35:
+				continue
+			var cell_x := _lab_cell_coord(cx)
+			var cell_z := _lab_cell_coord(cz)
+			# orient crossbar between whichever opposing walls are closed (prefer N-S vs E-W)
+			var ew_walls: bool = bool(_lab_v_wall[cz][cx]) and bool(_lab_v_wall[cz][cx + 1])
+			var beam_y := 3.22
+			var pins: Array[Vector3] = []
+			if ew_walls or (not (_lab_h_wall[cz][cx] and _lab_h_wall[cz + 1][cx]) and rng.randf() < 0.5):
+				_st_add_box(st_metal, Vector3(cell_x, beam_y, cell_z),
+					Vector3(LAB_CELL - 0.18, 0.085, 0.085), metal_dark, Vector3.ZERO, true)
+				for off_x in [-0.52, 0.0, 0.52]:
+					var p_ins := Vector3(cell_x + float(off_x), beam_y - 0.11, cell_z)
+					_st_add_tube(st_metal, [Vector3(p_ins.x, beam_y - 0.03, p_ins.z), p_ins], 0.038, 6, ceramic_col)
+					pins.append(p_ins)
+			else:
+				_st_add_box(st_metal, Vector3(cell_x, beam_y, cell_z),
+					Vector3(0.085, 0.085, LAB_CELL - 0.18), metal_dark, Vector3.ZERO, true)
+				for off_z in [-0.52, 0.0, 0.52]:
+					var p_ins2 := Vector3(cell_x, beam_y - 0.11, cell_z + float(off_z))
+					_st_add_tube(st_metal, [Vector3(p_ins2.x, beam_y - 0.03, p_ins2.z), p_ins2], 0.038, 6, ceramic_col)
+					pins.append(p_ins2)
+			gantry_pins[Vector2i(cx, cz)] = pins
+
+	# --- 7g) Two Substation Transformer Cabinets + flickering lights + 3D hum -
+	var substation_lights: Array[OmniLight3D] = []
+	var substations_built := 0
+	var sub_bands := [[0, 4], [5, 9]]
+	for sb in sub_bands:
+		var z_lo: int = sb[0]
+		var z_hi: int = sb[1]
+		var dead_cands: Array[Vector2i] = []
+		var fallback_cands: Array[Vector2i] = []
+		for cz in range(z_lo, z_hi + 1):
+			for cx in LAB_CELLS:
+				if _lab_is_sanctum(cx, cz) or (Vector2i(cx, cz) in entrance_cells):
+					continue
+				if _lab_cell_open_degree(cx, cz) == 1:
+					dead_cands.append(Vector2i(cx, cz))
+				elif _lab_h_wall[cz][cx] or _lab_h_wall[cz + 1][cx] or _lab_v_wall[cz][cx] or _lab_v_wall[cz][cx + 1]:
+					fallback_cands.append(Vector2i(cx, cz))
+		_shuffle(dead_cands)
+		_shuffle(fallback_cands)
+		var candidates_sub: Array[Vector2i] = dead_cands if not dead_cands.is_empty() else fallback_cands
+		if candidates_sub.is_empty():
+			continue
+		var sc: Vector2i = candidates_sub[0]
+		var sc_x := _lab_cell_coord(sc.x)
+		var sc_z := _lab_cell_coord(sc.y)
+		# Mount cabinet against the back wall opposite an open doorway when possible
+		var cab_pos := Vector3(sc_x, 0.94, sc_z)
+		var cab_sz := Vector3(0.84, 1.88, 0.34)
+		var front_n := Vector3(0, 0, 1)
+		if _lab_h_wall[sc.y][sc.x] and (sc.y < LAB_CELLS - 1 and not _lab_h_wall[sc.y + 1][sc.x]):
+			cab_pos = Vector3(sc_x, 0.94, _lab_grid_coord(sc.y) + LAB_WALL_THICK * 0.5 + 0.18)
+			cab_sz = Vector3(0.84, 1.88, 0.34)
+			front_n = Vector3(0, 0, 1)
+		elif _lab_h_wall[sc.y + 1][sc.x] and (sc.y > 0 and not _lab_h_wall[sc.y][sc.x]):
+			cab_pos = Vector3(sc_x, 0.94, _lab_grid_coord(sc.y + 1) - LAB_WALL_THICK * 0.5 - 0.18)
+			cab_sz = Vector3(0.84, 1.88, 0.34)
+			front_n = Vector3(0, 0, -1)
+		elif _lab_v_wall[sc.y][sc.x] and (sc.x < LAB_CELLS - 1 and not _lab_v_wall[sc.y][sc.x + 1]):
+			cab_pos = Vector3(_lab_grid_coord(sc.x) + LAB_WALL_THICK * 0.5 + 0.18, 0.94, sc_z)
+			cab_sz = Vector3(0.34, 1.88, 0.84)
+			front_n = Vector3(1, 0, 0)
+		elif _lab_v_wall[sc.y][sc.x + 1] and (sc.x > 0 and not _lab_v_wall[sc.y][sc.x]):
+			cab_pos = Vector3(_lab_grid_coord(sc.x + 1) - LAB_WALL_THICK * 0.5 - 0.18, 0.94, sc_z)
+			cab_sz = Vector3(0.34, 1.88, 0.84)
+			front_n = Vector3(-1, 0, 0)
+		elif _lab_h_wall[sc.y][sc.x]:
+			cab_pos = Vector3(sc_x, 0.94, _lab_grid_coord(sc.y) + LAB_WALL_THICK * 0.5 + 0.18)
+			cab_sz = Vector3(0.84, 1.88, 0.34)
+			front_n = Vector3(0, 0, 1)
+		elif _lab_h_wall[sc.y + 1][sc.x]:
+			cab_pos = Vector3(sc_x, 0.94, _lab_grid_coord(sc.y + 1) - LAB_WALL_THICK * 0.5 - 0.18)
+			cab_sz = Vector3(0.84, 1.88, 0.34)
+			front_n = Vector3(0, 0, -1)
+		elif _lab_v_wall[sc.y][sc.x]:
+			cab_pos = Vector3(_lab_grid_coord(sc.x) + LAB_WALL_THICK * 0.5 + 0.18, 0.94, sc_z)
+			cab_sz = Vector3(0.34, 1.88, 0.84)
+			front_n = Vector3(1, 0, 0)
+		else:
+			cab_pos = Vector3(_lab_grid_coord(sc.x + 1) - LAB_WALL_THICK * 0.5 - 0.18, 0.94, sc_z)
+			cab_sz = Vector3(0.34, 1.88, 0.84)
+			front_n = Vector3(-1, 0, 0)
+
+		_st_add_box(st_metal, cab_pos, cab_sz, metal_dark, Vector3.ZERO, true)
+		_lab_add_collider(body, cab_pos, cab_sz, true)
+		# radiator cooling fins + recessed breaker door panel
+		var door_sz := Vector3(cab_sz.x * 0.78, 1.42, 0.03) if absf(front_n.z) > 0.5 else Vector3(0.03, 1.42, cab_sz.z * 0.78)
+		_st_add_box(st_metal, cab_pos + front_n * 0.18, door_sz, metal_rust, Vector3.ZERO, true)
+		var tang := Vector3(front_n.z, 0.0, -front_n.x)
+		var bushings: Array[Vector3] = []
+		for bi in [-1, 0, 1]:
+			var b_base := cab_pos + Vector3(0.0, 0.94, 0.0) + tang * (float(bi) * 0.24)
+			var b_top := b_base + Vector3(0.0, 0.32, 0.0)
+			_st_add_tube(st_metal, [b_base, b_top], 0.048, 6, ceramic_col)
+			bushings.append(b_top)
+
+		# Feeders from transformer bushings up to an overhead gantry above this cell
+		if not gantry_pins.has(sc):
+			var gp_pos := Vector3(sc_x, 3.11, sc_z)
+			_st_add_box(st_metal, Vector3(sc_x, 3.22, sc_z), Vector3(0.95, 0.085, 0.085), metal_dark, Vector3.ZERO, true)
+			gantry_pins[sc] = [gp_pos + Vector3(-0.30, 0, 0), gp_pos, gp_pos + Vector3(0.30, 0, 0)]
+		var cell_pins: Array = gantry_pins[sc]
+		for bi2 in mini(bushings.size(), cell_pins.size()):
+			var p_from: Vector3 = bushings[bi2]
+			var p_to: Vector3 = cell_pins[bi2]
+			var mid_bow := (p_from + p_to) * 0.5 + front_n * 0.22
+			_st_add_tube(st_wires, [p_from, mid_bow, p_to], 0.024, 5, wire_black)
+
+		# Caged bulkhead lamp + flickering OmniLight3D + 3D spatial wire_hum_loop.ogg
+		var lamp_local := cab_pos + Vector3(0.0, 1.52, 0.0) + front_n * 0.16
+		_st_add_box(st_metal, lamp_local, Vector3(0.16, 0.20, 0.16), metal_rust, Vector3.ZERO, true)
+		var lamp := OmniLight3D.new()
+		lamp.name = "SubstationLamp_%d" % substations_built
+		lamp.position = xf * (lamp_local + front_n * 0.14)
+		lamp.light_color = Color(1.0, 0.68, 0.34) if substations_built == 0 else Color(0.58, 0.80, 1.0)
+		lamp.light_energy = 0.36
+		lamp.omni_range = 4.4
+		lamp.omni_attenuation = 1.65
+		lamp.shadow_enabled = false
+		add_child(lamp)
+		substation_lights.append(lamp)
+
+		var hum_stream: AudioStream = Sfx.stream("wire_hum_loop")
+		if hum_stream != null:
+			var hum3d := AudioStreamPlayer3D.new()
+			hum3d.name = "SubstationHum_%d" % substations_built
+			hum3d.stream = hum_stream
+			hum3d.position = xf * cab_pos
+			hum3d.unit_size = 2.4
+			hum3d.max_distance = 13.5
+			hum3d.volume_db = -13.5
+			hum3d.bus = "Master"  # Area3D LabyrinthReverbZone applies 3D stone reverb
+			add_child(hum3d)
+			hum3d.play()
+		substations_built += 1
+
+	# --- 7h) Electric Wire Network: overhead trunks, sanctum web, jumpers, drops
+	var wire_count := 0
+
+	# Connect adjacent or 2-cell straight open gantry runs with 2-3 sagging cables
+	for k_var in gantry_pins.keys():
+		var c_a: Vector2i = k_var
+		var pins_a: Array = gantry_pins[c_a]
+		# search East (+X) and South (+Z) up to 2 open corridor cells for next gantry
+		for step_dir in [Vector2i(1, 0), Vector2i(0, 1)]:
+			var d_vec: Vector2i = step_dir
+			var cur_c := c_a
+			for dist_step in range(1, 3):
+				var nxt_c := cur_c + d_vec
+				if nxt_c.x < 0 or nxt_c.x >= LAB_CELLS or nxt_c.y < 0 or nxt_c.y >= LAB_CELLS:
+					break
+				if not _lab_open_between(cur_c, nxt_c):
+					break
+				if _lab_is_sanctum(nxt_c.x, nxt_c.y):
+					# feed into the Central Sanctum collector hub!
+					for wi in 2:
+						var pa_s: Vector3 = pins_a[wi % pins_a.size()]
+						var pb_s := sanctum_hub + Vector3(
+							clampf(pa_s.x, -0.32, 0.32), -0.10, clampf(pa_s.z, -0.32, 0.32))
+						_st_add_cable(st_wires, pa_s, pb_s, rng.randf_range(0.20, 0.42),
+							0.019, 7, wire_black if wi == 0 else wire_braid, rng.randf_range(-0.05, 0.05))
+						wire_count += 1
+					break
+				if gantry_pins.has(nxt_c):
+					var pins_b: Array = gantry_pins[nxt_c]
+					var strands := 3 if rng.randf() < 0.45 else 2
+					for wi2 in strands:
+						var pa: Vector3 = pins_a[wi2 % pins_a.size()]
+						var pb: Vector3 = pins_b[wi2 % pins_b.size()]
+						var sag := rng.randf_range(0.16, 0.38) * (1.0 + 0.25 * float(dist_step - 1))
+						var rad := 0.020 if wi2 == 0 else 0.015
+						var wcol := wire_black if wi2 % 2 == 0 else wire_braid
+						_st_add_cable(st_wires, pa, pb, sag, rad, 7, wcol, rng.randf_range(-0.04, 0.04))
+						wire_count += 1
+					break
+				cur_c = nxt_c
+
+	# Sanctum corner obelisks -> central collector hub + perimeter ring cables
+	for i in sanctum_pins.size():
+		var sp_a: Vector3 = sanctum_pins[i]
+		var hub_pt := sanctum_hub + sp_a.normalized() * 0.32 + Vector3(0, -0.10, 0)
+		_st_add_cable(st_wires, sp_a, hub_pt, rng.randf_range(0.22, 0.36), 0.021, 7, wire_black, 0.03)
+		wire_count += 1
+	var ring_order := [0, 1, 3, 2]
+	for ri in 4:
+		var ra: Vector3 = sanctum_pins[ring_order[ri]]
+		var rb: Vector3 = sanctum_pins[ring_order[(ri + 1) % 4]]
+		_st_add_cable(st_wires, ra, rb, rng.randf_range(0.24, 0.40), 0.016, 7, wire_braid, 0.0)
+		wire_count += 1
+
+	# Wall-box to nearest gantry / adjacent wall-box jumpers (high corridor webs)
+	_shuffle(wall_anchors)
+	var max_jumpers := mini(wall_anchors.size(), 26)
+	for wi3 in max_jumpers:
+		var wa: Vector3 = wall_anchors[wi3]
+		var wc := Vector2i(
+			clampi(int(floor((wa.x + LAB_HALF) / LAB_CELL)), 0, LAB_CELLS - 1),
+			clampi(int(floor((wa.z + LAB_HALF) / LAB_CELL)), 0, LAB_CELLS - 1))
+		if gantry_pins.has(wc):
+			var gp_arr: Array = gantry_pins[wc]
+			var gp_t: Vector3 = gp_arr[wi3 % gp_arr.size()]
+			if wa.distance_to(gp_t) > 0.35:
+				_st_add_cable(st_wires, wa, gp_t, rng.randf_range(0.14, 0.28), 0.015, 6, wire_black, 0.02)
+				wire_count += 1
+		# cross-corridor jumper to another anchor in the same cell or adjacent open cell
+		for wj in range(wi3 + 1, wall_anchors.size()):
+			var wb: Vector3 = wall_anchors[wj]
+			var d_ab := wa.distance_to(wb)
+			if d_ab < 1.5 or d_ab > 3.6:
+				continue
+			var wc_b := Vector2i(
+				clampi(int(floor((wb.x + LAB_HALF) / LAB_CELL)), 0, LAB_CELLS - 1),
+				clampi(int(floor((wb.z + LAB_HALF) / LAB_CELL)), 0, LAB_CELLS - 1))
+			if wc == wc_b or _lab_open_between(wc, wc_b):
+				_st_add_cable(st_wires, wa, wb, rng.randf_range(0.18, 0.36), 0.014, 6, wire_braid, rng.randf_range(-0.04, 0.04))
+				wire_count += 1
+				break
+
+	# Snapped / dangling severed wires near walls & dead ends (with bare copper tips)
+	var dangle_count := mini(10, wall_anchors.size())
+	for di in dangle_count:
+		var anchor: Vector3 = wall_anchors[(wall_anchors.size() - 1) - di]
+		var drop_len := rng.randf_range(0.95, 1.42)
+		var drift_x := rng.randf_range(-0.14, 0.14)
+		var drift_z := rng.randf_range(-0.14, 0.14)
+		var p_mid1 := anchor + Vector3(drift_x * 0.4, -drop_len * 0.42, drift_z * 0.4)
+		var p_mid2 := anchor + Vector3(drift_x, -drop_len * 0.86, drift_z)
+		var p_end := p_mid2 + Vector3(rng.randf_range(-0.08, 0.08), -drop_len * 0.14, rng.randf_range(-0.08, 0.08))
+		var p_tip := p_end + Vector3(rng.randf_range(-0.05, 0.05), -0.08, rng.randf_range(-0.05, 0.05))
+		_st_add_tube(st_wires, [anchor, p_mid1, p_mid2, p_end], 0.015, 5, wire_black)
+		_st_add_tube(st_wires, [p_end, p_tip], 0.009, 4, wire_copper)
+		wire_count += 1
+
+	# Commit all 4 batched labyrinth meshes
+	st_floor.index()
+	st_floor.generate_tangents()
+	var floor_mi := MeshInstance3D.new()
+	floor_mi.name = "LabyrinthFloor"
+	floor_mi.transform = xf
+	floor_mi.mesh = st_floor.commit()
+	floor_mi.material_override = _mats["lab_floor"]
+	floor_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(floor_mi)
+
+	st_wall.index()
+	st_wall.generate_tangents()
 	var lab_mi := MeshInstance3D.new()
 	lab_mi.name = "LabyrinthMesh"
 	lab_mi.transform = xf
-	lab_mi.mesh = st.commit()
+	lab_mi.mesh = st_wall.commit()
 	lab_mi.material_override = _mats["lab_wall"]
 	lab_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if Game.quality >= 1 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(lab_mi)
+
+	st_metal.index()
+	st_metal.generate_tangents()
+	var metal_mi := MeshInstance3D.new()
+	metal_mi.name = "LabyrinthMetal"
+	metal_mi.transform = xf
+	metal_mi.mesh = st_metal.commit()
+	metal_mi.material_override = _mats["lab_metal"]
+	metal_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(metal_mi)
+
+	st_wires.index()
+	st_wires.generate_tangents()
+	var wires_mi := MeshInstance3D.new()
+	wires_mi.name = "LabyrinthWires"
+	wires_mi.transform = xf
+	wires_mi.mesh = st_wires.commit()
+	wires_mi.material_override = _mats["lab_wire"]
+	wires_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(wires_mi)
 
 	# 8) Spatial ReverbZone covering the stone labyrinth interior.
 	var rzone: Area3D = load("res://scripts/reverb_zone.gd").new()
 	rzone.name = "LabyrinthReverbZone"
 	rzone.transform = Transform3D(xf.basis, base + Vector3(0.0, 2.2, 0.0))
 	rzone.setup(Vector3(LAB_HALF + 0.45, 2.6, LAB_HALF + 0.45), 2.4)
+	rzone.substation_lights = substation_lights
 	add_child(rzone)
 
 	# 9) Verify BFS path from every entrance to the Sanctum and record metadata.
-	var sanctum_goals: Array[Vector2i] = [Vector2i(3, 3), Vector2i(4, 3), Vector2i(3, 4), Vector2i(4, 4)]
+	var sanctum_goals: Array[Vector2i] = [
+		Vector2i(mid - 1, mid - 1), Vector2i(mid, mid - 1),
+		Vector2i(mid - 1, mid), Vector2i(mid, mid),
+	]
 	var min_path := 999
 	var max_path := 0
 	for ec in entrance_cells:
@@ -684,7 +1159,7 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 
 	var sanctum_page := xf * Vector3.ZERO
 	page_spots.append({"pos": sanctum_page, "name": "labyrinth"})
-	landmarks.append({"name": "labyrinth", "pos": base, "radius": 14.8, "rot": rot, "scale": 1.0})
+	landmarks.append({"name": "labyrinth", "pos": base, "radius": 16.4, "rot": rot, "scale": 1.0})
 
 	labyrinth = {
 		"pos": base,
@@ -693,6 +1168,11 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 		"cells": LAB_CELLS,
 		"cell_size": LAB_CELL,
 		"wall_count": wall_count,
+		"window_walls": window_walls,
+		"conduit_count": conduit_count,
+		"junction_boxes": wall_anchors.size(),
+		"substations": substations_built,
+		"wire_count": wire_count,
 		"dead_ends": dead_ends.size(),
 		"entrances": entrance_world,
 		"entrance_cells": entrance_cells,
@@ -705,7 +1185,18 @@ func _labyrinth(xf: Transform3D, base: Vector3, rot: float) -> void:
 
 
 func _lab_is_sanctum(cx: int, cz: int) -> bool:
-	return cx >= 3 and cx <= 4 and cz >= 3 and cz <= 4
+	var mid: int = LAB_CELLS / 2
+	return cx >= mid - 1 and cx <= mid and cz >= mid - 1 and cz <= mid
+
+
+func _lab_touches_sanctum_h(cz: int, cx: int) -> bool:
+	var mid: int = LAB_CELLS / 2
+	return (cz == mid - 1 or cz == mid + 1) and (cx == mid - 1 or cx == mid)
+
+
+func _lab_touches_sanctum_v(cz: int, cx: int) -> bool:
+	var mid: int = LAB_CELLS / 2
+	return (cx == mid - 1 or cx == mid + 1) and (cz == mid - 1 or cz == mid)
 
 
 func _lab_open_between(a: Vector2i, b: Vector2i) -> bool:
@@ -839,6 +1330,138 @@ func _st_add_box(st: SurfaceTool, pos: Vector3, size: Vector3, color: Color,
 		st.set_normal(n_dir); st.set_uv(ua); st.add_vertex(p0)
 		st.set_normal(n_dir); st.set_uv(uc); st.add_vertex(p2)
 		st.set_normal(n_dir); st.set_uv(ud); st.add_vertex(p3)
+
+
+## Appends a sagging catenary cable between `a` and `b` with outward normals.
+func _st_add_cable(st: SurfaceTool, a: Vector3, b: Vector3, sag: float,
+		radius: float, segs: int, color: Color, sway := 0.0) -> void:
+	var chord := b - a
+	var horiz := Vector3(chord.x, 0.0, chord.z)
+	var side := Vector3(-horiz.z, 0.0, horiz.x)
+	if side.length() > 1e-4:
+		side = side.normalized()
+	else:
+		side = Vector3.RIGHT
+	var pts: Array[Vector3] = []
+	var n_segs := maxi(segs, 3)
+	for i in n_segs + 1:
+		var t := float(i) / float(n_segs)
+		var env := 4.0 * t * (1.0 - t)
+		var p := a.lerp(b, t)
+		p.y -= sag * env
+		p += side * (sway * env)
+		pts.append(p)
+	_st_add_tube(st, pts, radius, 5, color)
+
+
+## Appends a parallel-transported cylindrical tube along `pts` with outward normals & end-caps.
+func _st_add_tube(st: SurfaceTool, pts: Array, radius: float, radial: int, color: Color) -> void:
+	if pts.size() < 2:
+		return
+	var rad_n := maxi(radial, 4)
+	var p0_init: Vector3 = pts[0]
+	var p1_init: Vector3 = pts[1]
+	var t0 := (p1_init - p0_init)
+	if t0.length() < 1e-5:
+		return
+	t0 = t0.normalized()
+	var ref := Vector3.UP if absf(t0.y) < 0.90 else Vector3.RIGHT
+	var r_vec := ref.cross(t0).normalized()
+	var u_vec := t0.cross(r_vec).normalized()
+
+	var rings_p: Array = []
+	var rings_n: Array = []
+	var tangents: Array[Vector3] = []
+	var cum_len := 0.0
+	var arc_u: Array[float] = []
+
+	for i in pts.size():
+		var pi: Vector3 = pts[i]
+		if i > 0:
+			var prev_p: Vector3 = pts[i - 1]
+			cum_len += pi.distance_to(prev_p)
+		arc_u.append(cum_len)
+		var ti: Vector3
+		if i == 0:
+			ti = t0
+		elif i == pts.size() - 1:
+			var prev_last: Vector3 = pts[i - 1]
+			var d_last := pi - prev_last
+			ti = d_last.normalized() if d_last.length() > 1e-5 else tangents[i - 1]
+		else:
+			var next_p: Vector3 = pts[i + 1]
+			var prev_mid: Vector3 = pts[i - 1]
+			var d_mid := next_p - prev_mid
+			ti = d_mid.normalized() if d_mid.length() > 1e-5 else tangents[i - 1]
+		tangents.append(ti)
+		# Parallel transport r_vec orthogonal to ti
+		r_vec = r_vec - ti * r_vec.dot(ti)
+		if r_vec.length() < 1e-4:
+			var ref2 := Vector3.UP if absf(ti.y) < 0.90 else Vector3.RIGHT
+			r_vec = ref2.cross(ti)
+		r_vec = r_vec.normalized()
+		u_vec = ti.cross(r_vec).normalized()
+
+		var rp: Array[Vector3] = []
+		var rn: Array[Vector3] = []
+		for k in rad_n:
+			var ang := TAU * float(k) / float(rad_n)
+			var nd := (r_vec * cos(ang) + u_vec * sin(ang)).normalized()
+			rn.append(nd)
+			rp.append(pi + nd * radius)
+		rings_p.append(rp)
+		rings_n.append(rn)
+
+	st.set_color(color)
+	for i in pts.size() - 1:
+		var rp_a: Array = rings_p[i]
+		var rn_a: Array = rings_n[i]
+		var rp_b: Array = rings_p[i + 1]
+		var rn_b: Array = rings_n[i + 1]
+		var u_a: float = arc_u[i]
+		var u_b: float = arc_u[i + 1]
+		for k in rad_n:
+			var kn := (k + 1) % rad_n
+			var v0: Vector3 = rp_a[k]
+			var v1: Vector3 = rp_a[kn]
+			var v2: Vector3 = rp_b[kn]
+			var v3: Vector3 = rp_b[k]
+			var n0: Vector3 = rn_a[k]
+			var n1: Vector3 = rn_a[kn]
+			var n2: Vector3 = rn_b[kn]
+			var n3: Vector3 = rn_b[k]
+			var va := float(k) / float(rad_n)
+			var vb := float(k + 1) / float(rad_n)
+			st.set_normal(n0); st.set_uv(Vector2(u_a, va)); st.add_vertex(v0)
+			st.set_normal(n1); st.set_uv(Vector2(u_a, vb)); st.add_vertex(v1)
+			st.set_normal(n2); st.set_uv(Vector2(u_b, vb)); st.add_vertex(v2)
+			st.set_normal(n0); st.set_uv(Vector2(u_a, va)); st.add_vertex(v0)
+			st.set_normal(n2); st.set_uv(Vector2(u_b, vb)); st.add_vertex(v2)
+			st.set_normal(n3); st.set_uv(Vector2(u_b, va)); st.add_vertex(v3)
+
+	# Outward-wound end-caps at start (-tangents[0]) and end (+tangents[-1])
+	var start_c: Vector3 = pts[0]
+	var start_n: Vector3 = -tangents[0]
+	var rp_first: Array = rings_p[0]
+	for k in rad_n:
+		var kn := (k + 1) % rad_n
+		var pk: Vector3 = rp_first[k]
+		var pkn: Vector3 = rp_first[kn]
+		st.set_normal(start_n); st.set_uv(Vector2(0.5, 0.5)); st.add_vertex(start_c)
+		st.set_normal(start_n); st.set_uv(Vector2(1.0, 0.5)); st.add_vertex(pkn)
+		st.set_normal(start_n); st.set_uv(Vector2(0.5, 1.0)); st.add_vertex(pk)
+
+	var last_idx := pts.size() - 1
+	var end_c: Vector3 = pts[last_idx]
+	var end_n: Vector3 = tangents[last_idx]
+	var rp_last: Array = rings_p[last_idx]
+	for k in rad_n:
+		var kn := (k + 1) % rad_n
+		var pk2: Vector3 = rp_last[k]
+		var pkn2: Vector3 = rp_last[kn]
+		st.set_normal(end_n); st.set_uv(Vector2(0.5, 0.5)); st.add_vertex(end_c)
+		st.set_normal(end_n); st.set_uv(Vector2(1.0, 0.5)); st.add_vertex(pk2)
+		st.set_normal(end_n); st.set_uv(Vector2(0.5, 1.0)); st.add_vertex(pkn2)
 
 
 # --------------------------------------------------------------------------- #
@@ -1370,7 +1993,7 @@ func _lab_world_to_cell(p: Vector3) -> Vector2i:
 
 
 func _lab_cell_to_world(c: Vector2i) -> Vector3:
-	return _lab_xf * Vector3((float(c.x) - 3.5) * LAB_CELL, 0.0, (float(c.y) - 3.5) * LAB_CELL)
+	return _lab_xf * Vector3(_lab_cell_coord(c.x), 0.0, _lab_cell_coord(c.y))
 
 
 ## Returns a horizontal unit steering vector through open labyrinth doorways
@@ -1409,8 +2032,10 @@ func labyrinth_flow_dir(from_pos: Vector3, to_pos: Vector3) -> Vector3:
 				best_ed = d2
 				best_c = ents_c[i]
 		dst = best_c
-	if src == dst:
-		return Vector3.ZERO
+	if src == dst or (_lab_is_sanctum(src.x, src.y) and _lab_is_sanctum(dst.x, dst.y)):
+		var direct := to_pos - from_pos
+		direct.y = 0.0
+		return direct.normalized() if direct.length() > 0.25 else Vector3.ZERO
 
 	# Backwards BFS from `dst` across the 64-cell maze.
 	var dist := {dst: 0}
@@ -1440,7 +2065,17 @@ func labyrinth_flow_dir(from_pos: Vector3, to_pos: Vector3) -> Vector3:
 		if dist.has(nb) and _lab_open_between(src, nb) and int(dist[nb]) < cur_d:
 			cur_d = int(dist[nb])
 			next_cell = nb
-	var wp := _lab_cell_to_world(next_cell)
+	# Centerline-aware steering so 90-degree corridor turns never clip corner piers.
+	var lp_from: Vector3 = _lab_inv_xf * from_pos
+	var src_local := Vector3(_lab_cell_coord(src.x), 0.0, _lab_cell_coord(src.y))
+	var nxt_local := Vector3(_lab_cell_coord(next_cell.x), 0.0, _lab_cell_coord(next_cell.y))
+	var step_d := next_cell - src
+	var target_local := nxt_local
+	if step_d.x != 0 and absf(lp_from.z - src_local.z) > 0.32:
+		target_local = src_local
+	elif step_d.y != 0 and absf(lp_from.x - src_local.x) > 0.32:
+		target_local = src_local
+	var wp := _lab_xf * target_local
 	var v := wp - from_pos
 	v.y = 0.0
 	return v.normalized() if v.length() > 0.05 else Vector3.ZERO

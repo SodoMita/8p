@@ -1,7 +1,7 @@
 extends Node
 ## Tiny audio manager: looping ambience beds + a pool of one-shot players +
 ## bus-level stone reverb & wind occlusion driven by spatial ReverbZones.
-## All sounds are procedurally generated WAV files shipped with the project
+## All sounds are procedurally generated Ogg Vorbis files shipped with the project
 ## (see tools/gen_sfx.py — the screams are a formant voice, not noise).
 
 const ONE_SHOTS := 12
@@ -34,17 +34,20 @@ func _ready() -> void:
 	_setup_buses()
 	for file in [
 		"wind_loop", "drone_loop", "static_loop", "heartbeat_loop", "breath_loop",
+		"wire_hum_loop",
 		"step_0", "step_1", "step_2", "step_3",
 		"stone_step_0", "stone_step_1", "stone_step_2", "stone_step_3",
 		"page", "appear_near", "chase",
 		"jumpscare", "win", "ui_click", "branch",
 		"appear_0", "appear_1", "appear_2",
 	]:
-		var path: String = AUDIO_DIR + file + ".wav"
+		var path: String = AUDIO_DIR + file + ".ogg"
 		if ResourceLoader.exists(path):
 			_streams[file] = load(path)
 		else:
 			push_warning("Missing sound: " + path)
+	if _streams.get("wire_hum_loop") is AudioStreamOggVorbis:
+		(_streams["wire_hum_loop"] as AudioStreamOggVorbis).loop = true
 	for i in ONE_SHOTS:
 		var p := AudioStreamPlayer.new()
 		p.bus = WORLD_BUS
@@ -173,17 +176,24 @@ func wind_cutoff_hz() -> float:
 	return _wind_lpf.cutoff_hz if _wind_lpf != null else 20000.0
 
 
+func stream(name: String) -> AudioStream:
+	return _streams.get(name)
+
+
 func _start_loop(name: String, bus_name := "Master") -> void:
-	var stream: AudioStream = _streams.get(name)
-	if stream == null:
+	var s: AudioStream = _streams.get(name)
+	if s == null:
 		return
-	if stream is AudioStreamWAV:
-		var wav: AudioStreamWAV = stream
+	if s is AudioStreamOggVorbis:
+		var ogg: AudioStreamOggVorbis = s
+		ogg.loop = true
+	elif s is AudioStreamWAV:
+		var wav: AudioStreamWAV = s
 		wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
 		wav.loop_begin = 0
 		wav.loop_end = int(wav.get_length() * wav.mix_rate) - 1
 	var p := AudioStreamPlayer.new()
-	p.stream = stream
+	p.stream = s
 	p.bus = bus_name
 	p.volume_db = -80.0
 	add_child(p)
@@ -192,18 +202,18 @@ func _start_loop(name: String, bus_name := "Master") -> void:
 
 
 func play(name: String, volume_db := 0.0, pitch := 1.0) -> void:
-	var stream: AudioStream = _streams.get(name)
-	if stream == null:
+	var s: AudioStream = _streams.get(name)
+	if s == null:
 		return
 	if name == "ui_click" and _ui_player != null:
-		_ui_player.stream = stream
+		_ui_player.stream = s
 		_ui_player.volume_db = volume_db
 		_ui_player.pitch_scale = pitch
 		_ui_player.play()
 		return
 	var p := _pool[_pool_index]
 	_pool_index = (_pool_index + 1) % _pool.size()
-	p.stream = stream
+	p.stream = s
 	p.volume_db = volume_db
 	p.pitch_scale = pitch
 	p.play()

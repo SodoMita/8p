@@ -1,6 +1,14 @@
-EIGHT PAGES 1.4.0
+EIGHT PAGES 1.5.0
 Godot 4.7.2 · GL Compatibility · GDScript
 ----------------------------------------
+1.5  upgraded labyrinth to a detailed 10x10 industrial-stone complex (24.5x24.5 m,
+     jointed flagstone pavement + iron storm grates, plinths/cornices/iron-barred
+     windows/rebar/corbelled portals, wall-mounted twin steel conduits + junction
+     boxes + 2 dead-end transformer substations with flickering bulkhead lamps +
+     spatial 3D 50 Hz wire_hum_loop.ogg, and 140-240 sagging catenary electric
+     cables + severed copper-tipped drops converging over the Central Sanctum);
+     migrated all 24 audio assets from WAV to Ogg Vorbis (.ogg, 684 KB total).
+     40 selftest checks green.
 1.4  procedural 8x8 stone labyrinth (22x22 m, single-draw-call world-UV
      stonework, 2x2 Central Sanctum, 4 outer lintel archways, braided loops +
      dead ends, Slender 64-cell BFS corridor steering) + Area3D ReverbZone

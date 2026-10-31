@@ -7,7 +7,6 @@ self-contained and licence-clean.
 import math
 import os
 import sys
-import wave
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter

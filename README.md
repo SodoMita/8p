@@ -92,15 +92,20 @@ controls**, or toggle it live in the pause menu.
 * Eight pages are pinned to eight landmarks: **a procedural stone labyrinth, a
   tunnel, a silo, a truck, a shed, a ring of stones, a ruined bathroom and a
   watchtower**.
-* **Procedural stone labyrinth & reverb zone.** Every seed carves a fresh 8×8
-  stone maze (22×22 m, single-draw-call world-UV stonework) around a 2×2 Central
-  Sanctum framed by four corner steles, with lintel archways on all four outer
-  walls and braided chase loops mixed with dead ends. An `Area3D` reverb zone
-  (`scripts/reverb_zone.gd`) wraps the labyrinth: crossing the threshold swaps
-  footsteps from forest leaves to cold flagstone, opens a 34 ms-predelay stone
-  reverb tail on the `World` bus (footsteps, breathing, whispers, screams), and
-  low-passes the exterior wind behind the walls. Slender navigates its corridors
-  around corners via 64-cell BFS.
+* **Procedural stone labyrinth, electric wire network & reverb zone.** Every
+  seed carves a fresh 10×10 stone maze (24.5×24.5 m across 4 batched meshes:
+  jointed flagstone pavement + intersection iron storm grates, plinth-and-cornice
+  stonework with iron-barred grille windows and exposed rebar, wall-mounted
+  twin steel conduits + junction boxes + two dead-end transformer substations
+  with flickering bulkhead lamps and spatial 3D 50 Hz `wire_hum_loop.ogg`
+  transformer buzz, and 140–240 sagging catenary electric cables + severed
+  copper-tipped drops converging on an overhead collector ring above the 2×2
+  Central Sanctum). An `Area3D` reverb zone (`scripts/reverb_zone.gd`) wraps
+  the labyrinth: crossing the threshold swaps footsteps from forest leaves to
+  cold flagstone, opens a 34 ms-predelay stone reverb tail on both 3D substation
+  hum emitters and the `World` bus (footsteps, breathing, whispers, screams),
+  and low-passes exterior wind behind the walls. Slender navigates its corridors
+  around corners via 100-cell centerline-aligned BFS.
 * **Pumpkins and dead bushes.** Patches of ribbed, dirt-streaked pumpkins grow
   in the clearings and around every landmark (some knocked over), and dense
   leafless bushes — branched twig clumps, not painted billboards — fill the
@@ -142,19 +147,19 @@ eight_pages/
 │   ├── reverb_zone.gd       # Area3D stone-hall reverb + wind-occlusion zone
 │   ├── title.gd             # title screen UI
 │   ├── world.gd             # run orchestration, pages, static feedback, endings
-│   ├── map_builder.gd       # procedural forest, 8x8 labyrinth + set pieces
+│   ├── map_builder.gd       # procedural forest, 10x10 wired labyrinth + set pieces
 │   ├── player.gd            # FPS controller (mouse + touch), stamina, head bob
 │   ├── slender.gd           # the tall one: apparitions, gaze, maze BFS, kill
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 38 functional assertions
+│   ├── selftest.gd          # 40 functional assertions
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
 ├── shaders/
 │   ├── static.gdshader      # film-grain / VHS static overlay
 │   └── vignette.gdshader
 ├── assets/
-│   ├── audio/*.wav          # synthesised beds, footsteps, screams, stings
+│   ├── audio/*.ogg          # Ogg Vorbis beds, footsteps, wire hum, screams, stings
 │   ├── textures/*.png       # PBR ground/bark/stone/grass/litter, paper, noise
 │   ├── models/*.res         # baked tree / snag / log / stump / shrub / pumpkin / bush meshes
 │   └── fonts/               # DejaVu Sans + Serif (licence: Bitstream Vera / public)
@@ -237,7 +242,7 @@ lighting so the game stays playable on phones and on `llvmpipe`.
 
 ```bash
 python3 tools/gen_assets.py       # base textures, audio, paper — run this FIRST
-python3 tools/gen_sfx.py          # audio only (assets/audio/*.wav)
+python3 tools/gen_sfx.py          # audio only (assets/audio/*.ogg)
 python3 tools/gen_textures_real.py   # PBR ground / bark / stone / grass / litter
 godot --headless --path . --script tools/gen_trees.gd     # bare-tree meshes
 godot --path . --script tools/gen_title_bg.gd             # menu backdrop (needs GL)
@@ -256,7 +261,8 @@ painted ones.
 * **Meshes** — `gen_trees.gd` bakes six trunks, two snags, a fallen log, a stump
   and a dead shrub as `.res` meshes with world-space bark UVs and visible root
   flares; they are drawn with `MultiMesh` and per-instance tints.
-* **Audio** — all WAVs are synthesised in `tools/gen_sfx.py`. The screams are not
+* **Audio** — all 24 Ogg Vorbis streams (`assets/audio/*.ogg`) are synthesised
+  in `tools/gen_sfx.py`. The screams are not
   noise bursts: a voice is an additive stack of harmonics whose amplitudes follow
   five time-varying formants, driven by an unstable pitch contour (vibrato,
   jitter, a break where the voice gives out) with a torn aspiration layer under

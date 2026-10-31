@@ -79,47 +79,77 @@ func _run() -> void:
 	var lab: Dictionary = world.map_builder.labyrinth
 	var lab2: Dictionary = other.labyrinth
 	var lab_mesh_node: MeshInstance3D = world.map_builder.get_node_or_null("LabyrinthMesh")
+	var lab_floor_node: MeshInstance3D = world.map_builder.get_node_or_null("LabyrinthFloor")
+	var lab_metal_node: MeshInstance3D = world.map_builder.get_node_or_null("LabyrinthMetal")
+	var lab_wires_node: MeshInstance3D = world.map_builder.get_node_or_null("LabyrinthWires")
 	var lab_body_node: StaticBody3D = world.map_builder.get_node_or_null("LabyrinthBody")
 	var lab_rzone: Area3D = world.map_builder.get_node_or_null("LabyrinthReverbZone")
+	var lab_hum0: AudioStreamPlayer3D = world.map_builder.get_node_or_null("SubstationHum_0")
 	check("labyrinth_built",
-		not lab.is_empty() and int(lab.get("wall_count", 0)) > 40
-		and lab_mesh_node != null and lab_body_node != null and lab_rzone != null,
-		"walls=%d" % int(lab.get("wall_count", 0)))
+		not lab.is_empty() and int(lab.get("cells", 0)) == 10 and int(lab.get("wall_count", 0)) > 65
+		and lab_mesh_node != null and lab_floor_node != null
+		and lab_metal_node != null and lab_wires_node != null
+		and lab_body_node != null and lab_rzone != null,
+		"cells=%d walls=%d" % [int(lab.get("cells", 0)), int(lab.get("wall_count", 0))])
+	check("labyrinth_detailed_wires",
+		int(lab.get("wire_count", 0)) >= 50 and int(lab.get("conduit_count", 0)) >= 15
+		and int(lab.get("junction_boxes", 0)) >= 6 and int(lab.get("substations", 0)) == 2
+		and int(lab.get("window_walls", 0)) >= 3 and lab_hum0 != null and lab_hum0.playing,
+		"wires=%d conduits=%d boxes=%d windows=%d" % [
+			int(lab.get("wire_count", 0)), int(lab.get("conduit_count", 0)),
+			int(lab.get("junction_boxes", 0)), int(lab.get("window_walls", 0))])
 	check("labyrinth_unique_per_seed",
 		String(lab.get("signature", "")) != "" and lab.get("signature") != lab2.get("signature"))
 	check("labyrinth_solvable",
-		int(lab.get("shortest_path", -1)) >= 3 and int(lab.get("longest_path", -1)) >= 5,
+		int(lab.get("shortest_path", -1)) >= 4 and int(lab.get("longest_path", -1)) >= 6,
 		"shortest=%d longest=%d" % [int(lab.get("shortest_path", -1)), int(lab.get("longest_path", -1))])
 	other.queue_free()
 
+	# verify Ogg Vorbis audio migration (all streams OGG, loop flags active, zero WAV files)
+	var ogg_ok := false
+	var hum_s: AudioStream = Sfx.stream("wire_hum_loop")
+	var sc_s: AudioStream = Sfx.stream("jumpscare")
+	if hum_s is AudioStreamOggVorbis and sc_s is AudioStreamOggVorbis:
+		ogg_ok = (hum_s as AudioStreamOggVorbis).loop and not (sc_s as AudioStreamOggVorbis).loop
+	var aud_dir := DirAccess.open("res://assets/audio")
+	if aud_dir != null:
+		aud_dir.list_dir_begin()
+		var fname := aud_dir.get_next()
+		while fname != "":
+			if fname.ends_with(".wav"):
+				ogg_ok = false
+			fname = aud_dir.get_next()
+		aud_dir.list_dir_end()
+	check("ogg_audio_only", ogg_ok)
+
 	# verify Slender's BFS corridor steering reaches the Central Sanctum from an outer gate
 	var nav_ok := false
-	var ents_chk: Array = lab.get("entrances", [])
-	if not ents_chk.is_empty():
-		var walker: Vector3 = ents_chk[0]
+	var ent_cells_chk: Array = lab.get("entrance_cells", [])
+	if not ent_cells_chk.is_empty():
+		var walker: Vector3 = world.map_builder._lab_cell_to_world(ent_cells_chk[0])
 		var goal: Vector3 = lab.get("sanctum_pos", Vector3.ZERO)
-		# nudge walker 0.8 m inside the gate so it starts on the first corridor cell
-		var inward := (goal - walker)
-		inward.y = 0.0
-		walker += inward.normalized() * 0.8
 		var hit_wall := false
-		for _step in 160:
-			if Vector2(walker.x - goal.x, walker.z - goal.z).length() < 2.2:
+		for _step in 450:
+			if Vector2(walker.x - goal.x, walker.z - goal.z).length() < 0.8:
 				nav_ok = not hit_wall
 				break
 			var fdir: Vector3 = world.map_builder.labyrinth_flow_dir(walker, goal)
 			if fdir == Vector3.ZERO:
 				break
-			walker += fdir * 0.55
-			if world.map_builder.point_in_labyrinth_wall(walker, 0.05):
+			walker += fdir * 0.45
+			if world.map_builder.point_in_labyrinth_wall(walker, 0.15):
 				hit_wall = true
 				break
 	check("labyrinth_slender_navigates", nav_ok)
 
-	# labyrinth mesh outward-winding normal guard + tree exclusion guard
-	var lab_normals_ok := false
-	if lab_mesh_node != null and lab_mesh_node.mesh is ArrayMesh:
-		var lm_arr := (lab_mesh_node.mesh as ArrayMesh).surface_get_arrays(0)
+	# outward-winding normal guard across ALL 4 labyrinth meshes (floor, stone, metal, wires)
+	var lab_normals_ok := true
+	for lnode in [lab_floor_node, lab_mesh_node, lab_metal_node, lab_wires_node]:
+		var mnode: MeshInstance3D = lnode
+		if mnode == null or not (mnode.mesh is ArrayMesh):
+			lab_normals_ok = false
+			continue
+		var lm_arr := (mnode.mesh as ArrayMesh).surface_get_arrays(0)
 		var lverts: PackedVector3Array = lm_arr[Mesh.ARRAY_VERTEX]
 		var lnorms: PackedVector3Array = lm_arr[Mesh.ARRAY_NORMAL]
 		var lidx: PackedInt32Array = lm_arr[Mesh.ARRAY_INDEX]
@@ -130,9 +160,11 @@ func _run() -> void:
 			var a2: Vector3 = lverts[lidx[t * 3 + 2]]
 			var g := (a1 - a0).cross(a2 - a0)
 			var n_avg := lnorms[lidx[t * 3]] + lnorms[lidx[t * 3 + 1]] + lnorms[lidx[t * 3 + 2]]
-			if g.length() > 1e-8 and n_avg.length() > 1e-6 and g.dot(n_avg) <= 0.0:
+			if g.length() > 1e-9 and n_avg.length() > 1e-6 and g.dot(n_avg) <= 0.0:
 				bad_lab += 1
-		lab_normals_ok = (lidx.size() > 0 and bad_lab == 0)
+		if lidx.size() == 0 or bad_lab > 0:
+			lab_normals_ok = false
+			print("[selftest]   %s has %d inverted triangles" % [mnode.name, bad_lab])
 	check("labyrinth_normals_outward", lab_normals_ok)
 
 	var trees_clear_of_lab := true
@@ -286,7 +318,7 @@ func _run() -> void:
 	# walk straight into the outer stone labyrinth wall and verify it stops us
 	var walls: Dictionary = world.map_builder.landmarks[0]
 	var wall_pos: Vector3 = walls["pos"]
-	player.global_position = wall_pos + Vector3(0, 0.15, 13.8)
+	player.global_position = wall_pos + Vector3(0, 0.15, float(lab.get("half", 12.25)) + 2.6)
 	player.rotation.y = 0.0
 	await _wait(0.2)
 	start = player.global_position
@@ -335,11 +367,11 @@ func _run() -> void:
 	sl.set_process(false)
 	sl.visible = true
 	var cam: Camera3D = player.camera
-	player.global_position = Vector3(0, 0.2, 10)
+	player.global_position = Vector3(0, 0.2, 5.5)
 	player.rotation.y = 0.0
 	player.head.rotation.x = 0.0
 	await _wait(0.3)
-	sl.global_position = Vector3(0, 0, 1)
+	sl.global_position = Vector3(0, 0, -2.5)
 	await _wait(0.2)
 	check("slender_seen_in_front", sl._is_seen_by_player(),
 		"cam=%s sl=%s frustum=%s" % [str(cam.global_position), str(sl.global_position), str(cam.is_position_in_frustum(sl.global_position + Vector3(0, 2.2, 0)))])

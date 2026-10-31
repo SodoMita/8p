@@ -6,13 +6,15 @@ extends Area3D
 ## entrance archways so footsteps, breathing, whispers and screams echo off the
 ## stone corridors while exterior forest wind muffles behind the walls.
 
-var half_extents := Vector3(11.6, 2.8, 11.6)
+var half_extents := Vector3(12.8, 2.8, 12.8)
 var feather := 2.4
 var current_amount := 0.0
 var player_inside := false
+var substation_lights: Array[OmniLight3D] = []
 
 var _last_player_pos := Vector3.INF
 var _has_entered_signal := false
+var _flicker_t := 0.0
 
 
 func setup(extents: Vector3, edge_feather := 2.4) -> void:
@@ -71,6 +73,21 @@ func amount_at(world_pos: Vector3) -> float:
 
 
 func _physics_process(delta: float) -> void:
+	_flicker_t += delta
+	for i in substation_lights.size():
+		var lt := substation_lights[i]
+		if not is_instance_valid(lt):
+			continue
+		var ph := _flicker_t * 3.7 + float(i) * 2.1
+		var mains := 0.88 + 0.12 * sin(_flicker_t * 31.0 + float(i))
+		var sputter := 1.0
+		var cyc := fmod(ph, 5.3)
+		if cyc > 4.85 and cyc < 4.98:
+			sputter = 0.12  # brief brownout drop
+		elif cyc > 5.02 and cyc < 5.09:
+			sputter = 1.55  # brief arc flare
+		lt.light_energy = 0.36 * mains * sputter
+
 	var player := get_tree().get_first_node_in_group("player") as Node3D
 	if player == null:
 		return
