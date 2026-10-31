@@ -10,3 +10,10 @@ build/
 .DS_Store
 *.log
 /tools/dl/
+
+# python tooling
+__pycache__/
+*.pyc
+
+# Reproducible animation capture intermediates (GIF is committed)
+screenshots/animation_frames/
