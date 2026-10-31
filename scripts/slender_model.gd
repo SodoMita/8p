@@ -2,10 +2,13 @@ extends RefCounted
 ## Deterministic, smooth procedural creature. Five material batches, no textures,
 ## no external assets, no per-frame mesh work. Local +Z is the face/player side.
 
+var _region := 0
+
 var _surfaces: Array[SurfaceTool] = []
 var _materials: Array[StandardMaterial3D] = []
 
 func build(parent: Node3D) -> Array[MeshInstance3D]:
+	_region = 0
 	_surfaces.clear()
 	_materials = [
 		_material(Color(0.065, 0.067, 0.075), 0.91, 0.04), # wool
@@ -53,6 +56,7 @@ func _tri(surface: int, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vec
 	if (b - a).cross(c - a).dot(na + nb + nc) > 0.0:
 		verts = [[a, na], [c, nc], [b, nb]]
 	for pair in verts:
+		st.set_color(Color(float(_region) / 8.0, 0, 0, 1))
 		st.set_normal(pair[1])
 		st.add_vertex(pair[0])
 
@@ -136,18 +140,22 @@ func _body() -> void:
 	_panel(1, [Vector3(0, 2.233, 0.143), Vector3(0.027, 2.202, 0.153), Vector3(0, 2.166, 0.16), Vector3(-0.027, 2.202, 0.153)])
 	_panel(1, [Vector3(-0.013, 2.176, 0.156), Vector3(0.014, 2.176, 0.156), Vector3(0.031, 1.928, 0.151), Vector3(0, 1.88, 0.153), Vector3(-0.031, 1.928, 0.151)])
 	_tube(3, [Vector3(0, 2.27, 0), Vector3(0, 2.39, 0.005)], [0.057, 0.062], 16)
+	_region = 1
 	# Egg-shaped skull: narrower chin, broad cranium. Deliberately no facial features.
 	_loft(3, [Vector4(0, 2.348, 0.012, 1), Vector4(0, 2.367, 0.061, 1), Vector4(0, 2.407, 0.103, 1), Vector4(0, 2.475, 0.139, 1), Vector4(0, 2.555, 0.16, 1), Vector4(0, 2.635, 0.165, 1), Vector4(0, 2.7, 0.139, 1), Vector4(0, 2.752, 0.087, 1), Vector4(0, 2.772, 0.008, 1)], 0.85, 0.022, 32)
 
 func _limbs(s: float) -> void:
+	_region = 2 if s < 0 else 3
 	# Sleeves hang from rounded shoulders; subtle elbow bend avoids pipe limbs.
 	_tube(0, [Vector3(0.2*s, 2.19, 0), Vector3(0.26*s, 2.13, 0), Vector3(0.295*s, 1.94, 0.005), Vector3(0.34*s, 1.67, 0.015), Vector3(0.354*s, 1.55, 0.028), Vector3(0.374*s, 1.25, 0.052), Vector3(0.394*s, 0.99, 0.07)], [0.07, 0.093, 0.075, 0.057, 0.059, 0.044, 0.037], 16, 0.82)
 	_tube(2, [Vector3(0.394*s, 1.012, 0.07), Vector3(0.397*s, 0.974, 0.071)], [0.037, 0.035], 12, 0.8)
+	_region = 4 if s < 0 else 5
 	_tube(0, [Vector3(0.093*s, 1.2, 0), Vector3(0.106*s, 1.04, 0), Vector3(0.118*s, 0.77, 0.015), Vector3(0.121*s, 0.59, 0.026), Vector3(0.127*s, 0.36, 0.005), Vector3(0.13*s, 0.09, 0.01)], [0.087, 0.089, 0.07, 0.063, 0.052, 0.05], 16, 0.91)
 	# Rounded elongated dress shoes, toes towards +Z.
 	_loft(4, [Vector4(0.13*s, 0.008, 0.048, 1), Vector4(0.13*s, 0.022, 0.068, 1), Vector4(0.13*s, 0.064, 0.064, 1), Vector4(0.13*s, 0.097, 0.04, 0.8)], 2.0, 0.058, 20)
 
 func _hand(s: float) -> void:
+	_region = 2 if s < 0 else 3
 	# Flattened palm; four individually tapered fingers plus the hooked thumb.
 	_tube(3, [Vector3(0.397*s, 0.982, 0.072), Vector3(0.404*s, 0.929, 0.075), Vector3(0.415*s, 0.847, 0.082)], [0.027, 0.041, 0.033], 12, 0.52)
 	for f in 4:
@@ -158,6 +166,7 @@ func _hand(s: float) -> void:
 	_tube(3, [Vector3(0.377*s, 0.924, 0.08), Vector3(0.351*s, 0.878, 0.084), Vector3(0.342*s, 0.824, 0.11), Vector3(0.35*s, 0.807, 0.129)], [0.016, 0.012, 0.008, 0.003], 8)
 
 func _tendrils(s: float) -> void:
+	_region = 6 if s < 0 else 7
 	# Cubic arcs rooted on the back. Curvature is smooth and tips taper to nothing;
 	# asymmetry avoids a rigid spider/crown silhouette and never obscures the face.
 	for i in 3:

@@ -26,6 +26,8 @@ var enraged := false
 var _was_visible := false
 var _sway := 0.0
 
+var _animation: RefCounted
+
 var _meshes: Array[MeshInstance3D] = []
 
 
@@ -41,6 +43,8 @@ func _ready() -> void:
 # --------------------------------------------------------------------------- #
 func _build_model() -> void:
 	_meshes = preload("res://scripts/slender_model.gd").new().build(self)
+	_animation = preload("res://scripts/slender_animation.gd").new()
+	_animation.bind_meshes(_meshes)
 
 
 # --------------------------------------------------------------------------- #
@@ -66,6 +70,7 @@ func reset() -> void:
 	visible = false
 	mode = Mode.HIDDEN
 	seen_time = 0.0
+	_animation.reset_pose()
 
 
 func deactivate() -> void:
@@ -121,8 +126,9 @@ func _process(delta: float) -> void:
 			if dist < 2.0:
 				_kill()
 
-	# idle animation
-	position.y = sin(_sway * 1.4) * 0.02
+	# Visual-only animation: root movement, AI and head targeting stay unchanged.
+	if visible and not dead:
+		_animation.advance(delta, mode == Mode.CHASE, visible_now, enraged)
 	_was_visible = visible_now
 
 
