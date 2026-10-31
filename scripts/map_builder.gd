@@ -104,6 +104,10 @@ func _pbr(name: String, uv_scale := 1.0, rough := 1.0, normal_scale := 1.0) -> S
 	m.uv1_scale = Vector3(uv_scale, uv_scale, 1.0)
 	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	m.texture_repeat = true
+	# every surface in this wood is double sided: the walls are broken, the
+	# truck's bed is open and the shed's planks are single quads, so a culled
+	# back face reads as a hole straight into the fog
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 
 
@@ -189,6 +193,7 @@ func _flat(color: Color, rough := 0.8, metallic := 0.0) -> StandardMaterial3D:
 	m.roughness = rough
 	m.metallic = metallic
 	m.metallic_specular = 0.4
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return m
 
 

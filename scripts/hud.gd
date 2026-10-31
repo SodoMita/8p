@@ -6,6 +6,8 @@ signal pause_toggled
 signal restart_pressed
 signal menu_pressed
 signal touch_toggle_pressed
+signal camcorder_toggled
+signal handheld_toggled
 
 var root: Control
 var static_rect: ColorRect
@@ -34,6 +36,7 @@ var pause_button: Button
 var fade_rect: ColorRect
 var touch_hint: Label
 var rotate_hint: Label
+var camcorder: Node
 
 var _serif: Font
 var _sans: Font
@@ -113,10 +116,19 @@ func _build() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
+	# --- camcorder: the lens, the tape, the viewfinder ---------------------
+	# first child on purpose: the shader pass has to resample the 3D image
+	# before any other overlay is composited, and the slop of the VHS tape is
+	# allowed to run underneath the crisp HUD text
+	var cam_scene: PackedScene = load("res://scenes/Camcorder.tscn")
+	camcorder = cam_scene.instantiate()
+	root.add_child(camcorder)
+
 	# --- vignette --------------------------------------------------------
 	var vig := _shader_rect("res://shaders/vignette.gdshader")
 	vignette_mat = vig.material as ShaderMaterial
-	vignette_mat.set_shader_parameter("strength", 0.92)
+	# the camcorder pass brings its own lens falloff and tube corners
+	vignette_mat.set_shader_parameter("strength", 0.35 if Settings.camcorder else 0.92)
 	root.add_child(vig)
 
 	# --- static / grain overlay -----------------------------------------
@@ -340,10 +352,20 @@ func _build_pause() -> void:
 	restart.pressed.connect(func(): restart_pressed.emit())
 	box.add_child(restart)
 
-	var touch_btn := _button("TOUCH CONTROLS: AUTO")
+	var touch_btn := _button("TOUCH CONTROLS: AUTO", 18)
 	touch_btn.pressed.connect(func(): touch_toggle_pressed.emit())
 	box.add_child(touch_btn)
 	touch_btn.set_meta("role", "touch_toggle")
+
+	var cam_btn := _button("CAMCORDER FX: ON", 18)
+	cam_btn.pressed.connect(func(): camcorder_toggled.emit())
+	box.add_child(cam_btn)
+	cam_btn.set_meta("role", "camcorder_toggle")
+
+	var rig_btn := _button("HANDHELD CAMERA: ON", 18)
+	rig_btn.pressed.connect(func(): handheld_toggled.emit())
+	box.add_child(rig_btn)
+	rig_btn.set_meta("role", "handheld_toggle")
 
 	var menu := _button("QUIT TO TITLE")
 	menu.pressed.connect(func(): menu_pressed.emit())
@@ -430,6 +452,9 @@ func _process(delta: float) -> void:
 	# subtle breathing crosshair opacity
 	if crosshair != null:
 		crosshair.modulate.a = 0.7 + 0.3 * sin(_time * 1.7)
+	if camcorder != null:
+		camcorder.set_time(Game.run_time)
+
 
 
 func set_pages(n: int, total: int) -> void:
@@ -447,6 +472,44 @@ func set_stamina(v: float) -> void:
 
 func set_static(v: float) -> void:
 	_target_static = clampf(v, 0.0, 1.0)
+	# With the camcorder on, its tape damage *is* the static: stacking the old
+	# grain overlay underneath double-counted the noise (and the night-vision
+	# gain then blew it up into snow). Turning it off is the A/B path back.
+	if static_rect != null:
+		static_rect.visible = not Settings.camcorder
+
+
+## Danger level 0..1 for the camcorder pass (proximity, chase, being watched).
+func set_dread(v: float) -> void:
+	if camcorder != null:
+		camcorder.set_dread(v)
+
+
+## Night-vision lamp on/off — the camcorder's own light when the torch dies.
+func set_camcorder_ir(on: bool) -> void:
+	if camcorder != null:
+		camcorder.set_ir(on)
+
+
+## One-shot tape corruption.
+func camcorder_glitch(strength := 0.6) -> void:
+	if camcorder != null:
+		camcorder.glitch(strength)
+
+
+## One-shot blown-out frame (jumpscare, hard cut).
+func camcorder_punch(strength := 0.5) -> void:
+	if camcorder != null:
+		camcorder.punch(strength)
+
+
+func refresh_camcorder() -> void:
+	if camcorder != null:
+		camcorder.set_enabled(Settings.camcorder)
+	if vignette_mat != null:
+		vignette_mat.set_shader_parameter("strength", 0.35 if Settings.camcorder else 0.92)
+	if static_rect != null:
+		static_rect.visible = not Settings.camcorder
 
 
 func flash(amount: float, duration := 0.35) -> void:
@@ -465,6 +528,8 @@ func static_burst(amount := 0.75) -> void:
 	var tw := create_tween()
 	_tweens["static"] = tw
 	tw.tween_method(func(v: float): static_mat.set_shader_parameter("burst", v), amount, 0.0, 0.9)
+	# the tape damages itself in the same breath as the static spikes
+	camcorder_glitch(amount * 0.45)
 
 
 func show_prompt(text: String) -> void:
@@ -535,6 +600,10 @@ func update_touch_toggle_label(enabled: bool) -> void:
 	for c in pause_root.find_children("*", "Button", true, false):
 		if c.has_meta("role") and c.get_meta("role") == "touch_toggle":
 			c.text = "TOUCH CONTROLS: " + ("ON" if enabled else "OFF")
+		elif c.has_meta("role") and c.get_meta("role") == "camcorder_toggle":
+			c.text = "CAMCORDER FX: " + ("ON" if Settings.camcorder else "OFF")
+		elif c.has_meta("role") and c.get_meta("role") == "handheld_toggle":
+			c.text = "HANDHELD CAMERA: " + ("ON" if Settings.camcorder_physics else "OFF")
 
 
 func show_end(won: bool, pages: int, time_taken: float) -> void:

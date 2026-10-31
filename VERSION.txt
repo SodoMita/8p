@@ -1,7 +1,7 @@
-EIGHT PAGES 1.3.0
+EIGHT PAGES 1.5.0
 Godot 4.7.2 · GL Compatibility · GDScript
 ----------------------------------------
-1.3  the map is closed and the world outside it keeps going.
+1.5  the map is closed and the world outside it keeps going.
      * boundary: a real chain-link fence, built the way one is built — 3 m
        mesh bays, galvanised posts, top rail, bottom tension wire, and a
        two-leaf gate standing open at the east side. 325 colliders on the
@@ -12,16 +12,31 @@ Godot 4.7.2 · GL Compatibility · GDScript
        wanders to the horizon. A 4 km floor slab means there is no edge to
        fall off even if you go over the wire.
      * pages are verlet cloth now: 7x9 pinned grid, fixed 60 Hz, shear links,
-       smoothed live normals — and they carry no light of their own.
+       smoothed live normals, light coming through the sheet — and they carry
+       no light of their own.
      * concrete/stone moved to world-space triplanar at 1.2 m per repeat:
        2048² maps at ~1700 px/m on every face, no stretch (was up to 46:1),
-       isotropically rebuilt maps with mipmaps.
+       isotropically rebuilt maps (runoff streaks and the per-tile moss band
+       removed, aggregate-led tone), mipmapped.
      * tree normals re-verified the hard way: every triangle is wound with
-       its vertex normals and every sampled face passes a step-out-and-shoot
+       its vertex normals, and every sampled face passes a step-out-and-shoot
        -back test; the black caps at trunk bases were the downward-facing base
        fans showing above ground, so trees now sit 12 cm into the soil.
-     * 38 selftest checks. Two deepseek audit agents ran in parallel during
-       this cycle; all eleven of their cloth/terrain findings are fixed.
+     * two deepseek audit agents ran in parallel during this cycle; all eleven
+       of their cloth/terrain findings are fixed. 38 selftest checks.
+1.4  the camcorder pass: one full-screen shader (lens warp, chromatic aberration,
+     rolling band, tape tear/dropout, signal-scaled grain, night-lift grade, IR
+     night-vision tube) and a viewfinder scene with REC/timecode/battery; the
+     camera moved onto a RigidBody3D handle tethered to the head, so the view
+     lags, leans and shudders and settles; danger-driven degradation; keyboard
+     and mouse always live (touch is additive); pause-menu toggles for the FX
+     and the rig. 32 selftests + 27 rig checks green.
+1.3  audio rebuilt around a formant voice engine (tools/gen_sfx.py): the death
+     sting is a real scream now (harmonic stack + 5 formants + pitch break +
+     torn breath) layered over a subharmonic growl, a metal shriek and a sub
+     impact, in stereo with room; three apparition takes, a close whisper, a
+     chase roar, strained breathing, a minor-second drone, irregular heartbeat;
+     Master-bus limiter. 29 selftest checks still green.
 1.2  mesh normals rebuilt (parallel-transport frames, real end caps, outward
      winding on every triangle); pumpkins + dead bushes scattered procedurally;
      the darkness is now genuine — moonlight, ambient, a 30° beam and fog.

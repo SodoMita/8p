@@ -306,6 +306,30 @@ func _run() -> void:
 	check("sprint_faster_than_walk", sprinted > walked * 1.3, "%.2f m vs %.2f m" % [sprinted, walked])
 	check("sprint_drains_stamina", stamina_used > 5.0, "%.1f" % stamina_used)
 
+	# ---- input independence: keyboard/mouse must work in touch mode too ----
+	# (the human reported "on PC mouse controls don't work"; the cause was the
+	#  touch-mode early-outs, so prove both paths are live simultaneously)
+	var was_touch: bool = Game.touch_mode
+	Game.touch_mode = true
+	player.rotation.y = 0.0
+	player.add_look(Vector2(180, 0))
+	check("mouse_look_in_touch_mode", absf(player.rotation.y) > 0.1,
+		"%.3f rad" % player.rotation.y)
+	player.frozen = false
+	var start_touch := player.global_position
+	Input.action_press("move_forward")
+	await _wait(0.5)
+	Input.action_release("move_forward")
+	var walked_keys: float = (player.global_position - start_touch).length()
+	check("keyboard_moves_in_touch_mode", walked_keys > 0.4, "%.2f m" % walked_keys)
+	var flick := InputEventMouseMotion.new()
+	flick.relative = Vector2(240, 0)
+	var yaw_before_flick: float = player.rotation.y
+	player._unhandled_input(flick)
+	check("mouse_event_reaches_player", absf(player.rotation.y - yaw_before_flick) > 0.1,
+		"%.3f rad" % (player.rotation.y - yaw_before_flick))
+	Game.touch_mode = was_touch
+
 	# look control (touch swipe path and mouse path share add_look)
 	var yaw_before: float = player.rotation.y
 	player.add_look(Vector2(200, 0))

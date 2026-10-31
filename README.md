@@ -50,8 +50,21 @@ px/m on the same wall with up to 46:1 stretch. The maps themselves are isotropic
 layered noise with Poisson-scattered aggregate, pits, bubbles, chips and hairline
 cracks, mipmapped and anisotropic-filtered.
 
+**You are watching it through a camcorder.** Every frame goes through one
+full-screen pass (`shaders/camcorder.gdshader`, scene `scenes/Camcorder.tscn`)
+that turns the renderer into the finder of a cheap night-shift video camera:
+barrel warp inside the lens, radial chromatic aberration, a rolling-shutter band
+that drags colour with it, tape tears and signal-loss blocks, scanlines, a grade
+that lifts the night instead of crushing it, and — with the torch switched to its
+second mode — a real IR night-vision tube. The camera itself is not bolted to the
+player's head: it hangs off `RigidBody3D` "Handle", so it lags, leans and
+shudders like something being carried.
+
 ![title](screenshots/00_title.jpg)
 ![gameplay](screenshots/gameplay.gif)
+
+![dark forest through the camcorder](screenshots/01_page_1_walls.jpg)
+![the tall one, straight into the IR lamp](screenshots/12_night_vision.jpg)
 
 ---
 
@@ -74,7 +87,7 @@ otherwise whatever `godot` is on your PATH.
 | Platform | File | Notes |
 |---|---|---|
 | **Web / mobile browsers** | `build/web/index.html` | pre-built; serve over HTTP (see below) |
-| **Android** | `build/android/eight_pages.apk` | signed release APK v1.3.0 (arm64-v8a) |
+| **Android** | `build/android/eight_pages.apk` | signed release APK v1.5.0 (arm64-v8a) |
 | **Linux** | build it yourself (preset included) | `--export-release "Linux" build/linux/EightPages.x86_64` |
 
 Build them yourself:
@@ -109,7 +122,7 @@ add the page to the home screen for a full-screen, no-browser-chrome experience.
 | Move | `W A S D` / arrows | floating stick — drag anywhere on the left half |
 | Look | mouse | drag anywhere on the right half |
 | Sprint | `Shift` (drains breath) | hold **RUN** |
-| Flashlight | `F` | **LIGHT** button |
+| Flashlight / IR lamp | `F` — swaps the warm spot for the camcorder's IR lamp | **LIGHT** button |
 | Take page | `E` (or simply walk into it) | **TAKE** button (auto-pickup also works) |
 | Pause | `Esc` | **II** in the top-right corner |
 | Dismiss a note | any of the above keys | it fades on its own |
@@ -117,6 +130,15 @@ add the page to the home screen for a full-screen, no-browser-chrome experience.
 Touch mode is detected automatically on mobile, Android/iOS web builds and any
 device reporting a touchscreen. You can force it from **Settings → Force touch
 controls**, or toggle it live in the pause menu.
+
+**Keyboard and mouse are always live.** Touch mode adds the on-screen stick, it
+never disables `WASD`, `Shift`, `E`, `F`, `Esc` or mouse look — a phone with a
+mouse, a tablet with a trackpad or a desktop where touch auto-detection fired all
+get the same controls. Clicking back into the window re-captures the mouse.
+
+The camcorder is not forced on anyone: **CAMCORDER FX** in the pause menu turns
+the lens/tape pass (and the on-screen REC/timecode furniture) off, and
+**HANDHELD CAMERA** swaps the simulated rig for a cheaper procedural spring.
 
 ---
 
@@ -157,7 +179,8 @@ eight_pages/
 ├── scenes/
 │   ├── Title.tscn           # menu, settings, how-to-play
 │   ├── World.tscn           # the run: map builder + player + slender + HUD
-│   └── Player.tscn          # CharacterBody3D, camera, flashlight
+│   ├── Player.tscn          # CharacterBody3D, head anchor, handheld rig, torch
+│   └── Camcorder.tscn       # the video-camera finder: post pass + chrome
 ├── scripts/
 │   ├── game.gd              # autoload: state, input routing, quality/touch detection
 │   ├── settings.gd          # autoload: persisted settings (user://settings.cfg)
@@ -169,14 +192,18 @@ eight_pages/
 │   ├── page_cloth.gd        # verlet cloth sheet for each collectible page
 │   ├── road_ribbon.gd       # crowned ribbon mesh builder for the road
 │   ├── player.gd            # FPS controller (mouse + touch), stamina, head bob
+│   ├── camera_handle.gd     # the RigidBody3D "handle" the camera hangs off
+│   ├── camcorder.gd         # drives the post pass + REC/timecode/battery chrome
 │   ├── slender.gd           # the tall one: apparitions, gaze logic, chase, kill
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 38 functional assertions
+│   ├── selftest.gd          # 38 world assertions
+│   ├── camera_test.gd       # 30 assertions on the handheld camera rig
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
 ├── shaders/
-│   ├── static.gdshader      # film-grain / VHS static overlay
+│   ├── camcorder.gdshader   # the whole video-camera post chain, one pass
+│   ├── static.gdshader      # legacy film-grain overlay (A/B path)
 │   └── vignette.gdshader
 ├── assets/
 │   ├── audio/*.wav          # synthesised wind, drone, static, heartbeat, steps…
@@ -206,7 +233,7 @@ eight_pages/
 Everything below runs headless — no physical display required.
 
 ```bash
-tools/test_all.sh                  # 38 assertions + scripted runs in sway
+tools/test_all.sh                  # 38 world checks + 30 rig checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 
@@ -214,7 +241,8 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 
 | Check | What it proves |
 |---|---|
-| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), set pieces built, **the chain-link fence is a closed ring of 325 colliders with an open 5 m gate**, pages are live cloth with no light of their own and normals facing forward, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping saves a best time, walking/sprinting, stamina, mouse & touch look, wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
+| `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports and 180° cuts resync, a stalled tick is clamped, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
+| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **the chain-link fence is a closed ring of 325 colliders with an open 5 m gate**, pages are live cloth with no light of their own and normals facing forward, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |
 | `death path` | Slender catches the player, jumpscare, death screen shown |
 | `flow` | **Title → BEGIN → World → pause → resume → movement → first pickup**, inside sway, plus *picking up a page while paused is impossible* |
@@ -228,6 +256,8 @@ The game itself also ships with the harness used by those tests:
 ```bash
 # inside sway (real Wayland session):
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=selftest
+tools/run_sway.sh res://scenes/World.tscn -- --autotest=camtest --quality=2
+tools/run_sway.sh res://scenes/World.tscn -- --autotest=perf --quality=1
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=1
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=0 --touch
 tools/run_sway.sh res://scenes/Title.tscn -- --flow
@@ -237,7 +267,7 @@ tools/run_sway.sh res://scenes/Title.tscn -- --flow
 
 `audit/` keeps the prompts and transcripts of the static-audit passes run with
 [opencode](https://opencode.ai), including two deepseek agents run in parallel
-during the 1.3.0 correction cycle (`audit/agents/CONCRETE_PBR.md` measured texel
+during the 1.5.0 correction cycle (`audit/agents/CONCRETE_PBR.md` measured texel
 density surface by surface; `audit/agents/CLOTH_TERRAIN.md` found eleven real
 bugs in the cloth solver and the terrain streamer, all fixed). The `glm-5.3-flash` pass over the nine gameplay
 scripts produced twelve findings; all twelve were applied and are covered by the
@@ -258,6 +288,66 @@ with `--touch` forcing the mobile UI.
 `--quality=0|1|2` (auto-detected: software GL → 0, Intel/Mali/Adreno → 1,
 everything else → 2) tunes fog, shadow casting, glow, tree count and particle-free
 lighting so the game stays playable on phones and on `llvmpipe`.
+
+---
+
+## The camcorder
+
+**One pass, one screen fetch.** `scenes/Camcorder.tscn` is instantiated at the
+bottom of the HUD's canvas stack: the tape and the lens are baked over the 3D
+frame before the game's own typography is composited, and menus, notes and fades
+still cover the whole thing. The shader samples the screen texture once at
+quality 0 and three times (red/green/blue) at quality 1–2 for the aberration;
+everything else is arithmetic on those taps plus two small noise fetches. No
+passes, no loops. In the software-rendered sway harness the whole chain costs
+about **10% of a 330 ms frame** (measured with `--autotest=perf`), i.e. it is
+noise next to the forest itself.
+
+Params are lerped on the CPU and handed to the shader as floats, so the look
+reacts smoothly to danger: `world.gd` computes one `dread` value from the same
+static/slender signal the audio uses and calls `hud.set_dread()`.
+
+| Stage | What it does |
+|---|---|
+| lens warp + zoom | barrel distortion inside the lens circle, aspect-corrected; a slow "hunting" digital crop as danger rises |
+| chromatic aberration | radial R/B split, scaled by dread and by the IR gain |
+| rolling band | soft bright band scrolling up the frame, dragging a little colour |
+| tear / dropout | displaced horizontal slices and signal-loss blocks; the jumpscare tears the picture off its own scanlines |
+| grain + dirt | sensor noise weighted by signal (never louder than the picture), low-frequency lens smudges |
+| grade | gamma lift + shoulder instead of a 0.5-pivot contrast (which would blacken a night forest), cold shadows / warm highlights |
+| night vision | with the torch in its IR mode: 5-tap softening, steep tube transfer, monochrome green |
+| chrome | corner brackets, blinking REC, 25 fps timecode, tape counter (bottom centre, clear of the touch stick), battery, IR lamp flag |
+
+**The camera rig.** `scenes/Player.tscn` puts the `Camera3D` under
+`Head/Handle/CameraMount`, where `Handle` is a `RigidBody3D`. `Handle` is
+tethered to an `AnimatableBody3D` at eye height by a `Generic6DOFJoint3D`
+(`linear_*` limits and springs: 11.5 cm of travel, soft limit, restitution
+0.05). Each physics tick the spring-damper law of that tether is fed to the body
+as a velocity servo with anchor-velocity feed-forward, so:
+
+* walking produces no steady lag but a real transient — the camera leans back as
+  you start moving and overshoots a step;
+* footsteps are impulses, so the view drops and rolls with each stride;
+* running into a tree is a real impulse: the rig is thrown and settles back;
+* aiming drives the *head*, and a critically damped PD controller turns the body
+  towards it, so a fast flick trails and settles instead of snapping;
+* teleports (spawn, `look_at_point()`, cutscenes) are detected from the per-tick
+  delta and resync instantly; the rig also self-heals if it ever escapes its
+  tether or the solver returns a non-finite transform.
+
+`CameraMount` is interpolated between physics ticks with
+`Engine.get_physics_interpolation_fraction()`, so the picture is smooth at any
+framerate. At quality 0 (software renderers, weak phones) or with
+**HANDHELD CAMERA: OFF** the same public API is served by a procedural
+exponential spring instead of a body.
+
+> Why the servo: in Godot 4.7 **neither GodotPhysics3D nor Jolt moves a jointed
+> body when its partner is a kinematic anchor** — the joint's frames are frozen
+> at setup. A constant-force probe showed the constraint applying no force at all
+> while the anchor walked away (`.git` history: commit message on the rig). So
+> `camera_handle.gd` reads the travel and spring constants off the joint, then
+> hands the equivalent law to the simulated body itself. Same physical model,
+> predictable trail, real mass and real impulse response.
 
 ---
 
