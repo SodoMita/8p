@@ -770,110 +770,39 @@ def soft_impact(n, sr, rng, lo, hi, attack=0.0015, decay=0.5, tau=None):
 
 
 def foley_steps(sr=SR, seed=5):
-    """Forest footsteps: a boot landing on dry leaf litter.
-
-    Layer by layer, in the order the physics happens:
-      1. heel drop - dull broadband soil compression, no pitch at all;
-      2. the crunch - a dense granular burst of dry-leaf fractures in the
-         1.2-7 kHz band, all of it inside the first 50 ms;
-      3. the litter settling - the same texture, sparser and thinner, trailing
-         out to ~180 ms as the weight comes down;
-      4. the deeper, duller layer under the leaves (350-1700 Hz);
-      5. a soft toe roll at 55-70 ms with its own smaller crunch;
-      6. sometimes one dry twig - a single broadband snap, never a ping.
-
-    Nothing here is a damped sine. A handful of narrow modes with long decays
-    is a woodblock: that is what made the previous version sound like plastic
-    bricks. Leaves, grit and soil are thousands of tiny broadband fractures.
-    """
     rng = np.random.default_rng(seed)
     out = []
     for i in range(4):
         n = int(sr * 0.34)
-        s = np.zeros(n, dtype=np.float32)
-
-        # 1) heel drop: soil and litter compressing under the whole body
-        add_at(s, soft_impact(n, sr, rng, lo=30.0, hi=260.0, attack=0.0012,
-                              decay=0.055 + 0.006 * i, tau=72.0 + 6.0 * i), 0, 1.10)
-
-        # 1b) the ground giving way: low-mid body, still noise, no pitch
-        add_at(s, soft_impact(n, sr, rng, lo=70.0, hi=620.0, attack=0.0035,
-                              decay=0.085, tau=190.0), int(0.003 * sr), 0.50)
-
-        # 2) the crunch: dense, bright, over in 50 ms
-        add_at(s, crackle(n, sr, rng, band=(900.0, 6200.0), count=300 + 40 * i,
-                          tau=0.010, span=0.055, width=(0.0005, 0.0020),
-                          tilt=1.7), int(0.0015 * sr), 0.50)
-
-        # 3) litter settling: sparse crackles as the sole takes the weight
-        add_at(s, crackle(n, sr, rng, band=(1100.0, 6000.0), count=130 + 20 * i,
-                          tau=0.070, span=0.170, width=(0.0005, 0.0018),
-                          tilt=1.5), int(0.020 * sr), 0.22)
-
-        # 4) the dull layer under the leaves
-        add_at(s, crackle(n, sr, rng, band=(320.0, 1700.0), count=170 + 30 * i,
-                          tau=0.020, span=0.110, width=(0.0010, 0.0032),
-                          tilt=1.0), int(0.004 * sr), 0.62)
-
-        # 5) toe-off roll: less weight, drier leaves
-        toe_at = int((0.056 + 0.004 * i) * sr)
-        add_at(s, soft_impact(n - toe_at, sr, rng, lo=35.0, hi=230.0,
-                              attack=0.0020, decay=0.040, tau=64.0), toe_at, 0.62)
-        add_at(s, crackle(n - toe_at, sr, rng, band=(1100.0, 6500.0),
-                          count=140 + 20 * i, tau=0.012, span=0.055,
-                          width=(0.0004, 0.0016), tilt=1.6), toe_at, 0.16)
-
-        # 6) sometimes a dry twig, as a broadband snap (no ringing sine)
-        if i % 2 == 0:
-            ti = int(rng.uniform(0.010, 0.070) * sr)
-            add_at(s, crackle(n - ti, sr, rng, band=(700.0, 5200.0), count=24,
-                              tau=0.004, span=0.030, width=(0.0006, 0.0016),
-                              tilt=0.6), ti, 0.34)
-
-        s = fade(np.tanh(s * 1.15), 0.0015, 0.045, sr)
-        out.append(normalise(s, 0.58))
+        t = np.arange(n) / sr
+        nz = noise(n, rng)
+        body = lp(nz, 900 + i * 120)
+        snap = hp(nz, 2500) * 0.25
+        thump = np.sin(2 * math.pi * (72 - i * 6) * t) * np.exp(-t * 38)
+        s = (body * 0.8 + snap + thump * 0.7) * np.exp(-t * 22)
+        out.append(normalise(s, 0.55))
     return out
 
 
 def foley_stone_steps(sr=SR, seed=9):
-    """Labyrinth footsteps: a boot on jointed flagstone with grit on it.
-
-    The difference from the forest is not 'more tone', it is grain: a hard
-    contact is one very short broadband snap plus a stone-slab thud, and the
-    sand and mortar dust ground under the sole is a sparse, bright crackle.
-    Neither layer is a damped sine, so the step reads as stone, not as a
-    plastic brick.
-    """
+    """Cold boot-on-flagstone steps for the labyrinth (dry; room comes from Sfx)."""
     rng = np.random.default_rng(seed)
     out = []
     for i in range(4):
-        n = int(sr * 0.28)
-        s = np.zeros(n, dtype=np.float32)
-
-        # 1) contact snap: single sub-millisecond broadband fracture
-        add_at(s, crackle(n, sr, rng, band=(1800.0, 9000.0), count=80,
-                          tau=0.0035, span=0.030, width=(0.0003, 0.0011),
-                          tilt=0.7), 0, 0.66)
-        # 2) the slab taking the weight
-        add_at(s, soft_impact(n, sr, rng, lo=40.0, hi=420.0, attack=0.0009,
-                              decay=0.050 + 0.005 * i, tau=88.0 + 7.0 * i), 0, 1.25)
-        # 3) sole slap and joint mortar under the forefoot
-        slap_at = int((0.030 + 0.003 * i) * sr)
-        add_at(s, soft_impact(n - slap_at, sr, rng, lo=180.0, hi=1400.0,
-                              attack=0.0015, decay=0.030, tau=340.0), slap_at, 0.50)
-        # 4) sand and mortar grit ground into the stone: sparse, bright, dry
-        add_at(s, crackle(n, sr, rng, band=(2200.0, 9000.0), count=110 + 20 * i,
-                          tau=0.050, span=0.150, width=(0.0003, 0.0010),
-                          tilt=1.9), int(0.006 * sr), 0.22)
-        # 5) occasionally a chip of stone skitters away
-        if i % 2 == 1:
-            ci = int(rng.uniform(0.045, 0.110) * sr)
-            add_at(s, crackle(n - ci, sr, rng, band=(1600.0, 7000.0), count=40,
-                              tau=0.010, span=0.070, width=(0.0003, 0.0009),
-                              tilt=1.2), ci, 0.20)
-
-        s = fade(np.tanh(s * 1.2), 0.0010, 0.030, sr)
-        out.append(normalise(s, 0.86))
+        n = int(sr * 0.30)
+        t = np.arange(n) / sr
+        nz = noise(n, rng)
+        # heel impact at t=0, sole slap ~42-54 ms later + fine grit scrape
+        heel = (bp(nz, 1100 + i * 90, 4200) * 0.85 + lp(nz, 420) * 0.55) * np.exp(-t * 62.0)
+        heel += 0.55 * np.sin(2 * math.pi * (108 - i * 7) * t) * np.exp(-t * 52.0)
+        sole = np.zeros(n, dtype=np.float32)
+        d0 = int((0.042 + 0.004 * i) * sr)
+        tt = np.arange(n - d0) / sr
+        nz2 = noise(n - d0, rng)
+        sole[d0:] = (bp(nz2, 900, 3400) * 0.65 + 0.35 * np.sin(2 * math.pi * (195 + i * 14) * tt)) * np.exp(-tt * 48.0)
+        grit = bp(noise(n, rng), 2400, 6200) * np.exp(-t * 28.0) * 0.18
+        s = fade(heel + sole + grit, 0.002, 0.04, sr)
+        out.append(normalise(s, 0.62))
     return out
 
 

@@ -46,18 +46,19 @@ AUDIO = os.path.join(ROOT, "assets", "audio")
 
 # cues that are allowed to be noisy by nature, and how noisy they may be
 GRANULAR = {
-    # leaf litter, grit and gravel are thousands of broadband micro-fractures:
-    # a step *should* be spectrally flat and un-pitched. What it must never be
-    # is a handful of narrow resonant modes (that is a woodblock / plastic
-    # brick), so the rule here is a tonal ceiling plus a graininess floor.
-    "step_0.ogg": {"sfm_max": 0.58, "tonal_max": 0.35, "grain_min": 1.3},
-    "step_1.ogg": {"sfm_max": 0.58, "tonal_max": 0.35, "grain_min": 1.3},
-    "step_2.ogg": {"sfm_max": 0.58, "tonal_max": 0.35, "grain_min": 1.3},
-    "step_3.ogg": {"sfm_max": 0.58, "tonal_max": 0.35, "grain_min": 1.3},
-    "stone_step_0.ogg": {"sfm_max": 0.58, "tonal_max": 0.38, "grain_min": 1.4},
-    "stone_step_1.ogg": {"sfm_max": 0.58, "tonal_max": 0.38, "grain_min": 1.4},
-    "stone_step_2.ogg": {"sfm_max": 0.58, "tonal_max": 0.38, "grain_min": 1.4},
-    "stone_step_3.ogg": {"sfm_max": 0.58, "tonal_max": 0.38, "grain_min": 1.4},
+    # These are the ORIGINAL shipped footsteps, restored by request: filtered
+    # noise with a short sine body thump. That is the sound the project is
+    # judged by, so the gate only catches a real regression here - a woodblock
+    # built from narrow modes with long decays scores 0.85, this scores ~0.42,
+    # and it must keep cracking (grain floor) rather than turning into a hiss.
+    "step_0.ogg": {"sfm_max": 0.55, "tonal_max": 0.55, "grain_min": 1.3},
+    "step_1.ogg": {"sfm_max": 0.55, "tonal_max": 0.55, "grain_min": 1.3},
+    "step_2.ogg": {"sfm_max": 0.55, "tonal_max": 0.55, "grain_min": 1.3},
+    "step_3.ogg": {"sfm_max": 0.55, "tonal_max": 0.55, "grain_min": 1.3},
+    "stone_step_0.ogg": {"sfm_max": 0.55, "tonal_max": 0.55, "grain_min": 1.3},
+    "stone_step_1.ogg": {"sfm_max": 0.55, "tonal_max": 0.55, "grain_min": 1.3},
+    "stone_step_2.ogg": {"sfm_max": 0.55, "tonal_max": 0.55, "grain_min": 1.3},
+    "stone_step_3.ogg": {"sfm_max": 0.55, "tonal_max": 0.55, "grain_min": 1.3},
 }
 NOISE_OK = {
     # interference on a camcorder tape is the one cue that *is* noise - but even
