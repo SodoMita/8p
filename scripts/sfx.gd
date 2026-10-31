@@ -1,9 +1,14 @@
 extends Node
 ## Tiny audio manager: looping ambience beds + a pool of one-shot players.
-## All sounds are procedurally generated WAV files shipped with the project.
+## All sounds are procedurally generated WAV files shipped with the project
+## (see tools/gen_sfx.py — the screams are a formant voice, not noise).
 
-const ONE_SHOTS := 10
+const ONE_SHOTS := 12
 const AUDIO_DIR := "res://assets/audio/"
+## stingers that exist in several takes, so he never sounds the same twice
+const VARIANTS := {
+	"appear": 3,
+}
 
 var _streams := {}
 var _loops := {}
@@ -16,10 +21,12 @@ var _rng := RandomNumberGenerator.new()
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_rng.randomize()
+	_install_limiter()
 	for file in [
 		"wind_loop", "drone_loop", "static_loop", "heartbeat_loop", "breath_loop",
-		"step_0", "step_1", "step_2", "step_3", "page", "appear", "jumpscare",
-		"win", "ui_click", "branch",
+		"step_0", "step_1", "step_2", "step_3", "page", "appear_near", "chase",
+		"jumpscare", "win", "ui_click", "branch",
+		"appear_0", "appear_1", "appear_2",
 	]:
 		var path: String = AUDIO_DIR + file + ".wav"
 		if ResourceLoader.exists(path):
@@ -34,6 +41,23 @@ func _ready() -> void:
 	# looping beds (loop points are configured at runtime, no import tweaks needed)
 	for loop_name in ["wind_loop", "drone_loop", "static_loop", "heartbeat_loop", "breath_loop"]:
 		_start_loop(loop_name)
+
+
+## The stingers are mastered hot on purpose; this keeps the sum of scream +
+## heartbeat + static from ever clipping the output.
+func _install_limiter() -> void:
+	if not ClassDB.class_exists("AudioEffectLimiter"):
+		return
+	var idx := AudioServer.get_bus_index("Master")
+	for i in AudioServer.get_bus_effect_count(idx):
+		if AudioServer.get_bus_effect(idx, i) is AudioEffectLimiter:
+			return
+	var lim := AudioEffectLimiter.new()
+	lim.ceiling_db = -0.6
+	lim.threshold_db = -2.0
+	lim.soft_clip_db = 2.0
+	lim.soft_clip_ratio = 2.0
+	AudioServer.add_bus_effect(idx, lim)
 
 
 func _start_loop(name: String) -> void:
@@ -64,6 +88,21 @@ func play(name: String, volume_db := 0.0, pitch := 1.0) -> void:
 	p.volume_db = volume_db
 	p.pitch_scale = pitch
 	p.play()
+
+
+## A random take of a multi-variant stinger (see VARIANTS).
+func play_variant(base: String, volume_db := 0.0, pitch := 1.0) -> void:
+	var count: int = VARIANTS.get(base, 1)
+	if count <= 1:
+		play(base, volume_db, pitch)
+		return
+	var idx := _rng.randi_range(0, count - 1)
+	play("%s_%d" % [base, idx], volume_db, pitch)
+
+
+## He steps out of the tree line.  Distant, wrong, and never the same twice.
+func appear(volume_db := -12.0) -> void:
+	play_variant("appear", volume_db, _rng.randf_range(0.94, 1.07))
 
 
 func footstep(sprint: bool) -> void:

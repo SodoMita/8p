@@ -6,6 +6,7 @@ self-contained and licence-clean.
 """
 import math
 import os
+import sys
 import wave
 
 import numpy as np
@@ -287,182 +288,12 @@ def make_title_bg():
 # --------------------------------------------------------------------------- #
 # audio
 # --------------------------------------------------------------------------- #
-def write_wav(name, data, sr=SR):
-    data = np.clip(data, -1.0, 1.0)
-    pcm = (data * 32767.0).astype("<i2")
-    path = os.path.join(AUDIO, name)
-    with wave.open(path, "wb") as f:
-        f.setnchannels(1)
-        f.setsampwidth(2)
-        f.setframerate(sr)
-        f.writeframes(pcm.tobytes())
-    print("  audio:", name, "%.1fs" % (len(data) / sr))
-
-
-def lowpass(x, cutoff, sr=SR, order=2):
-    from scipy.signal import butter, sosfilt
-    sos = butter(order, cutoff / (sr / 2), btype="low", output="sos")
-    return sosfilt(sos, x)
-
-
-def highpass(x, cutoff, sr=SR, order=2):
-    from scipy.signal import butter, sosfilt
-    sos = butter(order, cutoff / (sr / 2), btype="high", output="sos")
-    return sosfilt(sos, x)
-
-
-def env(n, attack, decay, sr=SR):
-    a = max(1, int(attack * sr))
-    d = max(1, int(decay * sr))
-    e = np.ones(n, dtype=np.float32)
-    e[:a] = np.linspace(0, 1, a) ** 1.5
-    if d < n:
-        e[-d:] *= np.linspace(1, 0, d) ** 2
-    return e
-
-
-def crossfade_loop(x, sr=SR, fade=1.5):
-    """Make a seamless loop by crossfading the tail into the head."""
-    n = int(fade * sr)
-    if n * 2 >= len(x):
-        return x
-    head = x[:n].copy()
-    tail = x[-n:].copy()
-    ramp = np.linspace(0, 1, n, dtype=np.float32)
-    x = x[:-n].copy()
-    x[:n] = tail * (1 - ramp) + head * ramp
-    return x
-
-
 def make_audio():
-    print("Generating audio...")
-    sr = SR
-    rng = np.random.default_rng(2024)
-
-    # wind ------------------------------------------------------------------
-    n = sr * 10
-    white = rng.normal(0, 1, n).astype(np.float32)
-    wind = lowpass(white, 700) * 0.9 + lowpass(rng.normal(0, 1, n).astype(np.float32), 180) * 1.4
-    t = np.arange(n) / sr
-    gust = 0.55 + 0.45 * (0.5 + 0.5 * np.sin(2 * math.pi * t / 10.0 + 0.4)) * (0.6 + 0.4 * np.sin(2 * math.pi * t / 3.7))
-    wind = wind * gust
-    wind = wind / np.max(np.abs(wind)) * 0.55
-    write_wav("wind_loop.wav", crossfade_loop(wind))
-
-    # low drone -------------------------------------------------------------
-    n = sr * 16
-    t = np.arange(n) / sr
-    drone = np.zeros(n, dtype=np.float32)
-    for f, a in [(41.0, 0.5), (61.5, 0.28), (82.0, 0.16), (123.0, 0.06)]:
-        drone += a * np.sin(2 * math.pi * f * t + 0.7 * np.sin(2 * math.pi * 0.05 * t))
-    drone *= 0.6 + 0.4 * np.sin(2 * math.pi * t / 16.0)
-    drone = drone / np.max(np.abs(drone)) * 0.4
-    write_wav("drone_loop.wav", crossfade_loop(drone, fade=2.0))
-
-    # static ----------------------------------------------------------------
-    n = sr * 3
-    st = rng.normal(0, 1, n).astype(np.float32)
-    st = highpass(st, 900) * 0.7 + lowpass(st, 120) * 0.8
-    crackle = (rng.random(n) > 0.9993).astype(np.float32) * rng.normal(0, 1, n).astype(np.float32) * 6.0
-    st = np.clip((st + crackle) * 0.5, -1, 1)
-    write_wav("static_loop.wav", crossfade_loop(st, fade=0.5))
-
-    # heartbeat -------------------------------------------------------------
-    n = sr * 2
-    t = np.arange(n) / sr
-    beat = np.zeros(n, dtype=np.float32)
-    for start, amp in [(0.02, 1.0), (0.30, 0.62)]:
-        i0 = int(start * sr)
-        ln = int(0.26 * sr)
-        tt = np.arange(ln) / sr
-        thump = np.sin(2 * math.pi * 47 * tt * (1 - tt * 0.8)) * np.exp(-tt * 17.0)
-        thump += 0.35 * np.sin(2 * math.pi * 88 * tt) * np.exp(-tt * 26.0)
-        beat[i0:i0 + ln] += (thump * amp)[:len(beat[i0:i0 + ln])]
-    beat = lowpass(beat, 300)
-    beat = beat / np.max(np.abs(beat)) * 0.85
-    write_wav("heartbeat_loop.wav", beat)
-
-    # breathing -------------------------------------------------------------
-    n = sr * 6
-    t = np.arange(n) / sr
-    breath = np.zeros(n, dtype=np.float32)
-    for k in range(3):
-        s = k * 2.0
-        i0 = int(s * sr)
-        ln = int(0.9 * sr)
-        seg_t = np.arange(ln) / sr
-        e = np.exp(-((seg_t - 0.35) ** 2) / (2 * 0.16 ** 2))
-        noise = lowpass(rng.normal(0, 1, ln).astype(np.float32), 1400 - 500 * k)
-        breath[i0:i0 + ln] += noise * e
-    breath = highpass(lowpass(breath, 1800), 220)
-    breath = breath / max(1e-6, np.max(np.abs(breath))) * 0.5
-    write_wav("breath_loop.wav", crossfade_loop(breath, fade=0.4))
-
-    # footsteps -------------------------------------------------------------
-    for i in range(4):
-        n = int(sr * 0.34)
-        t = np.arange(n) / sr
-        noise = rng.normal(0, 1, n).astype(np.float32)
-        body = lowpass(noise, 900 + i * 120)
-        snap = highpass(noise, 2500) * 0.25
-        thump = np.sin(2 * math.pi * (72 - i * 6) * t) * np.exp(-t * 38)
-        s = (body * 0.8 + snap + thump * 0.7) * np.exp(-t * 22)
-        s = s / np.max(np.abs(s)) * 0.55
-        write_wav("step_%d.wav" % i, s)
-
-    # page pickup -----------------------------------------------------------
-    n = int(sr * 0.7)
-    t = np.arange(n) / sr
-    noise = rng.normal(0, 1, n).astype(np.float32)
-    rustle = highpass(noise, 1800) * (0.4 + 0.6 * np.abs(np.sin(2 * math.pi * 15 * t)))
-    rustle *= np.exp(-((t - 0.18) ** 2) / (2 * 0.13 ** 2)) + 0.25 * np.exp(-t * 3)
-    rustle = rustle / np.max(np.abs(rustle)) * 0.7
-    write_wav("page.wav", rustle)
-
-    # slender appear / static spike -----------------------------------------
-    n = int(sr * 1.8)
-    t = np.arange(n) / sr
-    swell = np.sin(2 * math.pi * (220 - 120 * t) * t) * 0.25
-    swell += lowpass(rng.normal(0, 1, n).astype(np.float32), 2600) * 0.8
-    swell *= np.linspace(0, 1, n) ** 2 * np.exp(-((t - 1.2) ** 2) / 0.12)
-    swell = swell / np.max(np.abs(swell)) * 0.8
-    write_wav("appear.wav", swell)
-
-    # jumpscare -------------------------------------------------------------
-    n = int(sr * 2.6)
-    t = np.arange(n) / sr
-    scream = np.sin(2 * math.pi * (900 * np.exp(-t * 1.6) + 80) * t) * 0.45
-    scream += np.sin(2 * math.pi * (1300 * np.exp(-t * 1.2) + 40) * t + 1.1) * 0.3
-    scream += rng.normal(0, 1, n).astype(np.float32) * 0.9
-    scream = highpass(scream, 120)
-    scream *= np.minimum(1.0, t * 24) * np.exp(-t * 1.1)
-    scream = scream / np.max(np.abs(scream))
-    write_wav("jumpscare.wav", scream * 0.95)
-
-    # win sting -------------------------------------------------------------
-    n = int(sr * 4.0)
-    t = np.arange(n) / sr
-    win = np.zeros(n, dtype=np.float32)
-    for f in [196.0, 246.94, 293.66, 392.0]:
-        win += np.sin(2 * math.pi * f * t) * 0.18 * np.exp(-t * 0.9)
-    win *= np.minimum(1.0, t * 6)
-    win = lowpass(win, 2200)
-    win = win / np.max(np.abs(win)) * 0.7
-    write_wav("win.wav", win)
-
-    # ui --------------------------------------------------------------------
-    n = int(sr * 0.12)
-    t = np.arange(n) / sr
-    click = (np.sin(2 * math.pi * 1200 * t) * 0.5 + rng.normal(0, 1, n) * 0.15) * np.exp(-t * 45)
-    write_wav("ui_click.wav", click / np.max(np.abs(click)) * 0.4)
-
-    # distant branch snap (random ambience) ---------------------------------
-    n = int(sr * 1.0)
-    t = np.arange(n) / sr
-    snap = highpass(rng.normal(0, 1, n).astype(np.float32), 1500)
-    snap *= np.exp(-t * 26)
-    snap += np.sin(2 * math.pi * 140 * t) * np.exp(-t * 30) * 0.5
-    write_wav("branch.wav", snap / np.max(np.abs(snap)) * 0.6)
+    """All sound is synthesised in gen_sfx.py (see the docstring there for the
+    voice engine that makes the screams read as a throat, not a hiss)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import gen_sfx
+    gen_sfx.generate(AUDIO, SR)
 
 
 if __name__ == "__main__":

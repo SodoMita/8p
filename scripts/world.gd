@@ -328,7 +328,7 @@ func _on_slender_apparition() -> void:
 func _on_slender_visibility(is_visible: bool) -> void:
 	if is_visible and slender.mode == slender.Mode.APPARITION:
 		hud.static_burst(0.25)
-		Sfx.play("appear", -18.0, 0.8)
+		Sfx.play("appear_near", -20.0, randf_range(0.96, 1.04))
 
 
 func on_apparition() -> void:
@@ -384,9 +384,12 @@ func _on_caught() -> void:
 	hud.static_burst(0.55)
 	hud.flash(0.5, 0.14)
 	player.flicker = 1.0
-	Sfx.play("jumpscare", 0.0)
-	Sfx.set_loop_volume("heartbeat_loop", -2.0)
-	Sfx.set_loop_volume("static_loop", -8.0)
+	# open the mix right before he hits: the forest falls away, only him left
+	Sfx.fade_loop("wind_loop", -34.0, 0.20)
+	Sfx.fade_loop("drone_loop", -34.0, 0.20)
+	Sfx.play("jumpscare", -4.0)
+	Sfx.set_loop_volume("heartbeat_loop", -6.0)
+	Sfx.set_loop_volume("static_loop", -12.0)
 
 	await get_tree().create_timer(1.7).timeout
 	if Game.touch_mode:
@@ -405,7 +408,7 @@ func _win() -> void:
 	player.freeze()
 	slender.deactivate()
 	hud.show_toast("EIGHT PAGES", 2.0)
-	Sfx.play("win", -6.0)
+	Sfx.play("win", -9.0)
 	Sfx.set_loop_volume("heartbeat_loop", -60.0)
 	Sfx.set_loop_volume("static_loop", -6.0)
 	hud.set_static(0.8)

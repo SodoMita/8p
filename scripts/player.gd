@@ -162,9 +162,11 @@ func _update_footsteps(delta: float, speed: float) -> void:
 
 func _update_breathing(delta: float) -> void:
 	var exertion := 1.0 - stamina / STAMINA_MAX
-	var target := -60.0 + 42.0 * exertion
-	target += -10.0 * clampf(flicker, 0.0, 1.0)
-	Sfx.set_loop_volume("breath_loop", maxf(target, -60.0))
+	# the loop itself is mastered loud (it is a real strained breath now), so the
+	# fader range sits lower: inaudible at rest, close and ragged when spent
+	var target := -74.0 + 42.0 * exertion
+	target += -9.0 * clampf(flicker, 0.0, 1.0)
+	Sfx.set_loop_volume("breath_loop", maxf(target, -80.0))
 
 
 func _process(delta: float) -> void:

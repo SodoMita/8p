@@ -143,7 +143,7 @@ eight_pages/
 │   ├── static.gdshader      # film-grain / VHS static overlay
 │   └── vignette.gdshader
 ├── assets/
-│   ├── audio/*.wav          # synthesised wind, drone, static, heartbeat, steps…
+│   ├── audio/*.wav          # synthesised beds, footsteps, screams, stings
 │   ├── textures/*.png       # PBR ground/bark/stone/grass/litter, paper, noise
 │   ├── models/*.res         # baked tree / snag / log / stump / shrub / pumpkin / bush meshes
 │   └── fonts/               # DejaVu Sans + Serif (licence: Bitstream Vera / public)
@@ -151,6 +151,7 @@ eight_pages/
 ├── VERSION.txt
 ├── tools/
 │   ├── gen_assets.py        # regenerates base textures, sounds, title plate
+│   ├── gen_sfx.py           # the whole audio set: formant voice engine + beds
 │   ├── gen_textures_real.py # PBR ground/bark/stone/grass/litter maps
 │   ├── gen_trees.gd         # bakes the bare-tree meshes into assets/models
 │   ├── gen_title_bg.gd      # renders the menu backdrop from the tree meshes
@@ -225,6 +226,7 @@ lighting so the game stays playable on phones and on `llvmpipe`.
 
 ```bash
 python3 tools/gen_assets.py       # base textures, audio, paper — run this FIRST
+python3 tools/gen_sfx.py          # audio only (assets/audio/*.wav)
 python3 tools/gen_textures_real.py   # PBR ground / bark / stone / grass / litter
 godot --headless --path . --script tools/gen_trees.gd     # bare-tree meshes
 godot --path . --script tools/gen_title_bg.gd             # menu backdrop (needs GL)
@@ -243,9 +245,18 @@ painted ones.
 * **Meshes** — `gen_trees.gd` bakes six trunks, two snags, a fallen log, a stump
   and a dead shrub as `.res` meshes with world-space bark UVs and visible root
   flares; they are drawn with `MultiMesh` and per-instance tints.
-* **Audio** — all WAVs are synthesised: wind and drone beds (cross-faded into
-  seamless loops at runtime), heartbeat, breathing, four footstep variants,
-  page rustle, apparition swell, jumpscare, win sting and UI click.
+* **Audio** — all WAVs are synthesised in `tools/gen_sfx.py`. The screams are not
+  noise bursts: a voice is an additive stack of harmonics whose amplitudes follow
+  five time-varying formants, driven by an unstable pitch contour (vibrato,
+  jitter, a break where the voice gives out) with a torn aspiration layer under
+  it — so the death sting reads as a throat, not a hiss. layered under it are a
+  subharmonic growl, an inharmonic metal shriek, a sub impact and a chirped
+  intake of air, all through a synthetic room. Three takes of the apparition
+  sting, a close whisper for when he is already beside you, and a chase roar are
+  picked at random so he never sounds the same twice. The beds (wind, a
+  minor-second drone, static, heartbeat, strained breathing) are cross-faded
+  into seamless loops at runtime; a limiter on the Master bus keeps the sting
+  from clipping.
 
 ## Mobile notes
 
