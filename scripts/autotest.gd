@@ -335,6 +335,16 @@ func _run_shots() -> void:
 		await _shot("pumpkins")
 		_log_line("pumpkins=%d bushes=%d" % [world.map_builder.pumpkin_count(), world.map_builder.bush_count()])
 
+	# 2b2) bark close up, torch on a trunk at a steep angle of incidence
+	var trees_at: Node3D = world.map_builder.get_node_or_null("Trees_0")
+	if trees_at != null and trees_at.multimesh.instance_count > 0:
+		var tx: Transform3D = trees_at.multimesh.get_instance_transform(0)
+		var tp: Vector3 = tx.origin
+		var side := Vector3(1, 0, 0.35).normalized()
+		await _set_camera(tp + side * 2.6 + Vector3(0, 0.0, 0), tp + Vector3(0, 1.35, 0))
+		await _wait(0.6)
+		await _shot("bark_detail")
+
 	# 2c) a page close up: the sheet is a live cloth grid with no light of its own
 	if world.pages.size() > 0:
 		var pnode: Node3D = world.pages[0]["node"]

@@ -137,7 +137,13 @@ func _triplanar(tex: String, metres_per_repeat: float, rough: float, normal_scal
 
 func _make_materials() -> void:
 	# trees use world-space UVs baked in the mesh generator, so scale 1
-	_mats["bark"] = _pbr("bark", 1.0, 1.0, 1.15)
+	# Bark is dark to begin with (albedo mean 0.20 linear) and the normal map is
+	# steep (18 deg mean tilt), so at grazing angles a lit trunk fell to nothing
+	# but a few highlights. Lift the albedo, soften the relief and use a wrapped
+	# diffuse term so the terminator does not go black.
+	_mats["bark"] = _pbr("bark", 1.0, 1.0, 0.75)
+	_mats["bark"].albedo_color = Color(1.55, 1.50, 1.42)
+	_mats["bark"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
 	_mats["bark_coll"] = _mats["bark"]
 	# 2048 px over 2 m -> ~1000 px/m of dirt detail everywhere
 	_mats["ground"] = _triplanar("ground", 2.0, 1.0, 1.0)
@@ -148,7 +154,9 @@ func _make_materials() -> void:
 	_mats["metal"] = _flat(Color(0.13, 0.135, 0.14), 0.42, 0.65)
 	_mats["rust"] = _flat(Color(0.30, 0.17, 0.10), 0.85, 0.3)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
-	_mats["wood"] = _pbr("bark", 1.0, 1.0, 1.0)
+	_mats["wood"] = _pbr("bark", 1.0, 1.0, 0.65)
+	_mats["wood"].albedo_color = Color(1.42, 1.38, 1.31)
+	_mats["wood"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
 	_mats["pumpkin"] = _pbr("pumpkin", 1.0, 1.0, 1.35)
 
 	var link := StandardMaterial3D.new()
@@ -266,7 +274,6 @@ func _boundary() -> void:
 		var ang := TAU * float(side) / 4.0
 		var out := Vector3(cos(ang), 0.0, sin(ang))
 		var along := Vector3(-sin(ang), 0.0, cos(ang))
-		var face_yaw := atan2(out.z, out.x)          # plane normal -> outward
 		var run_length := PANEL_WIDTH * 2.0 * float(int(FENCE_SIDE / PANEL_WIDTH))
 		var bays := int(run_length / PANEL_WIDTH)
 		for bay in bays:
@@ -276,18 +283,17 @@ func _boundary() -> void:
 			var in_gate := side == 0 and absf(t * run_length) < GATE_HALF
 			if in_gate:
 				continue
-			var b := Basis.from_euler(Vector3(0, face_yaw, 0))
+			# the panel spans the run, not the outward normal
+			var b := _along_basis(along)
 			panels.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)))
-			# top rail
-			rails.append(Transform3D(Basis.from_euler(Vector3(0, face_yaw + PI * 0.5, 0)),
-				centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
+			# top rail, same direction as the fabric it clamps
+			rails.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
 			# one fabric collider per panel: thin slab exactly on the fence line
 			var shape := BoxShape3D.new()
 			shape.size = Vector3(PANEL_WIDTH, FENCE_FABRIC_H, 0.1)
 			var col := CollisionShape3D.new()
 			col.shape = shape
-			col.rotation.y = face_yaw + PI * 0.5
-			col.position = centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)
+			col.transform = Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0))
 			body.add_child(col)
 		# posts between bays (shared, so bays + 1)
 		for p_i in bays + 1:
@@ -312,6 +318,19 @@ func _boundary() -> void:
 	_add_multimesh(rail_mesh, _mats["metal"], rails, _blank_tints(rails.size()), "FenceRails")
 
 
+## A basis for a flat panel that spans `dir` and stands upright.
+## Local X becomes the panel's length, local Y is up, local Z is the face normal.
+## Deriving the yaw by hand is what put the fence panels at 90 degrees: the old
+## `face_yaw` pointed the panel's *width* along the outward normal.
+func _along_basis(dir: Vector3) -> Basis:
+	var x := Vector3(dir.x, 0.0, dir.z).normalized()
+	if x.length() < 0.5:
+		x = Vector3.RIGHT
+	var z := x.cross(Vector3.UP).normalized()
+	var y := z.cross(x).normalized()
+	return Basis(x, y, z)
+
+
 func _blank_tints(n: int) -> Array:
 	var out: Array = []
 	for i in n:
@@ -329,17 +348,16 @@ func _gate_leaves(body: StaticBody3D, panels: Array, rails: Array) -> void:
 		var swing: float = 0.62 * sgn     # radians, opening inward
 		var yaw: float = swing
 		var leaf_w := GATE_HALF - 0.1
-		var centre: Vector3 = hinge + Vector3(cos(yaw), 0, sin(yaw)) * (leaf_w * 0.5) * sgn
-		var b := Basis.from_euler(Vector3(0, PI * 0.5 - yaw * sgn, 0))
+		var leaf_dir: Vector3 = Vector3(cos(yaw), 0, sin(yaw)) * sgn
+		var centre: Vector3 = hinge + leaf_dir * (leaf_w * 0.5)
+		var b := _along_basis(leaf_dir)
 		panels.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)))
-		rails.append(Transform3D(Basis.from_euler(Vector3(0, PI - yaw * sgn, 0)),
-			centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
+		rails.append(Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H + 0.08, 0)))
 		var shape := BoxShape3D.new()
 		shape.size = Vector3(leaf_w, FENCE_FABRIC_H, 0.1)
 		var col := CollisionShape3D.new()
 		col.shape = shape
-		col.rotation.y = PI * 0.5 - yaw * sgn
-		col.position = centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0)
+		col.transform = Transform3D(b, centre + Vector3(0, FENCE_FABRIC_H * 0.5 + 0.04, 0))
 		body.add_child(col)
 		# gate post
 		var pshape := CylinderShape3D.new()

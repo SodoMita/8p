@@ -12,6 +12,18 @@ Godot 4.7.2 · GL Compatibility · GDScript
      on any device, and the cursor free-vs-captured rule is explicit. 34 selftests
      + 30 rig + 20 control checks green.
 
+1.5.2 fence orientation + bark at glancing light.
+     * fence panels and gate leaves were rotated 90 degrees: the yaw put the
+       plane's WIDTH along the outward normal, so every bay stood sideways to the
+       run it belongs to. Panels, rails and their colliders now share one explicit
+       basis (`_along_basis`) whose local X lies along the fence line, so all four
+       runs and both gate leaves line up. Guarded by a check that every panel's
+       local X is perpendicular to its side's outward normal.
+     * bark no longer falls to black at steep angles. The albedo was dark to start
+       with (0.20 linear) and the normal map steep (18 deg mean tilt), so a
+       glancing torch left only specular crumbs. The material now lifts the albedo,
+       softens the relief and uses wrapped diffuse so the terminator does not clip
+       to zero. Same for the shed's planks.
 1.5.1 pages: pinned to real surfaces, dark, and carrying their message.
      * every page is now attached to the thing it belongs to - the face of the
        broken wall, the inside of the tunnel, the silo shell, the truck's side,
