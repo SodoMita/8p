@@ -432,6 +432,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if note_root.modulate.a > 0.05:
 		if event.is_action_pressed("interact") or event.is_action_pressed("sprint") or event.is_action_pressed("pause") or event.is_action_pressed("flashlight"):
 			note_root.modulate.a = 0.0
+			# the key that closes the note is spent: it must not also toggle the
+			# torch, grab a page or open the pause menu on the same press
+			get_viewport().set_input_as_handled()
+			return
 	if event.is_action_pressed("pause"):
 		if end_root.visible:
 			return

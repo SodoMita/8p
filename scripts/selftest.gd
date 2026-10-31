@@ -322,12 +322,32 @@ func _run() -> void:
 	Input.action_release("move_forward")
 	var walked_keys: float = (player.global_position - start_touch).length()
 	check("keyboard_moves_in_touch_mode", walked_keys > 0.4, "%.2f m" % walked_keys)
+	# with the cursor free (touch mode), a plain pointer move must not turn the
+	# camera: the cursor belongs to the stick and the menus
 	var flick := InputEventMouseMotion.new()
 	flick.relative = Vector2(240, 0)
 	var yaw_before_flick: float = player.rotation.y
 	player._unhandled_input(flick)
-	check("mouse_event_reaches_player", absf(player.rotation.y - yaw_before_flick) > 0.1,
+	check("plain_mouse_ignored_in_touch_mode",
+		absf(player.rotation.y - yaw_before_flick) < 0.001,
 		"%.3f rad" % (player.rotation.y - yaw_before_flick))
+	# ... holding a button is drag-look, and that does turn the camera
+	var drag := InputEventMouseMotion.new()
+	drag.relative = Vector2(240, 0)
+	drag.button_mask = MOUSE_BUTTON_MASK_LEFT
+	var yaw_before_drag: float = player.rotation.y
+	player._unhandled_input(drag)
+	check("mouse_drag_reaches_player", absf(player.rotation.y - yaw_before_drag) > 0.1,
+		"%.3f rad" % (player.rotation.y - yaw_before_drag))
+	# a finger's emulated mouse motion never looks twice: touch_controls owns it
+	var emulated := InputEventMouseMotion.new()
+	emulated.relative = Vector2(240, 0)
+	emulated.button_mask = MOUSE_BUTTON_MASK_LEFT
+	emulated.device = InputEvent.DEVICE_ID_EMULATION
+	var yaw_before_emu: float = player.rotation.y
+	player._unhandled_input(emulated)
+	check("emulated_mouse_ignored", absf(player.rotation.y - yaw_before_emu) < 0.001,
+		"%.3f rad" % (player.rotation.y - yaw_before_emu))
 	Game.touch_mode = was_touch
 
 	# look control (touch swipe path and mouse path share add_look)

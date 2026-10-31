@@ -119,6 +119,7 @@ func clear_input() -> void:
 	## drop any latched stick/run state (used when the pause menu opens)
 	_move_id = -1
 	_run_id = -1
+	_look_id = -1
 	_joy_vec = Vector2.ZERO
 	if _knob != null:
 		_home_stick()
@@ -140,7 +141,10 @@ func _rect_of(node: Control) -> Rect2:
 
 
 func _input(event: InputEvent) -> void:
-	if not visible:
+	# the pause menu owns the screen while the tree is paused: a thumb must not
+	# steer the stick (which would latch and walk you off on resume) or turn the
+	# camera behind the menu
+	if not visible or get_tree().paused:
 		return
 	if event is InputEventScreenTouch:
 		if event.pressed:
