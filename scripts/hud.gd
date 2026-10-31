@@ -644,14 +644,23 @@ func set_touch_ui(enabled: bool) -> void:
 		stamina_root.offset_bottom = -44
 
 
+## The single writer of Game.ui_blocking: any screen the player can click on has
+## to take the pointer, or the cursor stays captured over the pause menu and the
+## death screen and nothing can be pressed.
+func _sync_ui_blocking() -> void:
+	Game.ui_blocking = pause_root.visible or end_root.visible
+
+
 func show_pause() -> void:
 	pause_root.visible = true
+	_sync_ui_blocking()
 	pause_root.modulate.a = 0.0
 	create_tween().tween_property(pause_root, "modulate:a", 1.0, 0.2)
 
 
 func hide_pause() -> void:
 	pause_root.visible = false
+	_sync_ui_blocking()
 
 
 func update_touch_toggle_label(enabled: bool) -> void:
@@ -667,6 +676,7 @@ func update_touch_toggle_label(enabled: bool) -> void:
 func show_end(won: bool, pages: int, time_taken: float) -> void:
 	_end_visible = true
 	end_root.visible = true
+	_sync_ui_blocking()
 	end_root.modulate.a = 0.0
 	create_tween().tween_property(end_root, "modulate:a", 1.0, 0.8)
 	if won:
@@ -692,6 +702,7 @@ func show_end(won: bool, pages: int, time_taken: float) -> void:
 func hide_end() -> void:
 	_end_visible = false
 	end_root.visible = false
+	_sync_ui_blocking()
 	static_rect.visible = true
 
 

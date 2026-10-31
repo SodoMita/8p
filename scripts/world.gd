@@ -70,11 +70,7 @@ func _ready() -> void:
 		touch_ui.set_player(player)
 		touch_ui.hud = hud
 		add_child(touch_ui)
-		# the cursor stays free for the on-screen stick, but the mouse still
-		# looks around while a button is held (see player._unhandled_input)
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	else:
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_sync_pointer()
 
 	Sfx.resume_ambience()
 	Sfx.set_loop_volume("static_loop", -60.0)
@@ -138,6 +134,17 @@ func _setup_environment() -> void:
 	add_child(we)
 	if player != null and player.camera != null:
 		player.camera.far = 70.0 if Game.quality >= 1 else 55.0
+
+
+## One owner for the pointer, with no per-platform branches: the forest holds a
+## captured pointer only while the run is live and no screen is asking to be
+## clicked. Menus, end screens and the pause state all release it, which is what
+## keeps the cursor usable on the death screen and gives it back when you resume.
+func _sync_pointer() -> void:
+	var want := Game.run_active and not _paused and not _ended and not Game.ui_blocking
+	var mode := Input.MOUSE_MODE_CAPTURED if want else Input.MOUSE_MODE_VISIBLE
+	if Input.mouse_mode != mode:
+		Input.mouse_mode = mode
 
 
 func _setup_terrain() -> void:
@@ -428,12 +435,12 @@ func _on_caught() -> void:
 	Sfx.set_loop_volume("static_loop", -12.0)
 
 	await get_tree().create_timer(1.7).timeout
-	if Game.touch_mode:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_sync_pointer()
 	hud.fade_to_black(0.7)
 	await get_tree().create_timer(0.8).timeout
 	Game.finish_run(false)
 	hud.show_end(false, Game.pages_collected, Game.run_time)
+	_sync_pointer()
 
 
 func _win() -> void:
@@ -454,7 +461,7 @@ func _win() -> void:
 	await get_tree().create_timer(1.8).timeout
 	Game.finish_run(true)
 	hud.show_end(true, Game.pages_collected, Game.run_time)
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_sync_pointer()
 
 
 # --------------------------------------------------------------------------- #
@@ -471,11 +478,9 @@ func _toggle_pause() -> void:
 		touch_ui.clear_input()
 	if _paused:
 		hud.show_pause()
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	else:
 		hud.hide_pause()
-		if not Game.touch_mode:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_sync_pointer()
 
 
 func _resume() -> void:
@@ -485,12 +490,14 @@ func _resume() -> void:
 
 func _restart() -> void:
 	get_tree().paused = false
+	Game.ui_blocking = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().reload_current_scene()
 
 
 func _to_title() -> void:
 	get_tree().paused = false
+	Game.ui_blocking = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	Sfx.stop_all_loops()
 	get_tree().change_scene_to_file("res://scenes/Title.tscn")
@@ -527,10 +534,9 @@ func _notification(what: int) -> void:
 		if Game.run_active and not _paused and not _ended and not Game.autotest:
 			_toggle_pause()
 	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
-		# clicking back into the window must give the mouse back to the game,
-		# otherwise the camera feels dead until pause/resume
-		if Game.run_active and not _paused and not _ended and not Game.touch_mode:
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		# coming back to the window re-applies the same policy, so the camera is
+		# never left feeling dead after an alt-tab
+		_sync_pointer()
 
 
 func unfreeze_player_after_pickups() -> void:

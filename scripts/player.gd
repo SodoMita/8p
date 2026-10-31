@@ -107,8 +107,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	# without a gesture). Only events that reached _unhandled_input get here, so a
 	# press that landed on a widget never captures, and where there is no pointer
 	# at all (a phone) the engine ignores the request.
-	if event is InputEventMouseButton and event.pressed \
-			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+	if event is InputEventMouseButton and event.pressed and _can_capture_pointer():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# keyboard actions are never disabled by touch mode either
 	if event.is_action_pressed("flashlight"):
@@ -121,6 +120,13 @@ func _unhandled_input(event: InputEvent) -> void:
 ## camera unless a finger is currently on the screen or the pointer is over an
 ## actual UI widget. Everything else -- mouse, trackpad, pen, a finger's
 ## engine-emulated mouse motion on a platform that sends one -- is a look.
+## A press may capture the pointer only while the forest is actually playable.
+## The same condition releases it, so a menu that opens mid-game cannot end up
+## under a captured cursor (that was the death-screen bug).
+func _can_capture_pointer() -> bool:
+	return not frozen and not get_tree().paused and not Game.ui_blocking
+
+
 func _look_is_wanted() -> bool:
 	if frozen or get_tree().paused:
 		return false
@@ -296,6 +302,10 @@ func _update_breathing(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	# a captured pointer over a clickable screen is a bug the player feels at once:
+	# release it the moment a UI takes over, and give it back when the UI is gone
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not _can_capture_pointer():
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_update_aspect()
 	# walking FOV + sprint kick
 	var target_fov := 74.0

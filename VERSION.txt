@@ -1,7 +1,7 @@
-EIGHT PAGES 1.6.1
+EIGHT PAGES 1.6.2
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
-1.6.1 pointer owner + input rule (human #53/#54). The pointer is captured only
+1.6.2 pointer owner + input rule (human #53/#54). The pointer is captured only
      while the run is live and no screen needs clicking: world._sync_pointer() is
      the only owner, hud.gd writes Game.ui_blocking when a pause or end screen
      opens or closes, and player.gd refuses to capture while one is open and drops

@@ -412,6 +412,66 @@ func _run() -> void:
 	check("stick_not_latched_after_pause", player.touch_move == Vector2.ZERO,
 		str(player.touch_move))
 
+	# ------------------------------- the pointer must be released for a UI
+	# The death screen bug: a captured pointer stayed captured when a menu or end
+	# screen appeared, so the cursor was invisible and nothing could be clicked.
+	if DisplayServer.get_name() == "headless":
+		skip("pointer_released_when_ui_appears", "headless has no pointer")
+		skip("end_screen_releases_pointer", "headless has no pointer")
+		skip("press_on_end_screen_does_not_recapture", "headless has no pointer")
+	else:
+		# capture the way a player does, by pressing in the world
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		var grab := InputEventMouseButton.new()
+		grab.button_index = MOUSE_BUTTON_LEFT
+		grab.pressed = true
+		grab.position = Vector2(640, 200)
+		Input.parse_input_event(grab)
+		await _frames(3)
+		var up := InputEventMouseButton.new()
+		up.button_index = MOUSE_BUTTON_LEFT
+		up.pressed = false
+		up.position = Vector2(640, 200)
+		Input.parse_input_event(up)
+		await _frames(3)
+		check("pointer_captured_by_a_press",
+			Input.mouse_mode == Input.MOUSE_MODE_CAPTURED, "mouse_mode=%d" % Input.mouse_mode)
+		# a pause menu must take it back
+		world._toggle_pause()
+		await _frames(4)
+		check("pointer_released_when_ui_appears",
+			Input.mouse_mode == Input.MOUSE_MODE_VISIBLE,
+			"mouse_mode=%d while paused" % Input.mouse_mode)
+		world._resume()
+		await _frames(4)
+		check("pointer_recaptured_when_ui_closes",
+			Input.mouse_mode == Input.MOUSE_MODE_CAPTURED, "mouse_mode=%d" % Input.mouse_mode)
+		# the death screen: the end root appearing must free the cursor, and a
+		# click on it must NOT be stolen back by the camera
+		world.hud.show_end(false, 0, 12.0)
+		await _frames(4)
+		check("end_screen_releases_pointer",
+			Input.mouse_mode == Input.MOUSE_MODE_VISIBLE,
+			"mouse_mode=%d with the end screen up" % Input.mouse_mode)
+		var click_end := InputEventMouseButton.new()
+		click_end.button_index = MOUSE_BUTTON_LEFT
+		click_end.pressed = true
+		click_end.position = Vector2(640, 300)
+		Input.parse_input_event(click_end)
+		await _frames(4)
+		check("press_on_end_screen_does_not_recapture",
+			Input.mouse_mode == Input.MOUSE_MODE_VISIBLE,
+			"mouse_mode=%d" % Input.mouse_mode)
+		var click_end_up := InputEventMouseButton.new()
+		click_end_up.button_index = MOUSE_BUTTON_LEFT
+		click_end_up.pressed = false
+		click_end_up.position = Vector2(640, 300)
+		Input.parse_input_event(click_end_up)
+		await _frames(2)
+		world.hud.hide_end()
+		world.hud.crosshair.visible = true
+		await _frames(2)
+
 	# ------------------------------------------- the overlay must go quiet
 	# a thumb on the screen while paused must not steer, look or latch a stick
 	Game.touch_mode = true
