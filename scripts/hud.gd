@@ -116,11 +116,7 @@ func _build() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	# --- camcorder: the lens, the tape, the viewfinder ---------------------
-	# first child on purpose: the shader pass has to resample the 3D image
-	# before any other overlay is composited, and the slop of the VHS tape is
-	# allowed to run underneath the crisp HUD text
-	var cam_scene: PackedScene = load("res://scenes/Camcorder.tscn")
+	# --- camcorder: the lens, the tape, the viewfinder ---------------------\n\t# first child on purpose: the shader pass has to resample the 3D image\n\t# before any other overlay is composited, and the slop of the VHS tape is\n\t# allowed to run underneath the crisp HUD text\n\tvar cam_scene: PackedScene = load("res://scenes/Camcorder.tscn")
 	camcorder = cam_scene.instantiate()
 	root.add_child(camcorder)
 
@@ -134,8 +130,7 @@ func _build() -> void:
 	vignette_mat.set_shader_parameter("strength", 0.92)
 	root.add_child(vig)
 
-	# --- static / grain overlay -----------------------------------------
-	static_rect = _shader_rect("res://shaders/static.gdshader")
+	# --- static / grain overlay -----------------------------------------\n\tstatic_rect = _shader_rect("res://shaders/static.gdshader")
 	static_mat = static_rect.material as ShaderMaterial
 	static_mat.set_shader_parameter("noise_tex", load("res://assets/textures/noise.png"))
 	static_mat.set_shader_parameter("intensity", 0.03)
@@ -148,8 +143,7 @@ func _build() -> void:
 	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(flash_rect)
 
-	# --- fade to black ----------------------------------------------------
-	fade_rect = ColorRect.new()
+	# --- fade to black ----------------------------------------------------\n\tfade_rect = ColorRect.new()
 	fade_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
 	fade_rect.color = Color(0, 0, 0, 0)
 	fade_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -166,11 +160,10 @@ func _build() -> void:
 	crosshair.add_child(dot)
 	root.add_child(crosshair)
 
-	# --- page counter -----------------------------------------------------
-	var pages_box := VBoxContainer.new()
+	# --- page counter -----------------------------------------------------\n\tvar pages_box := VBoxContainer.new()
 	pages_box.position = Vector2(30, 24)
 	pages_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var cap := _label("PAGES", 15, Color(0.62, 0.62, 0.6, 0.9))
+	var cap := _label(TranslationManager.get_instance().get_string("hud_pages"), 15, Color(0.62, 0.62, 0.6, 0.9))
 	cap.add_theme_constant_override("letter_spacing", 6)
 	pages_box.add_child(cap)
 	pages_label = _label("0 / 8", 40, Color(0.93, 0.91, 0.86), _serif)
@@ -189,7 +182,7 @@ func _build() -> void:
 	root.add_child(pages_box)
 
 	# --- objective --------------------------------------------------------
-	objective = _label("FIND THE EIGHT PAGES", 16, Color(0.68, 0.68, 0.64, 0.9))
+	objective = _label(TranslationManager.get_instance().get_string("hud_objective"), 16, Color(0.68, 0.68, 0.64, 0.9))
 	objective.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	objective.position = Vector2(0, 26)
 	objective.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -235,7 +228,7 @@ func _build() -> void:
 	stamina_fill.size = Vector2(230, 9)
 	stamina_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stamina_root.add_child(stamina_fill)
-	var stam_cap := _label("BREATH", 12, Color(0.55, 0.55, 0.52))
+	var stam_cap := _label(TranslationManager.get_instance().get_string("hud_breath"), 12, Color(0.55, 0.55, 0.52))
 	stam_cap.position = Vector2(0, -20)
 	stamina_root.add_child(stam_cap)
 	root.add_child(stamina_root)
@@ -252,8 +245,7 @@ func _build() -> void:
 	prompt.modulate.a = 0.0
 	root.add_child(prompt)
 
-	# --- rotate hint (portrait phones) ------------------------------------
-	rotate_hint = _label("ROTATE YOUR DEVICE  ·  BEST IN LANDSCAPE", 15, Color(0.85, 0.83, 0.78, 0.85))
+	# --- rotate hint (portrait phones) ------------------------------------\n\trotate_hint = _label(TranslationManager.get_instance().get_string("hud_rotate"), 15, Color(0.85, 0.83, 0.78, 0.85))
 	rotate_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	rotate_hint.anchor_left = 0.5
 	rotate_hint.anchor_right = 0.5
@@ -265,8 +257,7 @@ func _build() -> void:
 	rotate_hint.visible = false
 	root.add_child(rotate_hint)
 
-	# --- mobile hint -------------------------------------------------------
-	touch_hint = _label("LEFT STICK — MOVE     RIGHT SIDE — LOOK     HOLD RUN TO SPRINT", 13, Color(0.6, 0.6, 0.58, 0.8))
+	# --- mobile hint -------------------------------------------------------\n\ttouch_hint = _label(TranslationManager.get_instance().get_string("hud_touch"), 13, Color(0.6, 0.6, 0.58, 0.8))
 	touch_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	touch_hint.anchor_left = 0.5
 	touch_hint.anchor_right = 0.5
@@ -277,8 +268,7 @@ func _build() -> void:
 	touch_hint.visible = false
 	root.add_child(touch_hint)
 
-	# --- note popup -------------------------------------------------------
-	note_root = Control.new()
+	# --- note popup -------------------------------------------------------\n\tnote_root = Control.new()
 	note_root.set_anchors_preset(Control.PRESET_CENTER)
 	note_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	note_root.modulate.a = 0.0
@@ -301,7 +291,7 @@ func _build() -> void:
 	root.add_child(note_root)
 
 	# --- pause button (touch) --------------------------------------------
-	pause_button = _button("II", 20)
+	pause_button = _button(TranslationManager.get_instance().get_string("pause_button"), 20)
 	pause_button.custom_minimum_size = Vector2(64, 64)
 	pause_button.anchor_left = 1.0
 	pause_button.anchor_right = 1.0
@@ -343,19 +333,19 @@ func _build_pause() -> void:
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	pause_root.add_child(box)
 
-	var title := _label("PAUSED", 44, Color(0.9, 0.89, 0.85), _serif)
+	var title := _label(TranslationManager.get_instance().get_string("pause_header"), 44, Color(0.9, 0.89, 0.85), _serif)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 
-	var resume := _button("RESUME")
+	var resume := _button(TranslationManager.get_instance().get_string("pause_resume"))
 	resume.pressed.connect(func(): resume_pressed.emit())
 	box.add_child(resume)
 
-	var restart := _button("RESTART RUN")
+	var restart := _button(TranslationManager.get_instance().get_string("pause_restart"))
 	restart.pressed.connect(func(): restart_pressed.emit())
 	box.add_child(restart)
 
-	var touch_btn := _button("TOUCH CONTROLS: AUTO", 18)
+	var touch_btn := _button(TranslationManager.get_instance().get_string("pause_touch"))
 	touch_btn.pressed.connect(func(): touch_toggle_pressed.emit())
 	box.add_child(touch_btn)
 	touch_btn.set_meta("role", "touch_toggle")
@@ -370,7 +360,7 @@ func _build_pause() -> void:
 	box.add_child(rig_btn)
 	rig_btn.set_meta("role", "handheld_toggle")
 
-	var menu := _button("QUIT TO TITLE")
+	var menu := _button(TranslationManager.get_instance().get_string("pause_menu"))
 	menu.pressed.connect(func(): menu_pressed.emit())
 	box.add_child(menu)
 
@@ -418,11 +408,11 @@ func _build_end() -> void:
 	spacer.custom_minimum_size = Vector2(0, 16)
 	box.add_child(spacer)
 
-	end_retry = _button("TRY AGAIN")
+	end_retry = _button(TranslationManager.get_instance().get_string("button_retry"))
 	end_retry.pressed.connect(func(): restart_pressed.emit())
 	box.add_child(end_retry)
 
-	var to_menu := _button("TITLE SCREEN")
+	var to_menu := _button(TranslationManager.get_instance().get_string("button_menu"))
 	to_menu.pressed.connect(func(): menu_pressed.emit())
 	box.add_child(to_menu)
 
@@ -461,7 +451,6 @@ func _process(delta: float) -> void:
 		crosshair.modulate.a = 0.7 + 0.3 * sin(_time * 1.7)
 	if camcorder != null:
 		camcorder.set_time(Game.run_time)
-
 
 
 func set_pages(n: int, total: int) -> void:
@@ -606,7 +595,7 @@ func hide_pause() -> void:
 func update_touch_toggle_label(enabled: bool) -> void:
 	for c in pause_root.find_children("*", "Button", true, false):
 		if c.has_meta("role") and c.get_meta("role") == "touch_toggle":
-			c.text = "TOUCH CONTROLS: " + ("ON" if enabled else "OFF")
+			c.text = TranslationManager.get_instance().get_string("pause_touch_on" if enabled else "pause_touch_off")
 		elif c.has_meta("role") and c.get_meta("role") == "camcorder_toggle":
 			c.text = "CAMCORDER FX: " + ("ON" if Settings.camcorder else "OFF")
 		elif c.has_meta("role") and c.get_meta("role") == "handheld_toggle":
@@ -619,18 +608,18 @@ func show_end(won: bool, pages: int, time_taken: float) -> void:
 	end_root.modulate.a = 0.0
 	create_tween().tween_property(end_root, "modulate:a", 1.0, 0.8)
 	if won:
-		end_title.text = "THE PAGES ARE YOURS"
+		end_title.text = TranslationManager.get_instance().get_string("end_win_title")
 		end_title.add_theme_color_override("font_color", Color(0.85, 0.82, 0.76))
-		end_sub.text = "Eight pages. The forest lets you go.\nFor now."
+		end_sub.text = TranslationManager.get_instance().get_string("end_win_sub")
 	else:
-		end_title.text = "HE FOUND YOU"
+		end_title.text = TranslationManager.get_instance().get_string("end_lose_title")
 		end_title.add_theme_color_override("font_color", Color(0.75, 0.16, 0.14))
-		end_sub.text = "You cannot outrun him. You can only refuse to look."
+		end_sub.text = TranslationManager.get_instance().get_string("end_lose_sub")
 	var best := Settings.best_time
 	var best_line := ""
 	if best >= 0.0:
-		best_line = "\nBEST: " + Game.format_time(best)
-	end_stats.text = "PAGES  %d / 8        TIME  %s%s" % [pages, Game.format_time(time_taken), best_line]
+		best_line = TranslationManager.get_instance().get_string("end_best") % [Game.format_time(best)]
+	end_stats.text = TranslationManager.get_instance().get_string("end_stats") % [pages, Game.format_time(time_taken), best_line]
 
 	crosshair.visible = false
 	static_rect.visible = won

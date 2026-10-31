@@ -13,7 +13,7 @@ var _press_hint: Label
 var _best_label: Label
 var _time := 0.0
 var _starting := false
-
+var _lang_btn: Button
 
 func _ready() -> void:
 	Game.run_active = false
@@ -60,9 +60,11 @@ func _button(text: String, size := 24) -> Button:
 	var hover := normal.duplicate() as StyleBoxFlat
 	hover.bg_color = Color(0.1, 0.1, 0.11, 0.8)
 	hover.border_color = Color(0.62, 0.62, 0.64)
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color(0.03, 0.03, 0.03, 0.95)
 	b.add_theme_stylebox_override("normal", normal)
 	b.add_theme_stylebox_override("hover", hover)
-	b.add_theme_stylebox_override("pressed", hover)
+	b.add_theme_stylebox_override("pressed", pressed)
 	b.add_theme_stylebox_override("focus", hover)
 	return b
 
@@ -88,7 +90,7 @@ func _build() -> void:
 	add_child(vig)
 
 	# --- title ------------------------------------------------------------
-	var title := _label("EIGHT PAGES", 88, Color(0.9, 0.89, 0.86), _serif)
+	var title := _label(TranslationManager.get_instance().get_string("title_main"), 88, Color(0.9, 0.89, 0.86), _serif)
 	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.anchor_left = 0.0
@@ -99,7 +101,7 @@ func _build() -> void:
 	title.offset_right = 0
 	add_child(title)
 
-	var sub := _label("a forest · eight notes · one tall figure", 20, Color(0.55, 0.56, 0.56))
+	var sub := _label(TranslationManager.get_instance().get_string("title_subtitle"), 20, Color(0.55, 0.56, 0.56))
 	sub.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	sub.anchor_left = 0.0
 	sub.anchor_right = 1.0
@@ -122,26 +124,26 @@ func _build() -> void:
 	_menu.add_theme_constant_override("separation", 12)
 	add_child(_menu)
 
-	var start := _button("BEGIN")
+	var start := _button(TranslationManager.get_instance().get_string("button_begin"))
 	start.pressed.connect(_start_game)
 	_menu.add_child(start)
 	_menu_first_focus = start
 
-	var how := _button("HOW TO PLAY")
+	var how := _button(TranslationManager.get_instance().get_string("button_how"))
 	how.pressed.connect(func():
 		_menu.visible = false
 		_info.visible = true
 		pass)
 	_menu.add_child(how)
 
-	var settings := _button("SETTINGS")
+	var settings := _button(TranslationManager.get_instance().get_string("button_settings"))
 	settings.pressed.connect(func():
 		_menu.visible = false
 		_settings.visible = true
 		pass)
 	_menu.add_child(settings)
 
-	var quit := _button("QUIT")
+	var quit := _button(TranslationManager.get_instance().get_string("button_quit"))
 	quit.pressed.connect(func(): get_tree().quit())
 	_menu.add_child(quit)
 
@@ -168,7 +170,7 @@ func _build() -> void:
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(controls)
 
-	var credit := _label("a tribute to Slender: The Eight Pages", 13, Color(0.36, 0.36, 0.36))
+	var credit := _label(TranslationManager.get_instance().get_string("credit"), 13, Color(0.36, 0.36, 0.36))
 	credit.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	credit.anchor_top = 1.0
 	credit.anchor_bottom = 1.0
@@ -187,8 +189,112 @@ func _build() -> void:
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_fade)
 
+	# Language switch button
+	_lang_btn = _button("EN/RU/ZH", 16)
+	_lang_btn.custom_minimum_size = Vector2(120, 40)
+	_lang_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_lang_btn.anchor_left = 1.0
+	_lang_btn.anchor_right = 1.0
+	_lang_btn.anchor_top = 1.0
+	_lang_btn.anchor_bottom = 1.0
+	_lang_btn.offset_left = -150
+	_lang_btn.offset_right = -20
+	_lang_btn.offset_top = -80
+	_lang_btn.offset_bottom = -30
+	_lang_btn.pressed.connect(_toggle_language)
+	add_child(_lang_btn)
 
-var _menu_first_focus: Control
+
+func _toggle_language() -> void:
+	var tm = TranslationManager.get_instance()
+	var next_lang = tm.get_language()
+	if next_lang == TranslationManager.Language.EN:
+		next_lang = TranslationManager.Language.RU
+	elif next_lang == TranslationManager.Language.RU:
+		next_lang = TranslationManager.Language.ZH
+	else:
+		next_lang = TranslationManager.Language.EN
+	tm.set_language(next_lang)
+	_refresh_ui()
+
+
+func _refresh_ui() -> void:
+	# Refresh title screen text
+	for child in get_children():
+		if child is Label:
+			pass # Handle specific labels
+	
+	# Rebuild menu buttons
+	for child in _menu.get_children():
+		_menu.remove_child(child)
+		child.queue_free()
+	
+	var start := _button(TranslationManager.get_instance().get_string("button_begin"))
+	start.pressed.connect(_start_game)
+	_menu.add_child(start)
+	_menu_first_focus = start
+
+	var how := _button(TranslationManager.get_instance().get_string("button_how"))
+	how.pressed.connect(func():
+		_menu.visible = false
+		_info.visible = true
+		pass)
+	_menu.add_child(how)
+
+	var settings := _button(TranslationManager.get_instance().get_string("button_settings"))
+	settings.pressed.connect(func():
+		_menu.visible = false
+		_settings.visible = true
+		pass)
+	_menu.add_child(settings)
+
+	var quit := _button(TranslationManager.get_instance().get_string("button_quit"))
+	quit.pressed.connect(func(): get_tree().quit())
+	_menu.add_child(quit)
+
+	_best_label.text = _best_text()
+	
+	# Refresh controls text
+	for child in get_children():
+		if child.name == "controls_label" or child is Label and (child.text.begins_with("WASD") or child.text.begins_with("drag") or child.text.begins_with("键盘") or child.text.begins_with("влево")):
+			child.text = controls_text()
+	
+	# Refresh credit
+	for child in get_children():
+		if child is Label and (child.text.begins_with("a tribute") or child.text.begins_with("дань") or child.text.begins_with("向")):
+			child.text = TranslationManager.get_instance().get_string("credit")
+	
+	# Refresh info panel
+	for child in _info.get_children():
+		if child is VBoxContainer:
+			for sub in child.get_children():
+				if sub is Label and (sub.text.begins_with("HOW TO") or sub.text.begins_with("КАК") or sub.text.begins_with("如何")):
+					sub.text = TranslationManager.get_instance().get_string("how_header")
+				elif sub is Label and (sub.text.begins_with("You are") or sub.text.begins_with("Вы") or sub.text.begins_with("你")):
+					sub.text = TranslationManager.get_instance().get_string("how_body")
+				elif sub is Label and (sub.text.begins_with("KEYBOARD") or sub.text.begins_with("КЛАВИАТУРА") or sub.text.begins_with("键盘")):
+					sub.text = TranslationManager.get_instance().get_string("how_keys_keyboard") + "\n" + TranslationManager.get_instance().get_string("how_keys_touch")
+				elif sub is Button:
+					sub.text = TranslationManager.get_instance().get_string("button_back")
+	
+	# Refresh settings panel
+	for child in _settings.get_children():
+		if child is VBoxContainer:
+			for sub in child.get_children():
+				if sub is Label and (sub.text.begins_with("SETTINGS") or sub.text.begins_with("НАСТРОЙКИ") or sub.text.begins_with("设置")):
+					sub.text = TranslationManager.get_instance().get_string("settings_header")
+				elif sub is HBoxContainer:
+					for s in sub.get_children():
+						if s is Label and (s.text.begins_with("MOUSE") or s.text.begins_with("ЧУВСТВИТЕЛЬНОСТЬ") or s.text.begins_with("鼠标")):
+							s.text = TranslationManager.get_instance().get_string("setting_mouse")
+						elif s is Label and (s.text.begins_with("VOLUME") or s.text.begins_with("ГРОМКОСТЬ") or s.text.begins_with("音量")):
+							s.text = TranslationManager.get_instance().get_string("setting_volume")
+						elif s is CheckButton and (s.text.begins_with("INVERT") or s.text.begins_with("ИНВЕРТИРОВАТЬ") or s.text.begins_with("反转")):
+							s.text = TranslationManager.get_instance().get_string("setting_invert")
+						elif s is CheckButton and (s.text.begins_with("FORCE") or s.text.begins_with("ПРИНУДИТЕЛЬНЫЕ") or s.text.begins_with("强制")):
+							s.text = TranslationManager.get_instance().get_string("setting_touch")
+				elif sub is Button:
+					sub.text = TranslationManager.get_instance().get_string("button_back")
 
 
 func _panel() -> VBoxContainer:
@@ -217,25 +323,18 @@ func _plain(text: String, size := 18, color := Color(0.72, 0.72, 0.7)) -> Label:
 
 func _build_info() -> void:
 	_info = _panel()
-	var head := _plain("HOW TO PLAY", 32, Color(0.9, 0.89, 0.86))
+	var head := _plain(TranslationManager.get_instance().get_string("how_header"), 32, Color(0.9, 0.89, 0.86))
 	head.add_theme_font_override("font", _serif)
 	(_info as VBoxContainer).add_child(head)
 	var body := _plain(
-		"You are alone in a dark forest. Eight pages are pinned to landmarks: " +
-		"concrete walls, a tunnel, a silo, a truck, a shed, a ring of stones, " +
-		"a ruined bathroom and a watchtower.\n\n" +
-		"Collect all eight, then get out.\n\n" +
-		"He appears at the edge of the trees. Looking at him slows him down — " +
-		"but if you stare too long he will know, and he will run.\n\n" +
-		"Static is his voice. When it rises, look away — or run.",
+		TranslationManager.get_instance().get_string("how_body"),
 		18)
 	(_info as VBoxContainer).add_child(body)
 	var keys := _plain(
-		"KEYBOARD:  WASD move · SHIFT sprint · F flashlight · E take page · ESC pause\n" +
-		"TOUCH:  left side = virtual stick · right side = look · RUN to sprint · TAKE to pick up",
+		TranslationManager.get_instance().get_string("how_keys_keyboard") + "\n" + TranslationManager.get_instance().get_string("how_keys_touch"),
 		15, Color(0.55, 0.55, 0.55))
 	(_info as VBoxContainer).add_child(keys)
-	var back := _button("BACK", 20)
+	var back := _button(TranslationManager.get_instance().get_string("button_back"), 20)
 	back.pressed.connect(func():
 		_info.visible = false
 		_menu.visible = true
@@ -276,23 +375,23 @@ func _check_row(box: VBoxContainer, label: String, value: bool, cb: Callable) ->
 func _build_settings() -> void:
 	var box := _panel()
 	_settings = box
-	var head := _plain("SETTINGS", 32, Color(0.9, 0.89, 0.86))
+	var head := _plain(TranslationManager.get_instance().get_string("settings_header"), 32, Color(0.9, 0.89, 0.86))
 	head.add_theme_font_override("font", _serif)
 	box.add_child(head)
-	_slider_row(box, "MOUSE SENSITIVITY", 0.2, 3.0, 0.05, Settings.mouse_sensitivity, func(v: float):
+	_slider_row(box, TranslationManager.get_instance().get_string("setting_mouse"), 0.2, 3.0, 0.05, Settings.mouse_sensitivity, func(v: float):
 		Settings.mouse_sensitivity = v
 		Settings.save_settings())
-	_slider_row(box, "VOLUME", 0.0, 1.0, 0.02, Settings.master_volume, func(v: float):
+	_slider_row(box, TranslationManager.get_instance().get_string("setting_volume"), 0.0, 1.0, 0.02, Settings.master_volume, func(v: float):
 		Settings.master_volume = v
 		Settings.apply_volume())
-	_check_row(box, "INVERT LOOK Y", Settings.invert_y, func(v: bool):
+	_check_row(box, TranslationManager.get_instance().get_string("setting_invert"), Settings.invert_y, func(v: bool):
 		Settings.invert_y = v
 		Settings.save_settings())
-	_check_row(box, "FORCE TOUCH CONTROLS", Settings.force_touch, func(v: bool):
+	_check_row(box, TranslationManager.get_instance().get_string("setting_touch"), Settings.force_touch, func(v: bool):
 		Settings.force_touch = v
 		Game.touch_mode = v
 		Settings.save_settings())
-	var back := _button("BACK", 20)
+	var back := _button(TranslationManager.get_instance().get_string("button_back"), 20)
 	back.pressed.connect(func():
 		_settings.visible = false
 		_menu.visible = true
@@ -303,14 +402,14 @@ func _build_settings() -> void:
 
 func controls_text() -> String:
 	if Game.touch_mode:
-		return "drag left to walk · drag right to look"
-	return "WASD move · SHIFT sprint · F light · E take · ESC pause"
+		return TranslationManager.get_instance().get_string("controls_touch")
+	return TranslationManager.get_instance().get_string("controls_keyboard")
 
 
 func _best_text() -> String:
 	if Settings.best_time < 0.0:
-		return "no escape recorded yet"
-	return "best escape: %s   ·   %d/8 pages" % [Game.format_time(Settings.best_time), Settings.best_pages]
+		return TranslationManager.get_instance().get_string("best_none")
+	return TranslationManager.get_instance().get_string("best_format") % [Game.format_time(Settings.best_time), Settings.best_pages]
 
 
 func _start_game() -> void:
