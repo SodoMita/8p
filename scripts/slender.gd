@@ -9,7 +9,7 @@ signal apparition_started
 enum Mode { HIDDEN, APPARITION, CHASE }
 
 const MAP_HALF := 58.0
-const TALL := 2.55
+const TALL := 3.68
 
 var player: Node3D
 var world: Node
@@ -79,7 +79,7 @@ func deactivate() -> void:
 
 
 func head_position() -> Vector3:
-	return global_position + Vector3(0, 2.55 * scale.y, 0)
+	return global_position + Vector3(0, 3.68 * scale.y, 0)
 
 
 func _process(delta: float) -> void:

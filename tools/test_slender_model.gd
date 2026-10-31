@@ -23,7 +23,7 @@ func _initialize() -> void:
 		for i in range(0, verts.size(), 3):
 			var cross := (verts[i+1] - verts[i]).cross(verts[i+2] - verts[i])
 			assert(cross.dot(normals[i] + normals[i+1] + normals[i+2]) <= 0.00001, "Clockwise winding must agree with outward normals")
-	assert(bounds.end.y > 2.75 and bounds.end.y < 2.8)
+	assert(bounds.end.y > 3.88 and bounds.end.y < 3.93)
 	assert(bounds.position.y >= 0.0)
 	assert(triangles < 40000, "Keep the mobile geometry budget bounded")
 	var other := Node3D.new()

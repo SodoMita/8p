@@ -12,7 +12,7 @@ func _initialize() -> void:
 		var is_band := true
 		for j in 3:
 			var p := verts[i+j]
-			var at_end := absf(p.y-2.262)<0.00001 or absf(p.y-2.286)<0.00001
+			var at_end := absf(p.y-3.392)<0.00001 or absf(p.y-3.416)<0.00001
 			var inner := pow(p.x/.076,2)+pow((p.z-.012)/.070,2)
 			var outer := pow(p.x/.081,2)+pow((p.z-.012)/.075,2)
 			if not at_end or (absf(inner-1)>0.0001 and absf(outer-1)>0.0001): is_band=false
@@ -36,7 +36,7 @@ func _initialize() -> void:
 	var min_z := INF
 	var max_z := -INF
 	for p in verts:
-		if p.y>=2.165 and p.y<=2.240 and absf(p.x)<.03 and p.z>.15:
+		if p.y>=3.295 and p.y<=3.370 and absf(p.x)<.03 and p.z>.15:
 			min_z=minf(min_z,p.z)
 			max_z=maxf(max_z,p.z)
 	assert(max_z-min_z>.025)

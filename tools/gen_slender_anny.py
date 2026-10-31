@@ -168,6 +168,30 @@ def bake(source):
         hand = affine_axis(src,wrist,palm,dw,dw+np.array([side*.012,-.135,.014]),.84)
         for g, transformed in enumerate([arm,forearm,hand]):
             v += group_weights[:,offset+g,None] * (transformed-general)
+    # Double only phalange length along each digit's anatomical axis. Palm,
+    # wrist and finger thickness remain unchanged; blend at the knuckles.
+    nails=[]; finger_metrics=[]
+    for side,suffix in [(1,'.L'),(-1,'.R')]:
+        wrist=bones[labels.index('wrist'+suffix)]
+        palm=bones[labels.index('finger3-1'+suffix)]
+        dw=np.array([side*.397,.985,.065])
+        def hand_map(points):
+            return affine_axis(points,wrist,palm,dw,dw+np.array([side*.012,-.135,.014]),.84)
+        for digit in range(1,6):
+            bi=[labels.index(f'finger{digit}-{j}'+suffix) for j in range(1,4)]
+            influence=(w*np.isin(indices,bi)).sum(1)
+            base,distal=hand_map(bones[[bi[0],bi[-1]]])
+            axis=distal-base;axis/=np.linalg.norm(axis)
+            along=(v-base)@axis
+            mask=influence>.5
+            old_length=float(along[mask].max())
+            # Distal vertices have full finger weight; the knuckle is fixed.
+            v+=axis[None]*np.maximum(along,0)[:,None]*np.clip(influence,0,1)[:,None]
+            new_along=(v-base)@axis
+            tip_mask=mask & (new_along>new_along[mask].max()-.006)
+            tip=v[tip_mask].mean(0)
+            nails.append(dict(tip=tip.tolist(),axis=axis.tolist(),side=side,length=.045 if digit==1 else .060))
+            finger_metrics.append(dict(side=side,digit=digit,before=old_length,after=float(new_along[mask].max())))
     # Fit the real cervical skin to a smooth neck under the collar. This keeps
     # the original Anny connectivity while removing retargeted jaw/throat folds.
     for i,p in enumerate(v):
@@ -269,7 +293,7 @@ def bake(source):
         used, inv=np.unique(faces,return_inverse=True)
         batches.append(dict(material=mat,vertices=np.round(positions[used],7).tolist(),normals=np.round(nn[used],7).tolist(),
                             regions=local_tags[used].tolist(),weights=np.round(np.clip(local_blend[used],0,1),7).tolist(),faces=inv.reshape(-1,3).tolist()))
-    result=dict(generator='Anny 0.6.2 / free anny-notongue topology',source='https://github.com/naver/anny',
+    result=dict(nails=nails,finger_metrics=finger_metrics,finger_length_scale=2.0,leg_length_scale=2.0,generator='Anny 0.6.2 / free anny-notongue topology',source='https://github.com/naver/anny',
         phenotype=dict(gender=1,age=.45,weight=.18,muscle=.22,height=.9,proportions=.5),
         license='MakeHuman-derived anatomical data CC0-1.0; Anny code Apache-2.0',
         body_vertices=len(v),body_triangles=len(f),body_watertight=bool(body.is_watertight),body_components=1,

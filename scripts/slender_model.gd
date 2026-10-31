@@ -51,7 +51,17 @@ func _tri(surface: int, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vec
 	var st := _surfaces[surface]
 	var ids := regions if regions.x >= 0 else Vector3(_region,_region,_region)
 	var verts := [[a,na,ids.x,weights.x],[b,nb,ids.y,weights.y],[c,nc,ids.z,weights.z]]
-	if (b-a).cross(c-a).dot(na+nb+nc) > 0.0:
+	for pair in verts:
+		var p: Vector3 = pair[0]
+		var n: Vector3 = pair[1]
+		var region := int(pair[2])
+		if region in [0,4,5] and p.y < 1.13:
+			p.y *= 2.0
+			n.y *= 0.5
+		else: p.y += 1.13
+		pair[0] = p
+		pair[1] = n.normalized()
+	if (verts[1][0]-verts[0][0]).cross(verts[2][0]-verts[0][0]).dot(verts[0][1]+verts[1][1]+verts[2][1]) > 0.0:
 		verts = [verts[0],verts[2],verts[1]]
 	for pair in verts:
 		st.set_color(Color(float(pair[2])/8.0,float(pair[3]),0,1))
@@ -76,6 +86,26 @@ func _add_anatomy() -> void:
 			var b: int = int(face[1])
 			var c: int = int(face[2])
 			_tri(int(batch["material"]),positions[a],positions[b],positions[c],normals[a],normals[b],normals[c],Vector3(ids[a],ids[b],ids[c]),Vector3(weights[a],weights[b],weights[c]))
+
+	# Tapered closed nail shells follow each actual fingertip and its hand region.
+	for nail: Dictionary in data.get("nails",[]):
+		var t: Array = nail.tip
+		var a: Array = nail.axis
+		var tip := Vector3(t[0],t[1],t[2])
+		var axis := Vector3(a[0],a[1],a[2]).normalized()
+		var across := axis.cross(Vector3.BACK).normalized()
+		var dorsal := across.cross(axis).normalized()
+		var base := tip-axis*.015+dorsal*.004
+		var point := tip+axis*float(nail.length)+dorsal*.009
+		var ring: Array[Vector3] = [base+across*.006,base+dorsal*.004,base-across*.006,base-dorsal*.002]
+		_region = 3 if nail.side>0 else 2
+		for j in 4:
+			var k := (j+1)%4
+			var n := (ring[k]-ring[j]).cross(point-ring[j]).normalized()
+			_tri(4,ring[j],ring[k],point,n,n,n)
+		_tri(4,ring[0],ring[2],ring[1],-axis,-axis,-axis)
+		_tri(4,ring[0],ring[3],ring[2],-axis,-axis,-axis)
+	_region = 0
 
 func _solid_panel(surface: int, points: Array[Vector3], thickness := 0.006) -> void:
 	_panel(surface,points)

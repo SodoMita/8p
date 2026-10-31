@@ -1,9 +1,9 @@
 extends RefCounted
 ## Movement-driven contact stepping, sagittal two-bone IK, damped body/arms,
 ## and a constrained particle necktie. No canned gait or gameplay-root writes.
-const HIP_Y := 1.13
-const LEG := 0.53
-const TIE_ROOT := Vector3(0, 2.176, 0.185)
+const HIP_Y := 2.26
+const LEG := 1.06
+const TIE_ROOT := Vector3(0, 3.306, 0.185)
 const TIE_LINK := 0.074
 var materials: Array[ShaderMaterial] = []
 var clock := 0.0
@@ -55,7 +55,7 @@ func reset_pose() -> void:
 	arm_lag = Vector2.ZERO
 	arm_velocity = Vector2.ZERO
 	_velocity = Vector3.ZERO
-	feet = [Vector3(-0.13, 0.07, 0.02), Vector3(0.13, 0.07, 0.02)]
+	feet = [Vector3(-0.13, 0.14, 0.02), Vector3(0.13, 0.14, 0.02)]
 	_step = -1
 	_swing = [false, false]
 	_progress = [0.0, 0.0]
@@ -139,7 +139,7 @@ func _contacts(h: float, velocity: Vector3, turn: float) -> void:
 		_ends[i] = (_ends[i] - velocity * h).rotated(Vector3.UP, -turn * h)
 	for i in 2:
 		var other := 1 - i
-		var home := Vector3(-0.13 if i == 0 else 0.13, 0.07, 0.02)
+		var home := Vector3(-0.13 if i == 0 else 0.13, 0.14, 0.02)
 		var error := Vector2(feet[i].x - home.x, feet[i].z - home.z).length()
 		var can_release: bool = not _swing[other] or (speed > 2.2 and _progress[other] > (0.22 if speed > 6.0 else 0.35))
 		if not _swing[i] and error > 0.19 and can_release:
@@ -154,9 +154,9 @@ func _contacts(h: float, velocity: Vector3, turn: float) -> void:
 			var t: float = _progress[i]
 			var ease := t * t * (3.0 - 2.0 * t)
 			feet[i] = _starts[i].lerp(_ends[i], ease)
-			feet[i].y = 0.07 + 16.0 * t*t * (1.0-t)*(1.0-t) * minf(0.075, 0.025 + speed * 0.009)
+			feet[i].y = 0.14 + 16.0 * t*t * (1.0-t)*(1.0-t) * minf(0.075, 0.025 + speed * 0.009)
 			if t >= 1.0:
-				feet[i].y = 0.07
+				feet[i].y = 0.14
 				_swing[i] = false
 	_step = 0 if _swing[0] else (1 if _swing[1] else -1)
 

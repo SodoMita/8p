@@ -46,14 +46,17 @@ func _run() -> void:
 	sl.visible = true
 	var cam := Camera3D.new()
 	stage.add_child(cam)
-	cam.position = Vector3(1.6, 2.1, 7.0) if view == "front" else Vector3(-2.6, 2.2, -6.8)
-	cam.look_at(Vector3(0, 1.9, 0))
+	cam.position = Vector3(2.0, 3.0, 10.0) if view == "front" else Vector3(-3.0, 3.0, -10.0)
+	cam.look_at(Vector3(0, 2.65, 0))
 	if view == "side":
-		cam.position = Vector3(6.8, 2.2, 2.5)
-		cam.look_at(Vector3(0, 1.9, 0))
+		cam.position = Vector3(10.0, 3.0, 3.5)
+		cam.look_at(Vector3(0, 2.65, 0))
 	if view == "tie":
-		cam.position = Vector3(0.65, 2.94, 2.3)
-		cam.look_at(Vector3(0, 2.78, 0))
+		cam.position = Vector3(0.65, 4.47, 2.3)
+		cam.look_at(Vector3(0, 4.31, 0))
+	if view == "hands":
+		cam.position = Vector3(.90,2.75,1.0)
+		cam.look_at(Vector3(.44,2.65,.08))
 	cam.fov = 38
 	cam.current = true
 	if animate:

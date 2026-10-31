@@ -96,3 +96,35 @@ OpenCode: the original integration-risk review completed and informed the seam,
 weight, topology and tie-band checks. A second final read-only review read the
 four requested source/config files but did not return a final assessment within
 several minutes; it was stopped. No claim of a completed final sign-off.
+
+## Revision: doubled fingers, pointed nails, doubled legs
+
+- All ten digits are extended along their own Anny phalange axes, with the
+  knuckles fixed and source-weight blending at their bases. Actual pre/post
+  distal extents are recorded and verified **2.00000x** for every digit.
+  Palm/wrist dimensions and finger thickness are not globally scaled.
+- Ten closed, tapered black nail shells overlap the real fingertips. Their
+  attachment points and axes come from the generated anatomical digits; they
+  inherit the matching hand region and finger motion. Adds only 60 triangles.
+- Runtime geometry doubles hip/knee/ankle heights (2.26 / 1.20 / .14), making
+  both .53-unit leg bones **1.06 units**. Above-hip body, head, hands, collar,
+  tie and tendrils translate upward by 1.13 without being stretched. Shoe
+  vertical geometry follows the same lower-body stretch. Height is now 3.903
+  local units (5.308 world units with the pre-existing Y scale).
+- Vertex normals receive inverse-transpose Y correction and winding is checked
+  after the morph. Shader inverse rest-coordinate thresholds retain canonical
+  joint weighting, but actual physical pivots match the taller runtime mesh.
+  CPU IK and tie anchors match; head visibility target follows the taller head.
+  AI root speed/catch rules, environment, controls and camera code unchanged.
+- **35,397 triangles / five batches**, still one watertight anatomical skin.
+- New `tools/test_slender_proportions.gd` verifies every actual runtime skin
+  vertex against the source morph, every digit's 2x extent, ten nail anchors,
+  doubled CPU leg bones/foot height and translated tie root. PASS. Model,
+  anatomy, attachment, 30/60/144-Hz animation tests also PASS.
+- Latest functional rerun: selftest **43/43**, camtest quality 1 **30/30**.
+- Godot GL compatibility under actual Sway/pixman: full front, detailed hand,
+  216-frame side locomotion study rendered; front/hand/moving pose visually
+  inspected. `screenshots/slender_claws_front.png`, `_hands.png`, `_motion.gif`.
+- OpenCode focused source review requested; completion recorded below if returned.
+  The earlier Web pack result predates this revision; JSON inclusion path and
+  runtime dependency mechanism are unchanged. No new mobile/browser claim.
