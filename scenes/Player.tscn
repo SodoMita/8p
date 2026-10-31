@@ -1,10 +1,15 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/camera_handle.gd" id="2_handle"]
 
 [sub_resource type="CapsuleShape3D" id="2_capsule"]
 radius = 0.36
 height = 1.72
+
+[sub_resource type="PhysicsMaterial" id="3_handheld"]
+friction = 0.0
+bounce = 0.0
 
 [node name="Player" type="CharacterBody3D"]
 collision_layer = 2
@@ -18,13 +23,30 @@ shape = SubResource("2_capsule")
 [node name="Head" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.58, 0)
 
-[node name="Camera" type="Camera3D" parent="Head"]
+[node name="Anchor" type="AnimatableBody3D" parent="Head"]
+collision_layer = 0
+collision_mask = 0
+
+[node name="Handle" type="RigidBody3D" parent="Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.58, 0)
+top_level = true
+collision_layer = 0
+collision_mask = 0
+mass = 0.42
+physics_material_override = SubResource("3_handheld")
+gravity_scale = 0.0
+can_sleep = false
+script = ExtResource("2_handle")
+
+[node name="CameraMount" type="Node3D" parent="Head/Handle"]
+
+[node name="Camera" type="Camera3D" parent="Head/Handle/CameraMount"]
 current = true
 fov = 74.0
 near = 0.05
 far = 78.0
 
-[node name="Flashlight" type="SpotLight3D" parent="Head/Camera"]
+[node name="Flashlight" type="SpotLight3D" parent="Head/Handle/CameraMount/Camera"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.12, -0.1, 0)
 light_color = Color(1, 0.94, 0.78, 1)
 light_energy = 11.5
@@ -43,3 +65,35 @@ light_specular = 0.0
 omni_range = 5.5
 omni_attenuation = 1.4
 shadow_enabled = false
+
+[node name="CamJoint" type="Generic6DOFJoint3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.58, 0)
+node_a = NodePath("../Head/Anchor")
+node_b = NodePath("../Head/Handle")
+linear_limit_x/enabled = true
+linear_limit_x/upper_distance = 0.115
+linear_limit_x/lower_distance = -0.115
+linear_limit_x/softness = 0.9
+linear_limit_x/restitution = 0.05
+linear_limit_x/damping = 1.0
+linear_limit_y/enabled = true
+linear_limit_y/upper_distance = 0.085
+linear_limit_y/lower_distance = -0.085
+linear_limit_y/softness = 0.9
+linear_limit_y/restitution = 0.05
+linear_limit_y/damping = 1.0
+linear_limit_z/enabled = true
+linear_limit_z/upper_distance = 0.115
+linear_limit_z/lower_distance = -0.115
+linear_limit_z/softness = 0.9
+linear_limit_z/restitution = 0.05
+linear_limit_z/damping = 1.0
+linear_spring_x/enabled = true
+linear_spring_x/stiffness = 2.0
+linear_spring_x/damping = 0.7
+linear_spring_y/enabled = true
+linear_spring_y/stiffness = 1.6
+linear_spring_y/damping = 0.6
+linear_spring_z/enabled = true
+linear_spring_z/stiffness = 2.0
+linear_spring_z/damping = 0.7

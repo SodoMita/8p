@@ -3,7 +3,7 @@
 # pause / jumpscare / death, and the win screen.
 set -u
 GODOT=/home/user/tools/Godot_v4.7.2-stable_linux.x86_64
-PROJECT=/home/user/eight_pages
+PROJECT="$(cd "$(dirname "$0")/.." && pwd)"
 SHOTS=$PROJECT/screenshots
 export XDG_RUNTIME_DIR=/tmp/xdg
 mkdir -p "$XDG_RUNTIME_DIR" "$SHOTS"
@@ -16,8 +16,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+SWAYCFG=$(mktemp -d)/config
+cat > "$SWAYCFG" <<'CFG'
+output * bg #000000 solid_color
+output HEADLESS-1 resolution 1280x720 position 0 0
+font pango:monospace 8
+CFG
 WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman \
-  sway --unsupported-gpu -c /home/user/tools/swaycfg/config >/tmp/sway.log 2>&1 &
+  sway --unsupported-gpu -c "$SWAYCFG" >/tmp/sway.log 2>&1 &
 SWAY_PID=$!
 sleep 3
 export WAYLAND_DISPLAY=wayland-1

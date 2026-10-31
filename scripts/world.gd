@@ -46,6 +46,10 @@ func _ready() -> void:
 	_spawn_pages()
 	player.global_position = Vector3(0, 0.15, 2.0)
 	player.rotation.y = 0.0
+	# the camera rig was built during scene load, before the player was placed:
+	# re-seat it so the tether's frame matches where we actually stand
+	if player.handle != null:
+		player.handle.snap()
 
 	slender.setup(player, self, map_builder)
 	slender.activate()
@@ -64,6 +68,8 @@ func _ready() -> void:
 		touch_ui.set_player(player)
 		touch_ui.hud = hud
 		add_child(touch_ui)
+		# the cursor stays free for the on-screen stick, but the mouse still
+		# looks around while a button is held (see player._unhandled_input)
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -81,7 +87,11 @@ func _ready() -> void:
 		# spawn a second runner inside the world
 		var flow := "--flow" in OS.get_cmdline_user_args()
 		if mode != "flow" and not flow:
-			var script_path := "res://scripts/selftest.gd" if mode == "selftest" else "res://scripts/autotest.gd"
+			var script_path := "res://scripts/autotest.gd"
+			if mode == "selftest":
+				script_path = "res://scripts/selftest.gd"
+			elif mode == "camtest":
+				script_path = "res://scripts/camera_test.gd"
 			_autotest = load(script_path).new()
 			_autotest.world = self
 			add_child(_autotest)
@@ -93,6 +103,8 @@ func _connect_hud() -> void:
 	hud.restart_pressed.connect(_restart)
 	hud.menu_pressed.connect(_to_title)
 	hud.touch_toggle_pressed.connect(_toggle_touch_mode)
+	hud.camcorder_toggled.connect(_toggle_camcorder_fx)
+	hud.handheld_toggled.connect(_toggle_handheld_camera)
 
 
 # --------------------------------------------------------------------------- #
@@ -241,7 +253,16 @@ func _update_feedback(delta: float) -> void:
 			intensity += 0.32 + clampf(slender.seen_time, 0.0, 3.0) * 0.1
 	if slender.mode == slender.Mode.CHASE:
 		intensity += 0.28
-	hud.set_static(clampf(intensity, 0.0, 0.85))
+	intensity = clampf(intensity, 0.0, 0.85)
+	hud.set_static(intensity)
+
+	# the camcorder reacts to the same danger: tape damage, tearing, signal
+	# loss, a zoom creep and the IR lamp when the torch is off
+	var dread := clampf((intensity - 0.06) / 0.72, 0.0, 1.0)
+	if slender.mode == slender.Mode.CHASE:
+		dread = maxf(dread, 0.85)
+	hud.set_dread(dread)
+	hud.set_camcorder_ir(not player.flashlight_on)
 
 	# audio: heartbeat + static + drone get louder as he closes in
 	var heartbeat := -60.0
@@ -309,6 +330,7 @@ func _collect(i: int) -> void:
 	hud.show_note(p["note"])
 	hud.flash(0.35, 0.5)
 	hud.static_burst(0.55)
+	hud.camcorder_glitch(0.75)
 	Sfx.play("page", -2.0, randf_range(0.95, 1.05))
 	# picking a page always wakes him up a little
 	slender.cooldown = maxf(2.5, slender.cooldown - 2.0)
@@ -322,12 +344,14 @@ func _collect(i: int) -> void:
 # --------------------------------------------------------------------------- #
 func _on_slender_apparition() -> void:
 	hud.static_burst(0.5)
+	hud.camcorder_glitch(0.55)
 	player.shake_amount = 0.008
 
 
 func _on_slender_visibility(is_visible: bool) -> void:
 	if is_visible and slender.mode == slender.Mode.APPARITION:
 		hud.static_burst(0.25)
+		hud.camcorder_glitch(0.3)
 		Sfx.play("appear_near", -20.0, randf_range(0.96, 1.04))
 
 
@@ -341,6 +365,8 @@ func on_chase_start() -> void:
 
 func _on_chase_start() -> void:
 	hud.static_burst(0.7)
+	hud.camcorder_glitch(0.95)
+	hud.camcorder_punch(0.35)
 	player.shake_amount = 0.02
 	hud.show_toast("RUN", 1.4)
 
@@ -382,6 +408,9 @@ func _on_caught() -> void:
 	player.shake_amount = 0.06
 	hud.set_static(0.30)
 	hud.static_burst(0.55)
+	hud.camcorder_glitch(1.0)
+	hud.camcorder_punch(0.8)
+	hud.set_dread(1.0)
 	hud.flash(0.5, 0.14)
 	player.flicker = 1.0
 	# open the mix right before he hits: the forest falls away, only him left
@@ -471,10 +500,30 @@ func _update_touch_toggle_label() -> void:
 	hud.update_touch_toggle_label(Game.touch_mode)
 
 
+func _toggle_camcorder_fx() -> void:
+	Settings.camcorder = not Settings.camcorder
+	Settings.save_settings()
+	hud.refresh_camcorder()
+	_update_touch_toggle_label()
+
+
+func _toggle_handheld_camera() -> void:
+	Settings.camcorder_physics = not Settings.camcorder_physics
+	Settings.save_settings()
+	if player != null and player.handle != null:
+		player.handle.set_physics_mode(Settings.camcorder_physics and Game.quality >= 1)
+	_update_touch_toggle_label()
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		if Game.run_active and not _paused and not _ended and not Game.autotest:
 			_toggle_pause()
+	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
+		# clicking back into the window must give the mouse back to the game,
+		# otherwise the camera feels dead until pause/resume
+		if Game.run_active and not _paused and not _ended and not Game.touch_mode:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func unfreeze_player_after_pickups() -> void:
