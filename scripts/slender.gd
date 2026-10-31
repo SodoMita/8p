@@ -39,85 +39,8 @@ func _ready() -> void:
 # --------------------------------------------------------------------------- #
 # model
 # --------------------------------------------------------------------------- #
-func _make_material(color: Color, emission := 0.0) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = color
-	m.roughness = 0.95
-	if emission > 0.0:
-		m.emission_enabled = true
-		m.emission = color
-		m.emission_energy_multiplier = emission
-	return m
-
-
-func _add_part(mesh: Mesh, mat: Material, pos: Vector3, rot := Vector3.ZERO) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.material_override = mat
-	mi.position = pos
-	mi.rotation = rot
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
-	_meshes.append(mi)
-	return mi
-
-
 func _build_model() -> void:
-	# faint self-illumination keeps the silhouette readable against the fog
-	var suit := _make_material(Color(0.075, 0.072, 0.08), 0.05)
-	var pale := _make_material(Color(0.88, 0.87, 0.82), 0.5)
-
-	var torso := CapsuleMesh.new()
-	torso.radius = 0.23
-	torso.height = 1.45
-	_add_part(torso, suit, Vector3(0, 1.62, 0))
-
-	for side in [-1.0, 1.0]:
-		var leg := CylinderMesh.new()
-		leg.bottom_radius = 0.075
-		leg.top_radius = 0.1
-		leg.height = 1.15
-		leg.radial_segments = 6
-		_add_part(leg, suit, Vector3(0.13 * side, 0.58, 0.0))
-		var arm := CylinderMesh.new()
-		arm.bottom_radius = 0.055
-		arm.top_radius = 0.08
-		arm.height = 1.5
-		arm.radial_segments = 6
-		_add_part(arm, suit, Vector3(0.3 * side, 1.72, 0.02), Vector3(0.0, 0.0, 0.12 * side))
-
-	var tie := BoxMesh.new()
-	tie.size = Vector3(0.05, 0.34, 0.02)
-	_add_part(tie, _make_material(Color(0.32, 0.32, 0.34), 0.02), Vector3(0, 2.02, 0.19))
-
-	var neck := CylinderMesh.new()
-	neck.bottom_radius = 0.06
-	neck.top_radius = 0.06
-	neck.height = 0.16
-	neck.radial_segments = 6
-	_add_part(neck, pale, Vector3(0, 2.36, 0))
-
-	var head := SphereMesh.new()
-	head.radius = 0.19
-	head.height = 0.42
-	head.radial_segments = 12
-	head.rings = 8
-	_add_part(head, pale, Vector3(0, 2.56, 0.01))
-
-	# the tendrils
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 1337
-	for i in 7:
-		var t := CylinderMesh.new()
-		t.bottom_radius = 0.012
-		t.top_radius = 0.045
-		t.height = rng.randf_range(0.9, 1.7)
-		t.radial_segments = 4
-		var ang := rng.randf_range(-1.0, 1.0)
-		_add_part(t, suit,
-			Vector3(rng.randf_range(-0.18, 0.18), rng.randf_range(1.2, 1.9), -0.2),
-			Vector3(rng.randf_range(-0.5, 0.5), 0, ang))
-	_meshes[0].position = Vector3(0, 1.62, 0)
+	_meshes = preload("res://scripts/slender_model.gd").new().build(self)
 
 
 # --------------------------------------------------------------------------- #
