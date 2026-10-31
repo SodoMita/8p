@@ -94,45 +94,132 @@ def curve(x, a=0.5, b=1.6):
 # --------------------------------------------------------------------------- #
 # bark — dead spruce: deep vertical furrows, cracked plates, lichen
 # --------------------------------------------------------------------------- #
+def _worley(h, w, nx, ny, seed, jitter=0.9):
+    """F1 and F2 distances to jittered feature points on an nx-by-ny torus grid.
+
+    Cells are 1/nx wide and 1/ny tall, so nx >> ny gives the tall narrow plates
+    that tree bark is actually made of. Wrapping keeps the map tileable.
+    """
+    rng = np.random.default_rng(seed)
+    off = rng.uniform(-0.5 * jitter, 0.5 * jitter, (ny, nx, 2)).astype(np.float32)
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+    px = (xs + 0.5) / w * nx
+    py = (ys + 0.5) / h * ny
+    cx = np.floor(px).astype(np.int32)
+    cy = np.floor(py).astype(np.int32)
+    f1 = np.full((h, w), 1e9, np.float32)
+    f2 = np.full((h, w), 1e9, np.float32)
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            gx = cx + dx
+            gy = cy + dy
+            wx = np.mod(gx, nx)
+            wy = np.mod(gy, ny)
+            fx = gx + 0.5 + off[wy, wx, 0]
+            fy = gy + 0.5 + off[wy, wx, 1]
+            d = np.sqrt((fx - px) ** 2 + (fy - py) ** 2)
+            closer = d < f1
+            f2 = np.where(closer, f1, np.minimum(f2, d))
+            f1 = np.where(closer, d, f1)
+    return f1, f2
+
+
 def make_bark(size=1024):
+    """Dead spruce bark: narrow fissures between irregular plates.
+
+    Two earlier attempts are worth not repeating. Anisotropic noise smeared down
+    the image gives streaks, not bark: no plate structure for the torch to catch.
+    Plain Voronoi cells give the opposite failure - a hard lattice of black bands
+    that reads as cracked glass, because the fissures are as wide as the plates
+    and perfectly regular.
+
+    So: warp the cell coordinates with low-frequency noise first (plates are not a
+    grid), keep the fissure NARROW (a fissure is a few centimetres in a metre of
+    bark), and never let the crack go fully black - the sides of a fissure still
+    catch light.
+    """
     h = w = size
-    grain = anisotropic(h, w, 300, 12, seed=11)          # long vertical fibres
-    grain2 = anisotropic(h, w, 620, 40, seed=12)         # fine striations
-    plate = anisotropic(h, w, 190, 10, seed=13)          # bark plates, strongly vertical
-    crack = anisotropic(h, w, 420, 22, seed=14)
-    blotch = fbm(h, w, 4, 3, 0.6, seed=15)
 
-    # vertical furrows: sharp ridges between deep channels
-    ridge = np.clip((plate - 0.34) * 3.2, 0, 1)
-    furrow = np.clip(ridge * 0.9 + grain * 0.45 - 0.12, 0, 1)
-    deep = curve(1.0 - (crack * 0.7 + grain * 0.3), 0.35, 0.72)   # 0 = crack
+    # domain warp: bend the lattice so the plates are irregular
+    warp = fbm(h, w, 4, 5, 0.55, seed=27)
+    warp2 = fbm(h, w, 3, 7, 0.5, seed=28)
 
-    height = furrow * (0.35 + 0.65 * deep)
-    height = height * 0.8 + grain2 * 0.2
+    def warped_worley(nx, ny, seed, jitter, wobble=0.55):
+        # build the lattice on warped coordinates by resampling the distance field
+        wf = np.dstack([warp, warp2]).astype(np.float32)
+        ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+        px = ((xs + 0.5) / w + (wf[..., 0] - 0.5) * wobble * 0.35) * nx
+        py = ((ys + 0.5) / h + (wf[..., 1] - 0.5) * wobble * 0.35) * ny
+        rng = np.random.default_rng(seed)
+        off = rng.uniform(-0.5 * jitter, 0.5 * jitter, (ny, nx, 2)).astype(np.float32)
+        cx = np.floor(px).astype(np.int32)
+        cy = np.floor(py).astype(np.int32)
+        f1 = np.full((h, w), 1e9, np.float32)
+        f2 = np.full((h, w), 1e9, np.float32)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                gx = cx + dx
+                gy = cy + dy
+                wx_ = np.mod(gx, nx)
+                wy_ = np.mod(gy, ny)
+                fx = gx + 0.5 + off[wy_, wx_, 0]
+                fy = gy + 0.5 + off[wy_, wx_, 1]
+                d = np.sqrt((fx - px) ** 2 + (fy - py) ** 2)
+                closer = d < f1
+                f2 = np.where(closer, f1, np.minimum(f2, d))
+                f1 = np.where(closer, d, f1)
+        return f1, f2
 
-    # weathered grey-brown bark: bright enough for a flashlight to sculpt
-    light = np.clip(height * 0.55 + grain2 * 0.2, 0, 1)
+    # plates: taller than wide, but not extreme
+    p1, p2 = warped_worley(8, 3, seed=31, jitter=0.95, wobble=0.30)
+    edge = np.clip((p2 - p1) / 0.5, 0, 1)
+    fissure = (1.0 - edge) ** 3.2            # thin: only right on the boundary
+
+    # a second, offset layer breaks the first one up so nothing looks tiled
+    q1, q2 = warped_worley(13, 6, seed=32, jitter=0.9, wobble=0.35)
+    edge2 = np.clip((q2 - q1) / 0.45, 0, 1)
+    fissure = np.maximum(fissure, (1.0 - edge2) ** 4.0 * 0.7)
+
+    # cross-fractures: few, thin, shallow
+    r1, r2 = warped_worley(3, 19, seed=33, jitter=0.65, wobble=0.3)
+    cross = (1.0 - np.clip((r2 - r1) / 0.28, 0, 1)) ** 5.0
+
+    grain = anisotropic(h, w, 480, 30, seed=34)      # vertical fibre
+    fine = anisotropic(h, w, 900, 90, seed=35)       # finer fibre
+    grit = fbm(h, w, 5, 10, 0.55, seed=36)           # pores and roughness
+    blotch = fbm(h, w, 4, 3, 0.6, seed=37)           # lichen / weathering
+
+    crown = np.clip(1.0 - fissure, 0, 1) ** 0.5
+    height = crown * 0.85 + grain * 0.13 + fine * 0.07 + grit * 0.08
+    height = np.clip(height - fissure * 0.60 - cross * 0.28, 0, 1.3)
+    # 0 in the deepest crack, 1 on a plate crown - but a crack never reads black
+    depth = np.clip(1.0 - fissure * 0.75 - cross * 0.40, 0.30, 1.0)
+
+    # ---- albedo: weathered grey-brown, dark between the plates ------------
+    lift = np.clip(height * 0.70 + grit * 0.25 + fine * 0.10, 0, 1)
     tone = np.zeros((h, w, 3), dtype=np.float32)
-    tone[..., 0] = 0.30 + 0.42 * light
-    tone[..., 1] = 0.27 + 0.38 * light
-    tone[..., 2] = 0.24 + 0.33 * light
-    albedo = tone * (0.55 + 0.6 * height[..., None])
-    # furrows are darker but never pure black
-    albedo *= (0.34 + 0.66 * deep)[..., None]
+    tone[..., 0] = 0.225 + 0.245 * lift
+    tone[..., 1] = 0.210 + 0.225 * lift
+    tone[..., 2] = 0.185 + 0.195 * lift
+    albedo = tone * (0.34 + 0.66 * depth)[..., None]
+    # bleached grey plates, kept subtle: birch-white bark this is not
+    weather = curve(blotch, 0.52, 0.90) * (0.40 + 0.60 * crown)
+    albedo = overlay(albedo, (0.40, 0.395, 0.375), weather * 0.30)
+    # lichen, sparse, crowns only
+    moss = curve(blotch, 0.76, 0.97) * np.clip(crown - fissure * 2.0, 0, 1) * 0.30
+    albedo = overlay(albedo, (0.29, 0.33, 0.235), moss)
+    # surface grit so a lit trunk is not smooth marble
+    albedo *= (0.82 + 0.34 * grit)[..., None]
+    # vertical fibre running through the plates: the strongest "this is wood" cue
+    fibre = anisotropic(h, w, 620, 22, seed=38)
+    albedo *= (0.84 + 0.30 * fibre)[..., None]
+    albedo *= (0.90 + 0.20 * fine)[..., None]
+    albedo *= (0.94 + 0.12 * blotch)[..., None]
 
-    # lichen / moss patches on the ridges
-    moss = curve(blotch, 0.55, 0.78) * np.clip(height, 0, 1) * 0.55
-    albedo = overlay(albedo, (0.26, 0.30, 0.20), moss)
-    # grey weathering
-    weather = curve(blotch, 0.6, 0.9) * 0.25
-    albedo = overlay(albedo, (0.42, 0.41, 0.39), weather)
-
-    # roughness: smooth-ish ridges, very rough furrows, moss is matte
-    rough = 1.0 - (height * 0.30) - moss * 0.05 + grain2 * 0.05
-    rough = np.clip(rough, 0.62, 1.0)
+    rough = np.clip(0.99 - crown * 0.16 + grit * 0.06 - fine * 0.04, 0.66, 1.0)
 
     save_rgb(albedo * 255, "bark_albedo.png")
-    Image.fromarray(normal_map(height, strength=6.0), "RGB").save(
+    Image.fromarray(normal_map(height, strength=7.0), "RGB").save(
         os.path.join(TEX, "bark_normal.png"), optimize=True)
     print("  texture: bark_normal.png")
     save_gray(rough, "bark_rough.png")

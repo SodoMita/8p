@@ -177,7 +177,10 @@ func _make_materials() -> void:
 	# steep (18 deg mean tilt), so at grazing angles a lit trunk used to fall to
 	# nothing but a few highlights. Lift the albedo, soften the relief and use a
 	# wrapped diffuse term so the terminator does not go black.
-	_mats["bark"] = _pbr("bark", 1.0, 1.0, 0.75)
+	# 0.62 uv scale: the plate grid is ~8 across a texture repeat, so at 1.0 the
+	# plates came out about 12 cm wide on a 40 cm trunk and read as scales rather
+	# than bark. Stretching the repeat makes each plate a hand's width.
+	_mats["bark"] = _pbr("bark", 0.62, 1.0, 0.75)
 	_mats["bark"].albedo_color = Color(1.55, 1.50, 1.42)
 	_mats["bark"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
 	_mats["bark_coll"] = _mats["bark"]
@@ -192,7 +195,7 @@ func _make_materials() -> void:
 	_mats["metal"] = _weathered_metal(Color(0.19, 0.23, 0.20), 0.46)
 	_mats["rust"] = _weathered_metal(Color(0.22, 0.18, 0.14), 0.78)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
-	_mats["wood"] = _pbr("bark", 1.0, 1.0, 0.65)
+	_mats["wood"] = _pbr("bark", 0.75, 1.0, 0.65)
 	_mats["wood"].albedo_color = Color(1.42, 1.38, 1.31)
 	_mats["wood"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
 	# approved pumpkin rind from the restore branch (its own shader material)
