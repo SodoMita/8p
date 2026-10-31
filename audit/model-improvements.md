@@ -25,3 +25,11 @@ xvfb-run -a godot --path . --rendering-method gl_compatibility --audio-driver Du
 ```
 
 OpenCode: `opencode/glm-5.3-flash-free` stalled after reading; retried successfully with `opencode/big-pickle`, restricted to model helpers in `scripts/slender.gd`. Reviewed and refined the generated code locally. Camera, HUD, player controller and game rules untouched.
+
+## Pumpkin / concrete follow-up
+- Three pumpkin variants rebuilt at 24 axial rings / 72 radial segments. Smooth analytical profile with numerical-derivative normals, deeper narrow ribs, closed flat base, sunken stem socket and tapered curved stem.
+- Vertex alpha selects rind vs woody stem inside one opaque shader/material. Mottling, rib shading, soil at the base and variable roughness; explicit outward shader normals preserve lighting with double-sided rendering and existing baked-mesh winding convention.
+- Concrete no longer reuses the natural stone material: world-space aggregate, pores, narrow cracks, formwork joints, rain streaks, ground damp and moss. Shader authored by OpenCode big-pickle, reviewed and GL-compiled locally; made double-sided.
+- Concrete boxes have actual 44-triangle chamfered silhouettes (faces/edge strips/corner facets), original simple box collision retained. No random-number consumption or layout changes.
+- Both new shaders are double-sided. This follow-up does not attempt the channel's broader all-materials/input requests, which belong to other agents.
+- Validation: structural mesh checks zero failures, gameplay suite 29/29, actual GL close-ups in screenshots/models/pumpkins.png and concrete.png. Godot 4.5.1 / llvmpipe. Same pre-existing exit resource warning. Mobile performance and exports not measured.

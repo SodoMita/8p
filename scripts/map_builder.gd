@@ -113,12 +113,12 @@ func _make_materials() -> void:
 	_mats["bark_coll"] = _mats["bark"]
 	_mats["ground"] = _pbr("ground", 26.0, 1.0, 1.0)
 	_mats["stone"] = _pbr("stone", 1.6, 0.95, 1.0)
-	_mats["concrete"] = _pbr("stone", 1.45, 1.0, 0.85)
+	_mats["concrete"] = _procedural_surface("weathered_concrete")
 	_mats["metal"] = _weathered_metal(Color(0.19, 0.23, 0.20), 0.46)
 	_mats["rust"] = _weathered_metal(Color(0.22, 0.18, 0.14), 0.78)
 	_mats["dark"] = _flat(Color(0.022, 0.022, 0.025), 0.95, 0.0)
 	_mats["wood"] = _pbr("bark", 1.0, 1.0, 1.0)
-	_mats["pumpkin"] = _pbr("pumpkin", 1.0, 1.0, 1.35)
+	_mats["pumpkin"] = _procedural_surface("pumpkin_skin")
 	_mats["lamp"] = _flat(Color(0.42, 0.39, 0.28), 0.24, 0.15)
 	_mats["fabric"] = _flat(Color(0.16, 0.15, 0.13), 1.0, 0.0)
 
@@ -146,6 +146,75 @@ func _make_materials() -> void:
 
 	for key in ["bark", "wood"]:
 		_mats[key].vertex_color_use_as_albedo = true
+
+
+func _procedural_surface(shader_name: String) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://shaders/%s.gdshader" % shader_name)
+	return mat
+
+
+func _chamfered_concrete(size: Vector3, pos: Vector3) -> ArrayMesh:
+	# Real edge geometry catches the flashlight; collision remains a simple box.
+	var h := size * 0.5
+	var bevel := minf(minf(size.x, size.y), size.z) * 0.18
+	bevel = minf(bevel, 0.065) * (0.8 + 0.2 * sin(pos.x * 7.1 + pos.z * 3.9))
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for axis in 3:
+		var u := (axis + 1) % 3
+		var v := (axis + 2) % 3
+		for side in [-1.0, 1.0]:
+			var points: Array[Vector3] = []
+			for corner in [Vector2(-1,-1), Vector2(1,-1), Vector2(1,1), Vector2(-1,1)]:
+				var p := Vector3.ZERO
+				p[axis] = h[axis] * side
+				p[u] = (h[u] - bevel) * corner.x
+				p[v] = (h[v] - bevel) * corner.y
+				points.append(p)
+			var n := Vector3.ZERO
+			n[axis] = side
+			_concrete_face(st, points, n)
+	# Twelve bevel strips, then eight triangular corner chips.
+	for axis in 3:
+		var u := (axis + 1) % 3
+		var v := (axis + 2) % 3
+		for su in [-1.0, 1.0]:
+			for sv in [-1.0, 1.0]:
+				var points: Array[Vector3] = []
+				for c in [Vector2(-1,0), Vector2(1,0), Vector2(1,1), Vector2(-1,1)]:
+					var p := Vector3.ZERO
+					p[axis] = (h[axis] - bevel) * c.x
+					p[u] = (h[u] - bevel * c.y) * su
+					p[v] = (h[v] - bevel * (1.0 - c.y)) * sv
+					points.append(p)
+				var n := Vector3.ZERO
+				n[u] = su
+				n[v] = sv
+				_concrete_face(st, points, n.normalized())
+	for x in [-1.0, 1.0]:
+		for y in [-1.0, 1.0]:
+			for z in [-1.0, 1.0]:
+				var sign_vec := Vector3(x,y,z)
+				var points: Array[Vector3] = []
+				for axis in 3:
+					var p := (h - Vector3.ONE * bevel) * sign_vec
+					p[axis] = h[axis] * sign_vec[axis]
+					points.append(p)
+				_concrete_face(st, points, sign_vec.normalized())
+	st.index()
+	return st.commit()
+
+
+func _concrete_face(st: SurfaceTool, points: Array[Vector3], n: Vector3) -> void:
+	for i in range(1, points.size() - 1):
+		var tri := [points[0], points[i], points[i + 1]]
+		if (tri[1] - tri[0]).cross(tri[2] - tri[0]).dot(n) > 0.0:
+			tri.reverse()
+		for p in tri:
+			st.set_normal(n)
+			st.set_uv(Vector2(p.x + p.z, p.y))
+			st.add_vertex(p)
 
 
 func _weathered_metal(paint: Color, corrosion: float) -> ShaderMaterial:
@@ -313,7 +382,7 @@ func _box(xf: Transform3D, pos: Vector3, size: Vector3, mat: Material, rot := Ve
 	var mi := MeshInstance3D.new()
 	var box := BoxMesh.new()
 	box.size = size
-	mi.mesh = box
+	mi.mesh = _chamfered_concrete(size, pos) if mat == _mats.get("concrete") else box
 	mi.material_override = mat
 	root.add_child(mi)
 	if collide:
