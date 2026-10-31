@@ -128,7 +128,7 @@ func _process(delta: float) -> void:
 
 	# Visual-only animation: root movement, AI and head targeting stay unchanged.
 	if visible and not dead:
-		_animation.advance(delta, mode == Mode.CHASE, visible_now, enraged)
+		_animation.advance_root(delta, mode == Mode.CHASE, visible_now, enraged, global_transform)
 	_was_visible = visible_now
 
 
@@ -167,6 +167,7 @@ func _begin_apparition() -> void:
 		cooldown = 3.0
 		return
 	global_position = spot
+	_animation.reset_pose()
 	visible = true
 	mode = Mode.APPARITION
 	apparition_time = 0.0
@@ -189,6 +190,7 @@ func _begin_chase() -> void:
 
 func _vanish(cd: float) -> void:
 	visible = false
+	_animation.reset_pose()
 	mode = Mode.HIDDEN
 	cooldown = cd
 	seen_time = 0.0
@@ -294,6 +296,7 @@ func force_apparition_in_front(distance := 18.0) -> void:
 	fwd.y = 0.0
 	var p := player.global_position + fwd.normalized() * distance
 	global_position = Vector3(p.x, 0, p.z)
+	_animation.reset_pose()
 	visible = true
 	mode = Mode.APPARITION
 	apparition_time = 0.0

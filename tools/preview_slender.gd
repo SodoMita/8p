@@ -48,18 +48,28 @@ func _run() -> void:
 	stage.add_child(cam)
 	cam.position = Vector3(1.6, 2.1, 7.0) if view == "front" else Vector3(-2.6, 2.2, -6.8)
 	cam.look_at(Vector3(0, 1.9, 0))
+	if view == "side":
+		cam.position = Vector3(6.8, 2.2, 2.5)
+		cam.look_at(Vector3(0, 1.9, 0))
+	if view == "tie":
+		cam.position = Vector3(0.65, 2.94, 2.3)
+		cam.look_at(Vector3(0, 2.78, 0))
 	cam.fov = 38
 	cam.current = true
 	if animate:
 		DirAccess.make_dir_recursive_absolute("res://screenshots/animation_frames")
-		for i in 144:
-			var chasing := i >= 72
-			var watched := i >= 36 and i < 72
-			sl._animation.advance(1.0 / 24.0, chasing, watched, chasing)
+		for i in 216:
+			var chasing := i >= 36 and i < 156
+			var speed := 0.0
+			if i >= 36 and i < 60: speed = float(i - 36) / 24.0 * 3.0
+			elif i >= 60 and i < 132: speed = 3.0
+			elif i >= 132 and i < 156: speed = float(156 - i) / 24.0 * 3.0
+			var turn := 1.4 if i >= 84 and i < 108 else 0.0
+			sl._animation.advance(1.0 / 24.0, chasing, false, chasing, Vector3(0, 0, speed), turn)
 			await process_frame
 			await RenderingServer.frame_post_draw
 			root.get_texture().get_image().save_png("res://screenshots/animation_frames/%03d.png" % i)
-		print("[preview] captured 144 animation frames")
+		print("[preview] captured 216 procedural animation frames")
 	for i in 12: await process_frame
 	await RenderingServer.frame_post_draw
 	var path := "res://screenshots/slender_%s_%s.png" % [label, view]

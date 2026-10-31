@@ -130,15 +130,23 @@ func _body() -> void:
 	# Structured shoulders, a high waist and a slightly flared long jacket hem.
 	_loft(0, [Vector4(0, 1.04, 0.153, 1), Vector4(0, 1.09, 0.166, 1), Vector4(0, 1.4, 0.15, 1), Vector4(0, 1.66, 0.137, 1), Vector4(0, 1.9, 0.174, 1), Vector4(0, 2.13, 0.232, 0.84), Vector4(0, 2.22, 0.21, 0.82), Vector4(0, 2.26, 0.085, 1)], 0.74)
 	# White shirt inset and pointed collar, not a floating rectangular tie.
-	_panel(2, [Vector3(-0.087, 2.245, 0.135), Vector3(0.087, 2.245, 0.135), Vector3(0.026, 1.86, 0.145), Vector3(-0.026, 1.86, 0.145)])
+	_panel(2, [Vector3(-0.087, 2.245, 0.158), Vector3(0.087, 2.245, 0.158), Vector3(0.026, 1.86, 0.158), Vector3(-0.026, 1.86, 0.158)])
 	_loft(2, [Vector4(0, 2.225, 0.074, 1), Vector4(0, 2.3, 0.067, 1)], 0.9)
 	for side in [-1.0, 1.0]:
-		_panel(2, [Vector3(0.012 * side, 2.267, 0.11), Vector3(0.082 * side, 2.263, 0.108), Vector3(0.066 * side, 2.145, 0.147)])
+		_panel(2, [Vector3(0.012 * side, 2.267, 0.176), Vector3(0.082 * side, 2.263, 0.176), Vector3(0.066 * side, 2.145, 0.18)])
 		_panel(1, [Vector3(0.092 * side, 2.243, 0.145), Vector3(0.193 * side, 2.158, 0.172), Vector3(0.131 * side, 2.09, 0.172), Vector3(0.157 * side, 2.043, 0.168), Vector3(0.025 * side, 1.838, 0.15)])
 		# Welt pocket and jacket seam, restrained rather than noisy decoration.
 		_panel(1, [Vector3(0.067 * side, 1.46, 0.112), Vector3(0.136 * side, 1.48, 0.084), Vector3(0.137 * side, 1.463, 0.085), Vector3(0.068 * side, 1.444, 0.113)])
-	_panel(1, [Vector3(0, 2.233, 0.143), Vector3(0.027, 2.202, 0.153), Vector3(0, 2.166, 0.16), Vector3(-0.027, 2.202, 0.153)])
-	_panel(1, [Vector3(-0.013, 2.176, 0.156), Vector3(0.014, 2.176, 0.156), Vector3(0.031, 1.928, 0.151), Vector3(0, 1.88, 0.153), Vector3(-0.031, 1.928, 0.151)])
+	_panel(1, [Vector3(0, 2.233, 0.187), Vector3(0.027, 2.202, 0.194), Vector3(0, 2.166, 0.195), Vector3(-0.027, 2.202, 0.194)])
+	# Segmented blade, pinned under the knot; GPU follows the constrained chain.
+	_region = 8
+	for i in 4:
+		var top_y := 2.176 - float(i) * 0.074
+		var bottom_y := top_y - 0.074
+		var top_w := 0.014 + float(i) * 0.005
+		var bottom_w := 0.014 + float(i + 1) * 0.005 if i < 3 else 0.0005
+		_panel(1, [Vector3(-top_w, top_y, 0.185), Vector3(top_w, top_y, 0.185), Vector3(bottom_w, bottom_y, 0.185), Vector3(-bottom_w, bottom_y, 0.185)])
+	_region = 0
 	_tube(3, [Vector3(0, 2.27, 0), Vector3(0, 2.39, 0.005)], [0.057, 0.062], 16)
 	_region = 1
 	# Egg-shaped skull: narrower chin, broad cranium. Deliberately no facial features.
