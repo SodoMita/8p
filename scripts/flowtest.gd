@@ -53,26 +53,30 @@ func _run() -> void:
 	var resumed_ok: bool = not get_tree().paused
 	print("[flow] pause=", paused_ok, " resume=", resumed_ok)
 
-	var p: Node3D = world.player
+	var p: CharacterBody3D = world.player
 
 	# a page must NOT be collectable while the pause menu is open
 	var paused_pickup_ok := false
 	if world.pages.size() > 0:
 		var t0: Vector3 = (world.pages[0]["node"] as Node3D).global_position
-		# stand inside interact range but outside the auto-pickup radius
-		p.global_position = Vector3(t0.x, 0.15, t0.z + 2.35)
+		var n0: Vector3 = world.pages[0]["normal"]
+		# stand close enough to pull the pin, but do not depend on auto-pickup
+		p.global_position = Vector3(t0.x + n0.x * 1.5, 0.15, t0.z + n0.z * 1.5)
+		p.velocity = Vector3.ZERO
 		await _wait(0.5)
 		print("[flow] near_page=", world.near_page, " collected=", Game.pages_collected)
 		world._toggle_pause()
 		await _wait(0.4)
 		world.try_pickup(p)
-		paused_pickup_ok = Game.pages_collected == 0 and world.near_page >= 0
+		paused_pickup_ok = Game.pages_collected == 0 and world.near_page >= 0 \
+			and (world.pages[0]["cloth"] as Node3D).is_pinned()
 		world._resume()
 		await _wait(0.3)
 	print("[flow] pickup blocked while paused=", paused_pickup_ok)
 
 	# walk a few metres with the touch API, then check pages counter updates
 	p.global_position = Vector3(0, 0.2, 0)
+	p.velocity = Vector3.ZERO
 	p.rotation.y = 0.0
 	await _wait(0.3)
 	var start: Vector3 = p.global_position
@@ -87,8 +91,13 @@ func _run() -> void:
 	var page_ok := false
 	if world.pages.size() > 0:
 		var t: Vector3 = (world.pages[0]["node"] as Node3D).global_position
-		p.global_position = Vector3(t.x, 0.15, t.z + 1.0)
-		await _wait(0.6)
+		var n: Vector3 = world.pages[0]["normal"]
+		p.global_position = Vector3(t.x + n.x * 1.2, 0.15, t.z + n.z * 1.2)
+		await _wait(0.5)
+		world.try_pickup(p) # pull the real pin
+		await _wait(0.25)
+		world.try_pickup(p) # take the loose page
+		await _wait(0.2)
 		page_ok = Game.pages_collected == 1
 		await _shot("first_page")
 	print("[flow] first page collected=", page_ok)

@@ -2,7 +2,6 @@ extends Node3D
 ## The run: builds the forest, spawns the eight pages, drives Slender,
 ## static/heartbeat feedback and the win/lose flow.
 
-const PICKUP_RADIUS := 1.9
 const INTERACT_RADIUS := 2.8
 
 const PAGE_NOTES := [
@@ -26,7 +25,6 @@ var pages: Array[Dictionary] = []
 var near_page := -1
 var world_seed := 0
 var touch_ui: Node = null
-var autotest_no_pickup := false
 
 var _ended := false
 var _paused := false
@@ -34,6 +32,7 @@ var _start_grace := 0.0
 var _autotest: Node = null
 var _toast_shown := false
 var _objective_stage := 0
+var _page_mesh_faces: Dictionary = {}
 
 
 func _ready() -> void:
@@ -41,11 +40,17 @@ func _ready() -> void:
 	world_seed = randi()
 	if Game.autotest:
 		world_seed = 20261030
+		# --seed=N lets a run be reproduced (and lets the page-anchor check be
+		# swept across layouts instead of trusted on a single lucky seed)
+		for a in OS.get_cmdline_user_args():
+			if a.begins_with("--seed="):
+				world_seed = int(a.get_slice("=", 1))
 	_setup_environment()
 	_setup_moon()
 	map_builder.build(world_seed, Game.quality)
 	_setup_terrain()
-	_spawn_pages()
+	# pages resolve their anchor against live collision, so this waits a physics frame
+	await _spawn_pages()
 	player.global_position = Vector3(0, 0.15, 2.0)
 	player.rotation.y = 0.0
 	# the camera rig was built during scene load, before the player was placed:
@@ -165,8 +170,254 @@ func _setup_moon() -> void:
 	add_child(moon)
 
 
+## Support methods for resolving page nails against actual rendered mesh and
+## physics collision. Landmark coordinates are only search hints: randomized
+## dimensions can put a hint in air, and a collider alone is insufficient if no
+## rendered surface exists at the point.
+func _collect_anchor_meshes(node: Node, out: Array) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D and child.mesh != null:
+			out.append(child)
+		_collect_anchor_meshes(child, out)
+
+
+func _mesh_faces(mesh: Mesh) -> PackedVector3Array:
+	var key: int = mesh.get_instance_id()
+	if _page_mesh_faces.has(key):
+		return _page_mesh_faces[key]
+	var faces: PackedVector3Array = mesh.get_faces()
+	_page_mesh_faces[key] = faces
+	return faces
+
+
+## Match a collision ray to the visible triangle on the same body. The returned
+## point and normal are from the rendered mesh, not an authored hint or an
+## oversized primitive collider.
+func _visible_anchor_surface(collider: Object, from: Vector3, to: Vector3,
+		collision_point: Vector3, collision_normal: Vector3) -> Dictionary:
+	if not collider is Node:
+		return {}
+	# Most landmark props keep their mesh under the StaticBody. The labyrinth is
+	# intentionally batched, however, so its collision body and visible mesh are
+	# siblings under MapBuilder. Search the collider's owner-level subtree and use
+	# a segment/AABB broad phase before looking at any triangles.
+	var root: Node = collider as Node
+	if root.get_parent() != null:
+		root = root.get_parent()
+	var meshes: Array = []
+	_collect_anchor_meshes(root, meshes)
+	var seg_min := Vector3(minf(from.x, to.x), minf(from.y, to.y), minf(from.z, to.z))
+	var seg_max := Vector3(maxf(from.x, to.x), maxf(from.y, to.y), maxf(from.z, to.z))
+	var seg_box := AABB(seg_min, seg_max - seg_min).grow(0.02)
+	var best: Dictionary = {}
+	var best_error := 1e9
+	for mi in meshes:
+		var mesh: Mesh = mi.mesh
+		var local_aabb: AABB = mi.get_aabb()
+		var minp := Vector3.ZERO
+		var maxp := Vector3.ZERO
+		for corner_i in 8:
+			var corner := Vector3(
+				local_aabb.position.x + local_aabb.size.x * float(corner_i & 1),
+				local_aabb.position.y + local_aabb.size.y * float((corner_i >> 1) & 1),
+				local_aabb.position.z + local_aabb.size.z * float((corner_i >> 2) & 1))
+			var wp: Vector3 = mi.global_transform * corner
+			if corner_i == 0:
+				minp = wp
+				maxp = wp
+			else:
+				minp = minp.min(wp)
+				maxp = maxp.max(wp)
+		var world_aabb := AABB(minp, maxp - minp)
+		if not world_aabb.intersects(seg_box):
+			continue
+		var faces := _mesh_faces(mesh)
+		if faces.size() < 3:
+			continue
+		var mesh_xf: Transform3D = mi.global_transform
+		var inv := mesh_xf.affine_inverse()
+		var local_from: Vector3 = inv * from
+		var local_to: Vector3 = inv * to
+		for fi in range(0, faces.size() - 2, 3):
+			var a: Vector3 = faces[fi]
+			var b: Vector3 = faces[fi + 1]
+			var c: Vector3 = faces[fi + 2]
+			var local_hit: Variant = Geometry3D.segment_intersects_triangle(local_from, local_to, a, b, c)
+			if not local_hit is Vector3:
+				continue
+			var world_hit: Vector3 = mesh_xf * (local_hit as Vector3)
+			var error: float = world_hit.distance_to(collision_point)
+			# Chamfered blocks intentionally have a little collider/mesh offset;
+			# still reject surfaces whose rendered skin is materially elsewhere.
+			if error > 0.16 or error >= best_error:
+				continue
+			var local_n := (b - a).cross(c - a).normalized()
+			if local_n.length_squared() < 0.5:
+				continue
+			var world_n: Vector3 = (mesh_xf.basis.inverse().transposed() * local_n).normalized()
+			if world_n.dot(collision_normal) < 0.0:
+				world_n = -world_n
+			if world_n.dot(collision_normal) < 0.65:
+				continue
+			best_error = error
+			best = {"pos": world_hit, "normal": world_n, "body": collider,
+				"collision_pos": collision_point, "mesh": mi}
+	return best
+
+
+func _anchor_ray(space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3,
+		required_body: Object = null) -> Dictionary:
+	var q := PhysicsRayQueryParameters3D.create(from, to, 1)
+	var hit := space.intersect_ray(q)
+	if hit.is_empty():
+		return {}
+	var body: Object = hit.get("collider")
+	if required_body != null and body != required_body:
+		return {}
+	return _visible_anchor_surface(body, from, to, hit["position"], hit["normal"])
+
+
+## Is there space for the player's actual capsule in front of this surface?
+func _stand_room(space: PhysicsDirectSpaceState3D, p: Vector3, n: Vector3) -> bool:
+	var stand := p + n * 1.1
+	stand.y = 0.0
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.3
+	cap.height = 1.6
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = cap
+	q.collision_mask = 1
+	q.transform = Transform3D(Basis(), stand + Vector3(0, 0.95, 0))
+	return space.intersect_shape(q, 1).is_empty()
+
+
+## A long candidate ray can hit a different overlapping box of the same landmark.
+## Recast through the candidate itself and require the first real collision to
+## belong to the visible point we chose, not merely to some nearby part of the
+## same StaticBody3D.
+func _anchor_contacts_exactly(space: PhysicsDirectSpaceState3D, candidate: Dictionary) -> bool:
+	var p: Vector3 = candidate["pos"]
+	var n: Vector3 = (candidate["normal"] as Vector3).normalized()
+	var body: Object = candidate["body"]
+	var from: Vector3 = p + n * 0.30
+	var to: Vector3 = p - n * 0.30
+	var q := PhysicsRayQueryParameters3D.create(from, to, 1)
+	var hit := space.intersect_ray(q)
+	if hit.is_empty() or hit.get("collider") != body:
+		return false
+	var visual: Dictionary = _visible_anchor_surface(body, from, to, hit["position"], hit["normal"])
+	return not visual.is_empty() and (visual["pos"] as Vector3).distance_to(p) <= 0.08
+
+
+## Surface placement is a physics operation: cast against the current scene,
+## match that hit to actual visible triangles, and choose an accessible point on
+## the same physical object. If no visible surface with collision can be found,
+## return `anchored=false`; the page is then loose and receives no fake pin.
+func _resolve_anchor(authored: Vector3, normal: Vector3) -> Dictionary:
+	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
+	var n := normal.normalized()
+	var h_target: float = clampf(authored.y, 1.30, 1.65)
+	var center := Vector3(authored.x, h_target, authored.z)
+	var primary := _anchor_ray(space, center + n * 1.5, center - n * 1.0)
+	var preferred_body: Object = primary.get("body")
+	var candidates: Array[Dictionary] = []
+	if not primary.is_empty():
+		candidates.append(primary)
+
+	# Sweep the actual surface in tangent/height space. This is needed when the
+	# authored point lands on a prop edge, or the nearest standing position is
+	# blocked by a tree. Every candidate still has to ray-hit collision AND a
+	# rendered triangle on the same object.
+	var tangent := Vector3(n.z, 0.0, -n.x).normalized()
+	if tangent.length_squared() < 0.5:
+		tangent = Vector3.RIGHT
+	var offsets := [-1.2, -0.8, -0.4, 0.4, 0.8, 1.2]
+	for yoff in [-0.25, 0.0, 0.25]:
+		for along in offsets:
+			var probe: Vector3 = center + tangent * along + Vector3.UP * yoff
+			var c := _anchor_ray(space, probe + n * 1.5, probe - n * 1.0, preferred_body)
+			if not c.is_empty():
+				candidates.append(c)
+
+	# Curved shells and irregular ruins need a radial sweep too. Prefer the
+	# original collider first; the second pass can use any nearby visible surface
+	# only when the landmark's own surface is physically inaccessible.
+	for ring in [0.45, 0.9, 1.4, 2.0, 2.7]:
+		for k in 16:
+			var a := TAU * float(k) / 16.0
+			var d := Vector3(cos(a), 0.0, sin(a))
+			var probe: Vector3 = center + d * ring
+			var c := _anchor_ray(space, probe + d * 1.5, probe - d * 1.0, preferred_body)
+			if not c.is_empty():
+				candidates.append(c)
+
+	# Deduplicate and choose the nearest candidate with genuine player clearance.
+	var best: Dictionary = {}
+	var best_d := 1e9
+	var seen: Array[Vector3] = []
+	for c in candidates:
+		var p: Vector3 = c["pos"]
+		var cn: Vector3 = (c["normal"] as Vector3).normalized()
+		if cn.y > 0.62 or cn.y < -0.35:
+			continue
+		var duplicate := false
+		for prior in seen:
+			if p.distance_to(prior) < 0.08:
+				duplicate = true
+				break
+		if duplicate:
+			continue
+		seen.append(p)
+		if not _anchor_contacts_exactly(space, c):
+			continue
+		if not _stand_room(space, p, cn):
+			continue
+		var d2: float = p.distance_to(authored)
+		if d2 < best_d:
+			best_d = d2
+			best = c
+	if not best.is_empty():
+		best["anchored"] = true
+		return best
+
+	# Last chance: search nearby real geometry without insisting on the first
+	# body. Do not turn an inaccessible hint into a fake pin; if this also fails,
+	# the page is spawned loose and the cloth is free to move.
+	if preferred_body != null:
+		var free_body_candidates: Array[Dictionary] = []
+		for ring in [0.8, 1.6, 2.4, 3.2]:
+			for k in 24:
+				var a := TAU * float(k) / 24.0
+				var d := Vector3(cos(a), 0.0, sin(a))
+				var probe: Vector3 = center + d * ring
+				var c := _anchor_ray(space, probe + d * 1.6, probe - d * 1.0)
+				if not c.is_empty():
+					free_body_candidates.append(c)
+		var fallback: Dictionary = {}
+		var fallback_d := 1e9
+		for c in free_body_candidates:
+			var p: Vector3 = c["pos"]
+			var cn: Vector3 = (c["normal"] as Vector3).normalized()
+			if absf(cn.y) > 0.62 or not _anchor_contacts_exactly(space, c) or not _stand_room(space, p, cn):
+				continue
+			var d2: float = p.distance_to(authored)
+			if d2 < fallback_d:
+				fallback_d = d2
+				fallback = c
+		if not fallback.is_empty():
+			fallback["anchored"] = true
+			fallback["fallback_surface"] = true
+			return fallback
+
+	return {"pos": authored + n * 1.5, "normal": n, "body": null, "anchored": false}
+
+
 func _spawn_pages() -> void:
 	var spots: Array = map_builder.page_spots
+	# PhysicsServer registers the thousands of tree/prop/map colliders at the end
+	# of a step; wait two full steps before choosing a physical nail point.
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 	var note_order := range(spots.size())
 	var nrng := Game.rng()
 	for i in range(note_order.size() - 1, 0, -1):
@@ -181,18 +432,33 @@ func _spawn_pages() -> void:
 		var note: String = PAGE_NOTES[note_index % PAGE_NOTES.size()]
 		var root := Node3D.new()
 		root.name = "Page_%d" % i
-		# Pin it to the surface the landmark reported: the spot is a point on
-		# that surface and `normal` points out of it. The sheet hangs off the
-		# nail from its top edge, so the node sits at nail height.
-		var pos: Vector3 = spot["pos"]
-		var n: Vector3 = spot.get("normal", Vector3(0, 0, 1))
-		n = n.normalized()
-		var basis := Basis(Vector3.UP, atan2(n.x, n.z))
-		root.transform = Transform3D(basis, pos + n * 0.035)
+		# A pin is spawned only after the hint has been resolved to a real rendered
+		# triangle and the same surface's physics collider, with standing clearance.
+		# `pos` is that exact visible contact point; the physical nail enters it.
+		var authored: Vector3 = spot["pos"]
+		var hint_n: Vector3 = spot.get("normal", Vector3(0, 0, 1))
+		var anchor := _resolve_anchor(authored, hint_n)
+		var pos: Vector3 = anchor["pos"]
+		var n: Vector3 = (anchor["normal"] as Vector3).normalized()
+		if not anchor["anchored"]:
+			push_warning("page %d (%s): no surface found near %s - it is not attached"
+				% [i, spot["name"], authored])
+		# Construct a full surface frame: local +Z is the actual mesh normal, and
+		# local +Y is world-up projected onto the surface. The origin is the actual
+		# visual/collision contact point; no guessed 3.5 cm air gap.
+		var z_axis := n
+		var x_axis := Vector3.UP.cross(z_axis).normalized()
+		if x_axis.length_squared() < 0.5:
+			x_axis = Vector3.RIGHT
+		var y_axis := z_axis.cross(x_axis).normalized()
+		var basis := Basis(x_axis, y_axis, z_axis).orthonormalized()
+		root.transform = Transform3D(basis, pos)
 		var sheet: Node3D = cloth_script.new()
 		sheet.name = "Sheet"
 		sheet.set("hang_phase", randf() * TAU)
 		sheet.set("note_index", (note_index % PAGE_NOTES.size()) + 1)
+		sheet.set("pin_at_spawn", bool(anchor["anchored"]))
+		sheet.set("floor_height", 0.0)
 		root.add_child(sheet)
 		add_child(root)
 		pages.append({
@@ -202,6 +468,10 @@ func _spawn_pages() -> void:
 			"normal": n,
 			"landmark": spot["name"],
 			"taken": false,
+			"anchored": anchor["anchored"],
+			"anchor_pos": pos,
+			"anchor_body": anchor.get("body"),
+			"anchor_mesh": anchor.get("mesh"),
 			"phase": randf() * TAU,
 		})
 
@@ -222,28 +492,36 @@ func _process(delta: float) -> void:
 		hud.show_toast("FIND THE EIGHT PAGES  —  DO NOT STARE AT HIM", 5.0)
 
 
-func _update_pages(delta: float) -> void:
+func _update_pages(_delta: float) -> void:
 	near_page = -1
-	var best := 999.0
+	var best := INF
 	for i in pages.size():
 		var p: Dictionary = pages[i]
 		if p["taken"]:
 			continue
-		var node: Node3D = p["node"]
-		var d := player.global_position.distance_to(node.global_position + Vector3(0, -0.29, 0))
-		if d < PICKUP_RADIUS and not autotest_no_pickup:
-			_collect(i)
-			return
+		var sheet: Node3D = p.get("cloth")
+		var center: Vector3 = sheet.world_center() if sheet != null and sheet.has_method("world_center") 			else (p["node"] as Node3D).global_position
+		var d := player.global_position.distance_to(center)
+		# A nailed page is never silently collected on proximity: the player first
+		# has to pull the visible nail, then explicitly take the loose sheet.
 		if d < INTERACT_RADIUS and d < best:
 			best = d
 			near_page = i
 	var prompt := ""
+	var touch_action := "TAKE"
 	if near_page >= 0:
-		prompt = "TAP  TAKE" if Game.touch_mode else "E  —  TAKE PAGE"
-	hud.show_prompt(prompt)
+		var page_sheet: Node3D = pages[near_page].get("cloth")
+		var pinned: bool = page_sheet != null and page_sheet.has_method("is_pinned") and page_sheet.is_pinned()
+		if pinned:
+			prompt = "TAP  UNPIN" if Game.touch_mode else "E  —  PULL THE PIN"
+			touch_action = "UNPIN"
+		else:
+			prompt = "TAP  TAKE" if Game.touch_mode else "E  —  TAKE PAGE"
+		hud.show_prompt(prompt)
+	else:
+		hud.show_prompt("")
 	if touch_ui != null:
-		touch_ui.set_pickup_available(near_page >= 0)
-
+		touch_ui.set_pickup_available(near_page >= 0, touch_action)
 
 func _update_feedback(delta: float) -> void:
 	var diff := Game.difficulty()
@@ -316,15 +594,28 @@ func _update_hud() -> void:
 # pages
 # --------------------------------------------------------------------------- #
 func try_pickup(_p: Node) -> void:
-	if _paused or _ended:
+	if _paused or _ended or near_page < 0:
 		return
-	if near_page >= 0:
-		_collect(near_page)
+	var page: Dictionary = pages[near_page]
+	var sheet: Node3D = page.get("cloth")
+	if sheet != null and sheet.has_method("is_pinned") and sheet.is_pinned():
+		# One press visibly pulls the real nail and frees the cloth. A second press
+		# takes the loose page; no proximity auto-pickup can skip the physical act.
+		sheet.unpin()
+		hud.show_toast("NAIL PULLED", 1.2)
+		_update_pages(0.0)
+		return
+	_collect(near_page)
 
 
 func pickup_page(index: int) -> void:
-	if index >= 0 and index < pages.size() and not pages[index]["taken"]:
-		_collect(index)
+	if index < 0 or index >= pages.size() or pages[index]["taken"]:
+		return
+	var sheet: Node3D = pages[index].get("cloth")
+	if sheet != null and sheet.has_method("is_pinned") and sheet.is_pinned():
+		sheet.unpin()
+		return
+	_collect(index)
 
 
 func _collect(i: int) -> void:
@@ -558,5 +849,6 @@ func page_positions() -> Array[Vector3]:
 	var out: Array[Vector3] = []
 	for p in pages:
 		if not p["taken"]:
-			out.append((p["node"] as Node3D).global_position)
+			var sheet: Node3D = p.get("cloth")
+			out.append(sheet.world_center() if sheet != null and sheet.has_method("world_center") 				else (p["node"] as Node3D).global_position)
 	return out

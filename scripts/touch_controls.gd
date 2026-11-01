@@ -24,6 +24,7 @@ var _look_last := Vector2.ZERO
 var _base_origin := Vector2.ZERO
 var _joy_vec := Vector2.ZERO
 var _pickup_available := false
+var _take_label: Label
 var _pulse := 0.0
 
 var _vp := Vector2(1280, 720)
@@ -46,7 +47,7 @@ func _build() -> void:
 	_light_btn = _circle(46, Color(1, 1, 1, 0.06), Color(1, 1, 1, 0.22))
 	_center_label("LIGHT", 14, _light_btn)
 	_take_btn = _circle(52, Color(1, 0.96, 0.85, 0.10), Color(1, 0.96, 0.85, 0.5))
-	_center_label("TAKE", 16, _take_btn)
+	_take_label = _center_label("TAKE", 16, _take_btn)
 	_take_btn.visible = false
 	for n in [_base, _knob, _run_btn, _light_btn, _take_btn]:
 		add_child(n)
@@ -108,9 +109,12 @@ func _home_stick() -> void:
 	_knob.position = _base.position + Vector2(JOY_RADIUS - KNOB_RADIUS, JOY_RADIUS - KNOB_RADIUS) * _s
 
 
-func set_pickup_available(v: bool) -> void:
+func set_pickup_available(v: bool, action := "TAKE") -> void:
 	_pickup_available = v
 	_take_btn.visible = v
+	if _take_label != null:
+		_take_label.text = action
+		_take_label.add_theme_font_size_override("font_size", 13 if action == "UNPIN" else 16)
 
 
 func set_player(p: Node) -> void:

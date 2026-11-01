@@ -1,6 +1,17 @@
-EIGHT PAGES 1.6.2
+EIGHT PAGES 1.6.3
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
+1.6.3 physical page pins (#55). A page is no longer pinned by a guessed landmark
+     coordinate. Each nail point is resolved by a real physics ray and matched to
+     a rendered triangle on the same collider; a second short ray verifies the
+     visible/collision contact and the player has room to stand in front. One
+     visible rigid-body nail passes through the cloth at the verified point. E
+     pulls the nail and releases the sheet into gravity/flutter; a second E takes
+     it. No surface found means no fake pin. The weathered rocks now use their
+     rendered mesh as the static collider so nails cannot hover over a cylinder
+     approximation. Selftest also frees its probe map before physics checks (the
+     queued duplicate colliders had been causing false blocked-page reports).
+     The suite is 71 world + 30 rig + 27 control checks.
 1.6.2 pointer owner + input rule (human #53/#54). The pointer is captured only
      while the run is live and no screen needs clicking: world._sync_pointer() is
      the only owner, hud.gd writes Game.ui_blocking when a pause or end screen
@@ -50,7 +61,7 @@ Godot 4.7.2 · GL Compatibility · GDScript
      already on main (5 batched surfaces, 2.26 m hips, IK deformation through
      slender_motion.gdshader). Its animation is the same algorithm already
      retargeted to anny; merging it would replace the reviewed asset work.
-     69 world + 30 rig + 27 control checks.
+     71 world + 30 rig + 27 control checks.
      Audio follows the labyrinth branch's second pass (cardiac heartbeat, granular
      leaf footsteps, loop-seam and DC fixes) plus tools/audio_audit.py, which
      exits non-zero if any cue is noisy, offset, clipped or clicks on wrap.

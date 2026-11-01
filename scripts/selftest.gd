@@ -8,6 +8,8 @@ extends Node
 var world: Node = null
 var passed := 0
 var failed := 0
+const PAGE_COLS := 7
+const PAGE_ROWS := 9
 
 
 func _ready() -> void:
@@ -116,6 +118,11 @@ func _run() -> void:
 		int(lab.get("shortest_path", -1)) >= 4 and int(lab.get("longest_path", -1)) >= 6,
 		"shortest=%d longest=%d" % [int(lab.get("shortest_path", -1)), int(lab.get("longest_path", -1))])
 	other.queue_free()
+	# queue_free is deferred. Without these boundaries the supposedly isolated
+	# second map still contributes its colliders to every following physics query,
+	# making the real page placements look blocked by duplicate landmarks.
+	await get_tree().process_frame
+	await get_tree().physics_frame
 
 	# verify Ogg Vorbis audio migration (all streams OGG, loop flags active, zero WAV files)
 	var ogg_ok := false
@@ -204,9 +211,21 @@ func _run() -> void:
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.3
 	cap.height = 1.6
-	for spot in world.map_builder.page_spots:
-		var sp: Vector3 = spot["pos"] + (spot.get("normal", Vector3(0, 0, 1)) as Vector3) * 1.1
+	# the page's ACTUAL anchor (resolved against real collision), not the authored
+	# hint: the hint is what the landmark guessed, the anchor is where the sheet
+	# ended up, and it is the anchor a player has to be able to walk up to
+	for pg in world.pages:
+		if not pg.has("anchor_pos"):
+			continue
+		var sheet: Node3D = pg.get("cloth")
+		var sp: Vector3
+		if sheet != null and sheet.has_method("is_pinned") and sheet.is_pinned():
+			sp = (pg["anchor_pos"] as Vector3) + (pg["normal"] as Vector3) * 1.1
+		else:
+			sp = sheet.world_center() if sheet != null and sheet.has_method("world_center") else (pg["node"] as Node3D).global_position
+			sp += Vector3.UP * 0.8
 		sp.y = 0.0
+		var spot := {"name": pg.get("landmark", "?")}
 		if Vector2(sp.x, sp.z).length() > world.map_builder.HALF - 2.0:
 			all_reachable = false
 			print("[selftest]   page spot outside the map at ", sp)
@@ -218,7 +237,7 @@ func _run() -> void:
 		var hits := stand_space.intersect_shape(qs, 1)
 		if hits.size() > 0:
 			all_reachable = false
-			print("[selftest]   nowhere to stand at ", sp, " for page ", spot.get("name", "?"), " pinned at ", spot["pos"])
+			print("[selftest]   nowhere to stand in front of page ", spot.get("name", "?"), " at ", sp)
 	check("pages_reachable", all_reachable)
 	var landmark_spread := _min_landmark_distance(world.map_builder)
 	# the algorithm targets >= 24 m centre-to-centre; 18 m still guarantees the
@@ -425,7 +444,6 @@ func _run() -> void:
 	var dark := cloth_ok
 	var texted := cloth_ok
 	var sags := cloth_ok
-	var anchored := cloth_ok
 	var space: PhysicsDirectSpaceState3D = world.get_world_3d().direct_space_state
 	for p in pages_list:
 		var sheet: Node3D = p.get("cloth")
@@ -438,25 +456,16 @@ func _run() -> void:
 			dark = false
 		if not sheet.note_is_visible():
 			texted = false
-		# the page must have a solid surface right behind it: shoot a short ray
-		# through the sheet and expect to hit the wall/panel it is nailed to
-		var node: Node3D = p["node"]
-		var nrm: Vector3 = p["normal"]
-		# start outside and cast in: a ray that begins inside the wall reports no
-		# hit at all, because only entry faces are detected
-		var from: Vector3 = node.global_position + nrm * 0.30
-		var to: Vector3 = node.global_position - nrm * 0.30
-		var q := PhysicsRayQueryParameters3D.create(from, to)
-		var hit := space.intersect_ray(q)
-		if hit.is_empty():
-			anchored = false
 		for k in 90:
 			sheet._simulate(1.0 / 60.0)
 		var after: PackedVector3Array = sheet.snapshot()
-		var top_y: float = after[0].y
-		var drop: float = top_y - after[63 - 1].y
+		# The actual physical nail is at the top-centre vertex, not the top-left
+		# corner. Measure the bottom-centre drop from that fixed point.
+		var nail_i: int = PAGE_COLS / 2
+		var bottom_i: int = (PAGE_ROWS - 1) * PAGE_COLS + nail_i
+		var drop: float = after[nail_i].y - after[bottom_i].y
 		# hangs at least 85% of its length below the nail, and stays finite
-		if drop < 0.49 or after[63 - 1].length() > 20.0:
+		if drop < 0.49 or after[bottom_i].length() > 20.0:
 			sags = false
 		for v in after:
 			if v.z < 0.005:
@@ -466,7 +475,72 @@ func _run() -> void:
 	check("pages_have_no_light", light_free)
 	check("pages_are_not_emissive", dark)
 	check("pages_show_their_note", texted)
-	check("pages_pinned_to_surface", anchored, "%d pages" % pages_list.size())
+	# A real pin must pass through a visible page into the same world collider at
+	# the actual rendered surface. Exclude the nail itself: counting its cylinder
+	# as the supporting wall would reproduce the old fake-positive bug.
+	var anchored_ok := true
+	var pins_ok := true
+	var worst_back := 0.0
+	var anchored_flags := 0
+	var pin_count := 0
+	var ps: PhysicsDirectSpaceState3D = world.get_world_3d().direct_space_state
+	for pg in world.pages:
+		if pg.get("taken", false):
+			continue
+		var sheet: Node3D = pg.get("cloth")
+		var has_anchor: bool = bool(pg.get("anchored", false))
+		var pin_rids: Array[RID] = sheet.pin_rids() if sheet != null and sheet.has_method("pin_rids") else []
+		if has_anchor:
+			anchored_flags += 1
+			pin_count += pin_rids.size()
+			if not sheet.is_pinned() or pin_rids.size() != 1:
+				pins_ok = false
+				print("[selftest]   page ", pg.get("landmark", "?"), " has no single physical nail")
+			var pin_node: RigidBody3D = sheet.get_node_or_null("PhysicalPageNail") as RigidBody3D
+			if pin_node == null or not pin_node.freeze or pin_node.global_position.distance_to(pg["anchor_pos"]) > 0.01:
+				pins_ok = false
+				print("[selftest]   page ", pg.get("landmark", "?"), " nail is missing, not fixed, or not at the contact")
+			if not (pg.get("anchor_mesh") is MeshInstance3D):
+				pins_ok = false
+				print("[selftest]   page ", pg.get("landmark", "?"), " has no visible host mesh")
+			var ap: Vector3 = pg["anchor_pos"]
+			var an: Vector3 = (pg["normal"] as Vector3).normalized()
+			var from: Vector3 = ap + an * 0.30
+			var to: Vector3 = ap - an * 0.30
+			var q2 := PhysicsRayQueryParameters3D.create(from, to, 1)
+			q2.exclude = pin_rids
+			var h2 := ps.intersect_ray(q2)
+			if h2.is_empty():
+				anchored_ok = false
+				print("[selftest]   page ", pg.get("landmark", "?"), " has no host collision behind the pin")
+				continue
+			if h2.get("collider") != pg.get("anchor_body"):
+				anchored_ok = false
+				print("[selftest]   page ", pg.get("landmark", "?"), " pin hits a different body")
+			var back: float = (h2["position"] as Vector3).distance_to(ap)
+			worst_back = maxf(worst_back, back)
+			if back > 0.16:
+				anchored_ok = false
+				print("[selftest]   page ", pg.get("landmark", "?"), " floats ", back, " m off collision")
+			var hn: Vector3 = h2["normal"]
+			if hn.dot(an) < 0.65:
+				anchored_ok = false
+				print("[selftest]   page ", pg.get("landmark", "?"), " nail is not entering its host surface")
+			var visual: Dictionary = world._visible_anchor_surface(h2["collider"], from, to, h2["position"], hn)
+			if visual.is_empty() or (visual["pos"] as Vector3).distance_to(ap) > 0.08 \
+					or visual.get("mesh") != pg.get("anchor_mesh"):
+				anchored_ok = false
+				print("[selftest]   page ", pg.get("landmark", "?"), " pin is not at its visible host mesh")
+		else:
+			# No visual surface/collider was found: this page must be genuinely loose,
+			# never held by invisible constraints pretending to be a nail.
+			if sheet != null and (sheet.is_pinned() or not pin_rids.is_empty()):
+				pins_ok = false
+				print("[selftest]   loose page ", pg.get("landmark", "?"), " still has a pin")
+	check("pages_hang_on_real_geometry", anchored_ok,
+		"%d anchored, worst collision offset %.3f m" % [anchored_flags, worst_back])
+	check("pages_have_physical_pins", pins_ok, "%d real nails" % pin_count)
+
 	# the sheet's normals must face OUT of the wall it hangs on. This is the check
 	# that catches the inversion: measured in world space against the surface
 	# normal the landmark reported, not against the sheet's own winding.
@@ -547,7 +621,6 @@ func _run() -> void:
 	Game.begin_run()
 
 	# ---------------------------------------------------------------- movement
-	world.autotest_no_pickup = true
 	player.global_position = Vector3(0, 0.2, 0)
 	player.rotation.y = 0.0
 	await _wait(0.5)
@@ -665,12 +738,21 @@ func _run() -> void:
 		"wet=%.3f" % Sfx.reverb_wet())
 
 	# ---------------------------------------------------------------- pickups
-	world.autotest_no_pickup = false
 	var target: Vector3 = (world.pages[0]["node"] as Node3D).global_position
 	var tnrm: Vector3 = world.pages[0]["normal"]
 	var stand: Vector3 = target + tnrm * 1.1
 	player.global_position = Vector3(stand.x, 0.15, stand.z)
-	await _wait(0.5)
+	await _wait(0.4)
+	var sheet_pick: Node3D = world.pages[0]["cloth"]
+	var pin_body: RigidBody3D = sheet_pick.get_node_or_null("PhysicalPageNail") as RigidBody3D
+	var center_before: Vector3 = sheet_pick.world_center()
+	world.try_pickup(player) # first interaction removes the real nail
+	await _wait(0.25)
+	var unpin_motion: float = center_before.distance_to(sheet_pick.world_center())
+	var unpinned_ok: bool = not sheet_pick.is_pinned() and pin_body != null \
+		and not pin_body.freeze and unpin_motion > 0.05
+	world.try_pickup(player) # second interaction takes the loose sheet
+	check("page_can_be_unpinned", unpinned_ok, "cloth moved %.2f m" % unpin_motion)
 	check("page_pickup", Game.pages_collected == 1, "collected=%d" % Game.pages_collected)
 	check("hud_page_counter", world.hud.pages_label.text == "1 / 8", world.hud.pages_label.text)
 	check("note_shown", world.hud.note_body.text != "")

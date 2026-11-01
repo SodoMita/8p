@@ -34,17 +34,19 @@ to walk. A 4 km collision slab sits under all of it.
 
 ### Pages you can touch
 
-Each page is a small **verlet cloth sheet** — 7×9 vertices pinned along its top
-edge, integrated at a fixed 60 Hz, three constraint passes, shear links so it
-cannot fold into a fan of triangles, and smoothed per-vertex normals computed from
-the live geometry. It sags under its own weight, stirs in the draft, and cannot be
-pushed through the wall behind it.
+Each page is a small **Verlet cloth sheet** — 7×9 vertices, integrated at a fixed
+60 Hz with three constraint passes, shear links and live normals. When the world
+finds a usable surface, one visible metal nail passes through the top centre and
+is anchored at the same point on the **rendered mesh and its real collision**. A
+ray must hit both; guessed landmark coordinates alone never create a pin. The
+cloth sags and stirs in the draft while the nail holds that one point. If no real
+surface is found, the page spawns loose instead of pretending to be attached.
 
-Every page is **nailed to a real surface**: the face of the broken wall, the inside
-of the tunnel, the silo shell, the truck's side panel, the shed's back wall, a
-standing stone, the back of the ruined bathroom, and a scrap board nailed across
-the watchtower's legs. Each landmark reports a surface point and an outward normal,
-so a page is never left floating in a clearing.
+Press **E** (or tap the page button) once to pull the nail: its rigid body comes
+free, and the sheet falls and flutters under gravity. Press **E** again to take
+the loose page. There is no proximity auto-pickup that can skip the physical
+unpin action. The touch button changes from **UNPIN** to **TAKE**. The ground
+catches a released sheet rather than letting it fall through the world.
 
 They carry **no light of their own** — no lamp, no emission. Measured against the
 wall beside it, a page reads 0.81× as bright under the torch and 0.86× in the
@@ -134,7 +136,7 @@ add the page to the home screen for a full-screen, no-browser-chrome experience.
 | Look | mouse | drag anywhere on the right half |
 | Sprint | `Shift` (drains breath) | hold **RUN** |
 | Flashlight / IR lamp | `F` — swaps the warm spot for the camcorder's IR lamp | **LIGHT** button |
-| Take page | `E` (or simply walk into it) | **TAKE** button (auto-pickup also works) |
+| Unpin / take page | `E` pulls the physical nail; press again to take | **UNPIN**, then **TAKE** |
 | Pause | `Esc` | **II** in the top-right corner |
 | Input diagnostics | `F3` | — |
 | Dismiss a note | any of the above keys | it fades on its own |
@@ -257,7 +259,7 @@ eight_pages/
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 69 world assertions
+│   ├── selftest.gd          # 71 world assertions
 │   ├── camera_test.gd       # 30 assertions on the handheld camera rig
 │   ├── controls_test.gd     # 27 assertions on the control paths
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
@@ -293,10 +295,10 @@ eight_pages/
 
 ## Testing
 
-Everything below runs headless — no physical display required.
+Logic checks run headless; pointer capture, flow and rendered shots run in sway (Wayland).
 
 ```bash
-tools/test_all.sh                  # 69 world + 30 rig + 27 control checks + scripted runs in sway
+tools/test_all.sh                  # 71 world + 30 rig + 27 control checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 
@@ -306,11 +308,11 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 |---|---|
 | `controls` | the control paths, measured: mouse yaw/pitch scale and sign (with `invert_y` and sensitivity applied exactly once), **the camera transform itself turns** (not just the yaw variable), plain mouse motion turns the view **with touch mode on and the cursor free** (the bug that made PC aim dead), a finger's drag looks once (a double-application would be 2×), a finger on the glass suppresses the mouse twin and lifting it hands aim back, a click captures the pointer while a finger's click never does, `WASD` walks 30 physics ticks **in both modes**, the stick never moves the view, pitch clamps, `F` toggles the lamp, dismissing a note eats that key and the note stays gone, pause stops movement and resume restores it, the stick is not latched across a pause, and the overlay is silent while paused or frozen. Runs headless *and* inside sway (pointer capture is a no-op headless) |
 | `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports and 180° cuts resync, a stalled tick is clamped, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
-| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **the chain-link fence is a closed ring of 325 colliders with an open 5 m gate**, pages are live cloth with no light of their own and normals facing forward, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
+| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **the chain-link fence is a closed ring of 329 colliders with an open 5 m gate**, pages are live cloth with no light, their nail ray must hit the same visible mesh and collision body, and pulling the nail releases the sheet, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |
 | `death path` | Slender catches the player, jumpscare, death screen shown |
-| `flow` | **Title → BEGIN → World → pause → resume → movement → first pickup**, inside sway, plus *picking up a page while paused is impossible* |
-| `desktop shots` | 20 sway-rendered screenshots of every landmark, Slender, HUD, note overlay |
+| `flow` | **Title → BEGIN → World → pause → resume → movement → pull nail → take first page**, inside sway; interaction remains blocked while paused |
+| `desktop shots` | 26 sway-rendered screenshots of every landmark, Slender, HUD, note overlay and page cloth |
 | `mobile shots` | same tour at phone resolution with touch UI; asserts the injected virtual-stick drag produced the expected move vector |
 | `endings` | pause menu, jumpscare and death screen captures |
 | `win screen` | win sequence capture |

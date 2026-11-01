@@ -1,9 +1,11 @@
 extends Node3D
 ## One page, nailed to a surface and hanging off the nail.
 ##
-## The sheet is a verlet grid pinned along its top edge, integrated at a fixed
-## 60 Hz. It sags under its own weight, stirs in the draft, cannot pass through
-## the wall it hangs on, and carries the note text itself - the message is drawn
+## The sheet is a verlet grid integrated at a fixed 60 Hz. A real metal nail is
+## embedded through the top centre only when the world found an actual visible
+## surface with collision; remove that nail and the whole sheet is free to fall.
+## The cloth sags under its own weight, stirs in the draft, and carries the note
+## text itself - the message is drawn
 ## into a texture at build time (tools/gen_notes.py) and used as the albedo, so
 ## the page in the world is the message you get when you pick it up.
 ##
@@ -22,6 +24,11 @@ var size := Vector2(0.44, 0.58)
 var hang_phase := 0.0
 var wind_strength := 0.22
 var note_index := 1
+var pin_at_spawn := true
+var floor_height := 0.0
+var _released := false
+var _released_time := 0.0
+var _pin_bodies: Array[RigidBody3D] = []
 
 var _pos: PackedVector3Array = PackedVector3Array()
 var _prev: PackedVector3Array = PackedVector3Array()
@@ -53,8 +60,9 @@ func _ready() -> void:
 	_mi.material_override = _mat
 	_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_mi)
-	_add_nails()
 	_build()
+	if pin_at_spawn:
+		_add_nails()
 
 
 ## The message is baked into assets/textures/note_N.png at build time (see
@@ -67,24 +75,67 @@ func _note_texture() -> Texture2D:
 
 
 func _add_nails() -> void:
+	# One real nail through the top centre of the paper. The node origin is the
+	# ray-verified visual/collision surface. Its shaft points along local -Z into
+	# that surface and passes through the paper at z=0.006; the head is outside.
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.24, 0.22, 0.20)
 	mat.metallic = 0.7
 	mat.roughness = 0.45
-	for sx in [-0.17, 0.17]:
-		var nail := MeshInstance3D.new()
-		var cyl := CylinderMesh.new()
-		cyl.top_radius = 0.007
-		cyl.bottom_radius = 0.007
-		cyl.height = 0.022
-		cyl.radial_segments = 6
-		cyl.rings = 1
-		nail.mesh = cyl
-		nail.material_override = mat
-		nail.rotation = Vector3(PI * 0.5, 0, 0)
-		nail.position = Vector3(sx, -0.004, 0.011)
-		nail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(nail)
+	var pin := RigidBody3D.new()
+	pin.name = "PhysicalPageNail"
+	pin.freeze = true
+	pin.freeze_mode = RigidBody3D.FREEZE_MODE_STATIC
+	pin.collision_layer = 1
+	pin.collision_mask = 1
+	pin.mass = 0.008
+	pin.position = Vector3.ZERO
+	add_child(pin)
+
+	var shaft_mesh := CylinderMesh.new()
+	shaft_mesh.top_radius = 0.0035
+	shaft_mesh.bottom_radius = 0.0035
+	shaft_mesh.height = 0.030
+	shaft_mesh.radial_segments = 6
+	var shaft := MeshInstance3D.new()
+	shaft.name = "NailShaft"
+	shaft.mesh = shaft_mesh
+	shaft.material_override = mat
+	shaft.rotation.x = PI * 0.5
+	shaft.position.z = -0.006
+	shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pin.add_child(shaft)
+	var shaft_shape := CollisionShape3D.new()
+	var shaft_collider := CylinderShape3D.new()
+	shaft_collider.radius = 0.0035
+	shaft_collider.height = 0.030
+	shaft_shape.shape = shaft_collider
+	shaft_shape.rotation.x = PI * 0.5
+	shaft_shape.position.z = -0.006
+	pin.add_child(shaft_shape)
+
+	var head_mesh := CylinderMesh.new()
+	head_mesh.top_radius = 0.010
+	head_mesh.bottom_radius = 0.010
+	head_mesh.height = 0.004
+	head_mesh.radial_segments = 8
+	var head := MeshInstance3D.new()
+	head.name = "NailHead"
+	head.mesh = head_mesh
+	head.material_override = mat
+	head.rotation.x = PI * 0.5
+	head.position.z = 0.011
+	head.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pin.add_child(head)
+	var head_shape := CollisionShape3D.new()
+	var head_collider := CylinderShape3D.new()
+	head_collider.radius = 0.010
+	head_collider.height = 0.004
+	head_shape.shape = head_collider
+	head_shape.rotation.x = PI * 0.5
+	head_shape.position.z = 0.011
+	pin.add_child(head_shape)
+	_pin_bodies.append(pin)
 
 
 func _build() -> void:
@@ -100,10 +151,12 @@ func _build() -> void:
 			var v := float(r) / float(ROWS - 1)
 			# the nail is the origin: the top row sits at y = 0 and the sheet
 			# hangs down from there, so the page hangs off the nail, not near it
-			var p := Vector3((u - 0.5) * size.x, -v * size.y, 0.0)
+			var p := Vector3((u - 0.5) * size.x, -v * size.y, 0.006 if pin_at_spawn else 0.0)
 			_pos[i] = p
 			_prev[i] = p
-			if r == 0:
+			# Exactly one fixed vertex, at the physical nail through the top centre.
+			# Without a nail there are no constraints to the landmark or its surface.
+			if pin_at_spawn and r == 0 and c == COLS / 2:
 				_pinned.append(i)
 				_is_pinned[i] = 1
 	_links.clear()
@@ -125,6 +178,8 @@ func _link(a: int, b: int) -> Vector3i:
 
 
 func _process(delta: float) -> void:
+	if _released:
+		_released_time += delta
 	_acc += minf(delta, 0.05)
 	var stepped := false
 	while _acc >= FIXED_STEP:
@@ -143,12 +198,28 @@ func _simulate(dt: float) -> void:
 		sin(_t * 2.3 + hang_phase * 0.7) * 0.18,
 		(0.35 + absf(cos(_t * 1.3 + hang_phase)) * 0.65) * 0.55
 	) * wind_strength
-	var acc := (GRAVITY + wind) * dt * dt
+	# The grid lives in the page's local frame, so express real world gravity in
+	# that frame too (important once a tilted page is unpinned).
+	var gravity_local: Vector3 = global_transform.basis.inverse() * GRAVITY
+	var acc := (gravity_local + wind) * dt * dt
+	var free_sheet := _pinned.is_empty()
 	for i in _pos.size():
 		if _is_pinned[i] == 1:
 			continue
+		var particle_acc := acc
+		if free_sheet:
+			# Air does not push every point identically: a small spatially varying
+			# gust keeps a released sheet fluttering instead of translating as a
+			# rigid, perfectly flat rectangle.
+			var c := i % COLS
+			var r := i / COLS
+			var phase := hang_phase + float(c) * 0.71 + float(r) * 0.43
+			particle_acc += Vector3(
+				sin(_t * 3.1 + phase) * 0.34,
+				sin(_t * 2.3 + phase * 0.7) * 0.16,
+				cos(_t * 2.7 + phase * 1.3) * 0.38) * dt * dt
 		var cur := _pos[i]
-		var next := cur + (cur - _prev[i]) * DAMPING + acc
+		var next := cur + (cur - _prev[i]) * DAMPING + particle_acc
 		_prev[i] = cur
 		_pos[i] = next
 	for _it in ITERATIONS:
@@ -174,12 +245,31 @@ func _simulate(dt: float) -> void:
 			else:
 				_pos[a] = pa + d * diff * 0.5
 				_pos[b] = pb - d * diff * 0.5
-	# the wall is at local z = 0: the sheet can flap away from it, never through
-	for i in _pos.size():
-		var zc := clampf(_pos[i].z, 0.006, 0.16)
-		if zc != _pos[i].z:
-			_prev[i].z += zc - _pos[i].z
-			_pos[i].z = zc
+	if not _pinned.is_empty():
+		# While nailed, the sheet is a thin plane on the verified real surface. It
+		# may flap away from that wall, never through it.
+		for i in _pos.size():
+			var zc := clampf(_pos[i].z, 0.006, 0.16)
+			if zc != _pos[i].z:
+				_prev[i].z += zc - _pos[i].z
+				_pos[i].z = zc
+	else:
+		# Once the nail is pulled there is no surface constraint at all. The paper
+		# falls and flutters freely until each vertex meets the actual ground plane.
+		# Work in world space here because a page may have been nailed to a tilted
+		# rock, so local Y is not always world-up.
+		var inv_global := global_transform.affine_inverse()
+		for i in _pos.size():
+			var world_pos: Vector3 = global_transform * _pos[i]
+			if world_pos.y < floor_height + 0.006:
+				world_pos.y = floor_height + 0.006
+				var world_prev: Vector3 = global_transform * _prev[i]
+				world_prev.y = floor_height + 0.006
+				# bleed horizontal velocity on contact so it settles instead of skating
+				world_prev.x = lerpf(world_prev.x, world_pos.x, 0.18)
+				world_prev.z = lerpf(world_prev.z, world_pos.z, 0.18)
+				_pos[i] = inv_global * world_pos
+				_prev[i] = inv_global * world_prev
 
 
 func _rebuild() -> void:
@@ -230,6 +320,62 @@ func _rebuild() -> void:
 	arrays[Mesh.ARRAY_INDEX] = indices
 	_mesh.clear_surfaces()
 	_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+
+
+func is_pinned() -> bool:
+	return not _pinned.is_empty()
+
+
+## Pull the physical nail: free every cloth vertex and let the nail drop away.
+func unpin() -> bool:
+	if _pinned.is_empty():
+		return false
+	_is_pinned.fill(0)
+	_pinned.clear()
+	_released = true
+	_released_time = 0.0
+	# Pulling the nail imparts a small, varied twist. Without this, identical
+	# gravity on every vertex makes a released page fall like a rigid board.
+	var center := Vector3.ZERO
+	for p in _pos:
+		center += p
+	center /= float(_pos.size())
+	var spin := Vector3(0.22 * sin(hang_phase), 0.28 * cos(hang_phase), 0.36)
+	var drift := Vector3(0.12 * cos(hang_phase), 0.0, 0.16 * sin(hang_phase))
+	for i in _pos.size():
+		var offset: Vector3 = _pos[i] - center
+		var velocity: Vector3 = spin.cross(offset) + drift
+		_prev[i] = _pos[i] - velocity * FIXED_STEP
+	for pin in _pin_bodies:
+		if not is_instance_valid(pin):
+			continue
+		pin.freeze = false
+		pin.linear_velocity = global_transform.basis.z * 0.9 + Vector3.UP * 0.65
+		pin.angular_velocity = Vector3(2.4, 1.5, 0.8)
+	_pin_bodies.clear()
+	return true
+
+
+func release_age() -> float:
+	return _released_time
+
+
+func world_center() -> Vector3:
+	if _pos.is_empty():
+		return global_position
+	var center := Vector3.ZERO
+	for p in _pos:
+		center += p
+	center /= float(_pos.size())
+	return global_transform * center
+
+
+func pin_rids() -> Array[RID]:
+	var out: Array[RID] = []
+	for pin in _pin_bodies:
+		if is_instance_valid(pin):
+			out.append(pin.get_rid())
+	return out
 
 
 func surface_normals() -> PackedVector3Array:

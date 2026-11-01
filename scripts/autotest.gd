@@ -36,6 +36,8 @@ func _ready() -> void:
 		_run_demo()
 	elif mode == "perf":
 		_run_perf()
+	elif mode == "page_preview":
+		_run_page_preview()
 	else:
 		_run_play()
 
@@ -61,7 +63,6 @@ func _run_flow() -> void:
 
 func _run_demo() -> void:
 	# short scripted walk used to render a gameplay GIF from real frames
-	world.autotest_no_pickup = false
 	await _wait(1.5)
 	var p: Node3D = world.player
 	p.global_position = Vector3(0, 0.15, 6)
@@ -109,12 +110,21 @@ func _run_demo() -> void:
 
 func _run_winscreen() -> void:
 	await _wait(1.8)
-	var p: Node3D = world.player
+	var p: CharacterBody3D = world.player
 	for i in world.pages.size():
-		var node: Node3D = (world.pages[i] as Dictionary)["node"]
+		var page: Dictionary = world.pages[i]
+		var node: Node3D = page["node"]
 		var t: Vector3 = node.global_position
-		p.global_position = Vector3(t.x, 0.15, t.z + 1.2)
+		var normal: Vector3 = page["normal"]
+		p.global_position = Vector3(t.x + normal.x * 1.2, 0.15, t.z + normal.z * 1.2)
+		p.velocity = Vector3.ZERO
 		await _wait(0.4)
+		var sheet: Node3D = page["cloth"]
+		if sheet.is_pinned():
+			world.try_pickup(p) # first E pulls the physical nail
+			await _wait(0.15)
+		world.try_pickup(p) # second E takes the loose sheet
+		await _wait(0.12)
 	_log_line("winscreen collected=%d" % Game.pages_collected)
 	await _wait(2.0)
 	await _shot("win_static")
@@ -128,7 +138,6 @@ func _run_winscreen() -> void:
 ## Reports average frame time with each feature on and off, on this machine.
 func _run_perf() -> void:
 	await _wait(2.0)
-	world.autotest_no_pickup = true
 	await _set_camera(Vector3(0, 0, 2), Vector3(0, 1.4, -14))
 	await _wait(1.0)
 	var cam = world.hud.camcorder
@@ -255,7 +264,6 @@ func _set_camera(pos: Vector3, look_at: Vector3) -> void:
 # pure screenshot tour
 # --------------------------------------------------------------------------- #
 func _run_shots() -> void:
-	world.autotest_no_pickup = true
 	await _wait(1.6)
 	world.hud.set_objective("FIND THE EIGHT PAGES")
 
@@ -428,7 +436,6 @@ func _run_shots() -> void:
 	# 7) touch UI preview + a simulated thumb on the stick
 	world.hud.note_root.modulate.a = 0.0
 	world.enable_touch_preview()
-	world.autotest_no_pickup = false
 	var vp := get_viewport().get_visible_rect().size
 	var stick := Vector2(vp.x * 0.16, vp.y * 0.74)
 	_touch_down(0, stick)
@@ -472,11 +479,33 @@ func _run_shots() -> void:
 
 
 # --------------------------------------------------------------------------- #
+# physical page pin/unpin preview: one close shot of the real nail, then one of
+# the same cloth moving freely after the nail is pulled.
+# --------------------------------------------------------------------------- #
+func _run_page_preview() -> void:
+	await _wait(1.5)
+	var page: Dictionary = world.pages[0]
+	var sheet: Node3D = page["cloth"]
+	var target: Vector3 = sheet.world_center()
+	var normal: Vector3 = page["normal"]
+	var cam_pos: Vector3 = page["anchor_pos"] + normal * 0.72 + Vector3(0, -0.18, 0)
+	await _set_camera(cam_pos, target)
+	await _wait(0.5)
+	await _shot("page_pin")
+	_log_line("page pinned=%s anchor=%s" % [str(sheet.is_pinned()), str(page["anchor_pos"])])
+	world.try_pickup(world.player)
+	await _wait(0.8)
+	await _shot("page_unpinned")
+	_log_line("page unpinned=%s center=%s" % [str(not sheet.is_pinned()), str(sheet.world_center())])
+	get_tree().quit(0)
+
+
+# --------------------------------------------------------------------------- #
 # scripted full play-through
 # --------------------------------------------------------------------------- #
 func _run_play() -> void:
 	await _wait(1.8)
-	var p: Node3D = world.player
+	var p: CharacterBody3D = world.player
 	var total: int = world.pages.size()
 	var target_count: int = total if mode == "win" else 3
 	_log_line("pages=%d collect_target=%d" % [total, target_count])
@@ -484,9 +513,16 @@ func _run_play() -> void:
 		var page: Dictionary = world.pages[i]
 		var node: Node3D = page["node"]
 		var target: Vector3 = node.global_position
-		p.global_position = Vector3(target.x, 0.12, target.z + 1.2)
+		var normal: Vector3 = page["normal"]
+		p.global_position = Vector3(target.x + normal.x * 1.2, 0.12, target.z + normal.z * 1.2)
 		await _wait(0.45)
 		_log_line("walked to page %d at %s" % [i + 1, str(target)])
+		var sheet: Node3D = page["cloth"]
+		if sheet.is_pinned():
+			world.try_pickup(p) # pull the physical nail
+			await _wait(0.20)
+		world.try_pickup(p) # take the now-loose paper
+		await _wait(0.10)
 		if Game.pages_collected != i + 1:
 			_log_line("ERROR: page %d not collected (have %d)" % [i + 1, Game.pages_collected])
 		if i == 2:
@@ -502,9 +538,16 @@ func _run_play() -> void:
 
 	# --- death path -------------------------------------------------------
 	world.unfreeze_player_after_pickups()
+	# The three-page run may end beside a landmark wall. Put the deterministic
+	# chase check in the clear spawn area so the Slender path is not trapped by
+	# whichever procedural prop happened to be behind page three.
+	p.global_position = Vector3(0, 0.15, 2.0)
+	p.velocity = Vector3.ZERO
+	p.rotation.y = 0.0
+	await _wait(0.2)
 	var sl: Node3D = world.slender
 	sl.visible = true
-	sl.global_position = p.global_position + Vector3(0, 0, -2.5)
+	sl.global_position = p.global_position + Vector3(0, 0, -1.6)
 	sl.force_chase()
 	p.look_at_point(sl.head_position())
 	await _wait(0.8)

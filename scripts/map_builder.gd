@@ -2029,7 +2029,14 @@ func _rock_circle(xf: Transform3D) -> void:
 		var hh := rng.randf_range(1.0, 2.2)
 		var rad := rng.randf_range(0.45, 0.75)
 		var body := _cyl(xf, p + Vector3(0, hh * 0.5, 0), rad, hh, _mats["stone"], rad * 0.55)
-		(body.get_child(0) as MeshInstance3D).mesh = _weathered_rock(rad, hh, i)
+		# The weathered stone is deliberately not cylindrical. Replacing the
+		# placeholder cylinder collider with the rendered mesh's static trimesh is
+		# what lets a page nail land on the visible rock instead of hovering over
+		# an empty corner of the approximation.
+		var rock_mesh: Mesh = _weathered_rock(rad, hh, i)
+		(body.get_child(0) as MeshInstance3D).mesh = rock_mesh
+		var rock_col := body.get_child(1) as CollisionShape3D
+		rock_col.shape = rock_mesh.create_trimesh_shape()
 		body.rotation = xf.basis.get_rotation_quaternion().get_euler() + Vector3(rng.randf_range(-0.08, 0.08), rng.randf() * 0.6, rng.randf_range(-0.08, 0.08))
 		if stone_hint.is_empty() and hh >= 1.7 and rad >= 0.55:
 			var dir := Vector3(cos(a), 0.0, sin(a))
