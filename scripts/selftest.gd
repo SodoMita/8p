@@ -93,6 +93,18 @@ func _is_gate_leaf(t3: Transform3D, leaves: Array) -> bool:
 func _run() -> void:
 	var player: CharacterBody3D = world.player
 	var sl: Node3D = world.slender
+	var coast_decel := float(player.call("_horizontal_response", 0.0))
+	var steering_accel := float(player.call("_horizontal_response", 1.0))
+	check("player_coasts_when_input_released",
+		coast_decel > 0.0 and coast_decel < steering_accel,
+		"coast=%.1f steer=%.1f" % [coast_decel, steering_accel])
+	check("player_slides_through_wall_contacts",
+		player.floor_block_on_wall and player.max_slides >= 8
+		and is_equal_approx(player.wall_min_slide_angle, 0.0)
+		and is_equal_approx(player.safe_margin, 0.01),
+		"floor_block=%s slides=%d angle=%.3f margin=%.3f" % [
+			str(player.floor_block_on_wall), player.max_slides,
+			player.wall_min_slide_angle, player.safe_margin])
 
 	# ------------------------------------------------------- procedural layout
 	# every seed must produce a different map, and every page must be reachable

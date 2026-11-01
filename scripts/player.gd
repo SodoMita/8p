@@ -9,6 +9,8 @@ extends CharacterBody3D
 const WALK_SPEED := 3.15
 const SPRINT_SPEED := 6.1
 const ACCEL := 11.0
+# CharacterBody3D ignores physics materials, so tune its glide in the controller.
+const COAST_DECEL := 7.0
 const GRAVITY := 18.0
 const MOUSE_SENS := 0.0021
 const STAMINA_MAX := 100.0
@@ -191,6 +193,10 @@ func interact() -> void:
 		world.try_pickup(self)
 
 
+func _horizontal_response(input_magnitude: float) -> float:
+	return ACCEL if input_magnitude >= 0.15 else COAST_DECEL
+
+
 func _physics_process(delta: float) -> void:
 	if frozen:
 		velocity = Vector3.ZERO
@@ -222,10 +228,11 @@ func _physics_process(delta: float) -> void:
 	move_dir = move_dir.normalized() if move_dir.length() > 0.02 else Vector3.ZERO
 
 	var target_speed := SPRINT_SPEED if sprinting else WALK_SPEED
+	var horizontal_response := _horizontal_response(input.length())
 	if input.length() < 0.15:
 		target_speed = 0.0
 	var horiz := Vector3(velocity.x, 0.0, velocity.z)
-	horiz = horiz.move_toward(move_dir * target_speed, ACCEL * delta)
+	horiz = horiz.move_toward(move_dir * target_speed, horizontal_response * delta)
 	velocity.x = horiz.x
 	velocity.z = horiz.z
 

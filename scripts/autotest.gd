@@ -4,6 +4,7 @@ extends Node
 ##   --autotest=win    : collects all eight pages and reaches the win screen
 ##   --autotest=shots  : poses the camera at landmarks and takes screenshots
 ##   --autotest=shadow_preview : renders the labyrinth under its moon shadow
+##   --autotest=slip_preview : measures the player's short coast after releasing movement
 ##   --autotest=pathing_preview : checks and captures Slender's obstacle detour
 ##
 ## Screenshots are written to $EIGHT_PAGES_SHOTS (default /tmp/eight_shots).
@@ -30,6 +31,8 @@ func _ready() -> void:
 		_run_shots()
 	elif mode == "shadow_preview":
 		_run_shadow_preview()
+	elif mode == "slip_preview":
+		_run_slip_preview()
 	elif mode == "pathing_preview":
 		_run_pathing_preview()
 	elif mode == "endings":
@@ -379,6 +382,33 @@ func _run_shadow_preview() -> void:
 	await _wait(0.3)
 	await _shot("labyrinth_flashlight_shadow")
 	get_tree().quit(0 if shadows_ok else 1)
+
+
+func _run_slip_preview() -> void:
+	await _wait(1.0)
+	var p: CharacterBody3D = world.player
+	p.frozen = false
+	p.touch_move = Vector2.ZERO
+	p.touch_sprint = false
+	p.global_position = world.ground_position(Vector3.ZERO, 0.15)
+	p.rotation.y = 0.0
+	p.velocity = Vector3.ZERO
+	Input.action_release("move_forward")
+	await get_tree().physics_frame
+	Input.action_press("move_forward")
+	for i in 24:
+		await get_tree().physics_frame
+	Input.action_release("move_forward")
+	var coast_start := Vector2(p.global_position.x, p.global_position.z)
+	var coast_speed := Vector2(p.velocity.x, p.velocity.z).length()
+	for i in 18:
+		await get_tree().physics_frame
+	var coast_distance := Vector2(p.global_position.x - coast_start.x,
+		p.global_position.z - coast_start.y).length()
+	var glide_ok := coast_speed >= 2.5 and coast_distance >= 0.55
+	_log_line("slip preview speed=%.2f coast=%.2f m result=%s" % [
+		coast_speed, coast_distance, "PASS" if glide_ok else "FAIL"])
+	get_tree().quit(0 if glide_ok else 1)
 
 
 # --------------------------------------------------------------------------- #

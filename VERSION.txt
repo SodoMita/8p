@@ -1,6 +1,11 @@
-EIGHT PAGES 1.6.9
+EIGHT PAGES 1.6.10
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
+1.6.10 slippery player movement. CharacterBody3D now coasts after release and
+      uses extra wall-slide iterations, a zero-degree slide threshold and a
+      1 cm recovery margin to reduce corner snagging without climbing walls.
+      Headless suites passed 101/0 at quality 0, 1 and 2; the Sway glide preview
+      measured 0.61 m of coast after releasing movement.
 1.6.9 labyrinth concrete material. Labyrinth masonry walls and floor now reuse
      the canonical metre-space triplanar concrete PBR material instead of lab-
      specific texture/normal variants. Added a material-identity selftest;
