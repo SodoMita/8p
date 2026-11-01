@@ -219,7 +219,8 @@ the lens/tape pass (and the on-screen REC/timecode furniture) off, and
   cold flagstone, opens a 34 ms-predelay stone reverb tail on both 3D substation
   hum emitters and the `World` bus (footsteps, breathing, whispers, screams),
   and low-passes exterior wind behind the walls. Slender navigates its corridors
-  around corners via 100-cell centerline-aligned BFS.
+  around corners via 100-cell centerline-aligned BFS; outside the maze, a scored
+  collision-ray fan keeps a world-space detour side to avoid tree-trunk oscillation.
 * **Pumpkins and dead bushes.** Patches of ribbed, dirt-streaked pumpkins grow
   in the clearings and around every landmark (some knocked over), and dense
   leafless bushes — branched twig clumps, not painted billboards — fill the
@@ -322,28 +323,32 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 |---|---|
 | `controls` | the control paths, measured: mouse yaw/pitch scale and sign (with `invert_y` and sensitivity applied exactly once), **the camera transform itself turns** (not just the yaw variable), plain mouse motion turns the view **with touch mode on and the cursor free** (the bug that made PC aim dead), a finger's drag looks once (a double-application would be 2×), a finger on the glass suppresses the mouse twin and lifting it hands aim back, a click captures the pointer while a finger's click never does, `WASD` walks 30 physics ticks **in both modes**, the stick never moves the view, pitch clamps, `F` toggles the lamp, dismissing a note eats that key and the note stays gone, pause stops movement and resume restores it, the stick is not latched across a pause, and the overlay is silent while paused or frozen. Runs headless *and* inside sway (pointer capture is a no-op headless) |
 | `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports and 180° cuts resync, a stalled tick is clamped, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
-| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **inside and outside trees use visible-mesh trunk colliders** and the outside batches share the arena's meshes/material, **the chain-link fence is a closed ring of 329 colliders with an open 5 m gate**, stump bark and end-grain use separate PBR surfaces, pages are live cloth with no light, their nail ray must hit the same visible mesh and collision body, and pulling the nail releases the sheet, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
+| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **inside and outside trees use visible-mesh trunk colliders** and the outside batches share the arena's meshes/material, **the chain-link fence is a closed ring of 329 colliders with an open 5 m gate**, stump bark and end-grain use separate PBR surfaces, pages are live cloth with no light, their nail ray must hit the same visible mesh and collision body, and pulling the nail releases the sheet, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, all 100 maze cells and four entrances route without wall cuts, the Slender holds and releases a collision-ray detour around a blocker, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |
 | `death path` | Slender catches the player, jumpscare, death screen shown |
 | `flow` | **Title → BEGIN → World → pause → resume → movement → pull nail → take first page**, inside sway; interaction remains blocked while paused |
 | `desktop shots` | 26 sway-rendered screenshots of every landmark, Slender, HUD, note overlay and page cloth |
 | `mobile shots` | same tour at phone resolution with touch UI; asserts the injected virtual-stick drag produced the expected move vector |
 | `shadow preview` | paired Sway frames with moon shadow on/off, plus the flashlight-shadow tier preview |
+| `pathing preview` | Sway scene-query detour around a symmetric blocker, stable side and clean reset |
 | `endings` | pause menu, jumpscare and death screen captures |
 | `win screen` | win sequence capture |
 
 The game itself also ships with the harness used by those tests:
 
 ```bash
-# inside sway (real Wayland session):
-tools/run_sway.sh res://scenes/World.tscn -- --autotest=selftest
-tools/run_sway.sh res://scenes/World.tscn -- --autotest=camtest --quality=2
-tools/run_sway.sh res://scenes/World.tscn -- --autotest=controls
-tools/run_sway.sh res://scenes/World.tscn -- --autotest=perf --quality=1
-tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=1
-tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=0 --touch
+# deterministic logic and geometry checks (headless):
+godot --headless --path . res://scenes/World.tscn -- --autotest=selftest --quality=1
+
+# rendered, pointer and flow checks (inside sway / real Wayland session):
+bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=camtest --quality=1
+bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=controls
+bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=perf --quality=1
+bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=1
+bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=0 --touch
 bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=shadow_preview --quality=1 --touch
-tools/run_sway.sh res://scenes/Title.tscn -- --flow
+bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=pathing_preview --quality=1
+bash tools/run_sway.sh res://scenes/Title.tscn -- --flow
 ```
 
 ### Code audit

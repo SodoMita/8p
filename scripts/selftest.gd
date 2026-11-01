@@ -56,6 +56,22 @@ func _min_landmark_distance(mb: Node) -> float:
 	return best
 
 
+## Follow the same centerline flow used by Slender without spending seconds in a
+## physics escape test. Return -1 on a dead flow, wall clipping, or stalled route.
+func _lab_route_steps(start: Vector3, goal: Vector3, stop_distance := 0.72, max_steps := 320) -> int:
+	var walker := start
+	for step_i in max_steps:
+		if Vector2(walker.x - goal.x, walker.z - goal.z).length() <= stop_distance:
+			return step_i
+		var flow: Vector3 = world.map_builder.labyrinth_flow_dir(walker, goal)
+		if flow.length() < 0.9:
+			return -1
+		walker += flow.normalized() * 0.35
+		if world.map_builder.point_in_labyrinth_wall(walker, 0.15):
+			return -1
+	return -1
+
+
 ## Build a second, independent map in a throwaway node to compare layouts.
 func _build_other_map(source: Node) -> Node:
 	var other = load("res://scripts/map_builder.gd").new()
@@ -222,6 +238,92 @@ func _run() -> void:
 				hit_wall = true
 				break
 	check("labyrinth_slender_navigates", nav_ok)
+	# Sweep every cell center through the exact steering field used at runtime.
+	# This catches dead BFS branches and corner cuts without a long physics chase.
+	var all_cells_route_ok := true
+	var cells_routed := 0
+	var worst_cell_steps := 0
+	var cell_goal: Vector3 = lab.get("sanctum_pos", Vector3.ZERO)
+	var maze_cells := int(lab.get("cells", 0))
+	for cz in range(maze_cells):
+		for cx in range(maze_cells):
+			var cell_start: Vector3 = world.map_builder._lab_cell_to_world(Vector2i(cx, cz))
+			var cell_steps := _lab_route_steps(cell_start, cell_goal, 0.72, 320)
+			cells_routed += 1
+			if cell_steps < 0:
+				all_cells_route_ok = false
+			else:
+				worst_cell_steps = maxi(worst_cell_steps, cell_steps)
+	check("labyrinth_all_cells_route_to_sanctum", all_cells_route_ok and cells_routed == maze_cells * maze_cells,
+		"%d cells; worst %d steps" % [cells_routed, worst_cell_steps])
+	var portals: Array = lab.get("entrances", [])
+	var portal_routes_ok := portals.size() == 4
+	var worst_portal_steps := 0
+	for portal_v in portals:
+		var portal: Vector3 = portal_v
+		var outward := portal - cell_goal
+		outward.y = 0.0
+		if outward.length() < 0.1:
+			portal_routes_ok = false
+			continue
+		outward = outward.normalized()
+		var approach := portal + outward * 3.0
+		var inbound_steps := _lab_route_steps(approach, cell_goal, 0.72, 320)
+		var outbound_steps := _lab_route_steps(cell_goal, portal, 0.85, 320)
+		if inbound_steps < 0 or outbound_steps < 0:
+			portal_routes_ok = false
+		else:
+			worst_portal_steps = maxi(worst_portal_steps, maxi(inbound_steps, outbound_steps))
+	check("labyrinth_portal_approach_and_exit_paths", portal_routes_ok,
+		"%d portals; worst %d steps" % [portals.size(), worst_portal_steps])
+
+	# One obstacle-only ray test checks that a symmetric blocker produces a stable
+	# world-space detour side instead of the old time-based left/right oscillation.
+	var saved_player_pos := player.global_position
+	var saved_player_velocity := player.velocity
+	var saved_slender_pos := sl.global_position
+	var saved_slender_process := sl.is_processing()
+	var blocker := StaticBody3D.new()
+	blocker.name = "PathingProbeBlocker"
+	blocker.collision_layer = 1
+	blocker.collision_mask = 0
+	var blocker_shape := CollisionShape3D.new()
+	var blocker_box := BoxShape3D.new()
+	blocker_box.size = Vector3(2.8, 3.0, 0.8)
+	blocker_shape.shape = blocker_box
+	blocker.add_child(blocker_shape)
+	blocker.position = Vector3(0.0, 1.5, 1.5)
+	world.add_child(blocker)
+	await get_tree().physics_frame
+	player.global_position = world.ground_position(Vector3(0.0, 0.0, 8.0), 0.15)
+	player.velocity = Vector3.ZERO
+	sl.set_process(false)
+	sl.global_position = world.ground_position(Vector3.ZERO, 0.0)
+	var detour_start: Vector3 = sl.global_position
+	sl.set("_avoid_side_dir", Vector3.ZERO)
+	sl.call("_move_toward_player", 5.2, 0.20)
+	var detour_first: Vector3 = sl.global_position
+	var detour_side: Vector3 = sl.get("_avoid_side_dir")
+	sl.call("_move_toward_player", 5.2, 0.20)
+	var detour_second: Vector3 = sl.global_position
+	var detour_stable := detour_side.length() > 0.9 \
+		and (detour_first - detour_start).dot(detour_side) > 0.05 \
+		and (detour_second - detour_first).dot(detour_side) > 0.05
+	check("slender_obstacle_detour_stays_on_one_side", detour_stable,
+		"side=%s first=%s second=%s" % [str(detour_side), str(detour_first), str(detour_second)])
+	blocker.queue_free()
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	sl.call("_move_toward_player", 5.2, 0.20)
+	var detour_released: Vector3 = sl.get("_avoid_side_dir")
+	check("slender_releases_detour_when_clear", detour_released.length() < 0.01, str(detour_released))
+	sl.global_position = saved_slender_pos
+	sl.set("_avoid_side_dir", Vector3.ZERO)
+	sl.set_process(saved_slender_process)
+	player.global_position = saved_player_pos
+	player.velocity = saved_player_velocity
+	await get_tree().process_frame
+	await get_tree().physics_frame
 
 	# outward-winding normal guard across ALL 4 labyrinth meshes (floor, stone, metal, wires)
 	var lab_normals_ok := true
@@ -385,8 +487,9 @@ func _run() -> void:
 	# pumpkins and dead bushes must actually be in the world
 	check("pumpkins_present", world.map_builder.pumpkin_count() > 8,
 		str(world.map_builder.pumpkin_count()))
-	check("bushes_present", world.map_builder.bush_count() > 60,
-		str(world.map_builder.bush_count()))
+	var min_bush_count := 40 if Game.quality == 0 else 60
+	check("bushes_present", world.map_builder.bush_count() > min_bush_count,
+		"%d (tier minimum %d)" % [world.map_builder.bush_count(), min_bush_count])
 
 	# --- boundary fence: pure geometry, no physics stepping ------------------
 	# every fabric/pole collider must sit ON one of the four fence lines at the
@@ -688,7 +791,10 @@ func _run() -> void:
 		not outside_hit.is_empty() and absf(outside_hit_pos.y - outside_height) < 0.05,
 		"sample=%.3f hit=%s" % [outside_height, str(outside_hit_pos)])
 	var outside_tree_count := int(st.get("trees", 0))
-	check("terrain_has_trees", outside_tree_count > 300, str(outside_tree_count))
+	# Quality 0 intentionally streams fewer chunks and trees for weak phones.
+	var min_outside_tree_count := 200 if Game.quality == 0 else 300
+	check("terrain_has_trees", outside_tree_count > min_outside_tree_count,
+		"%d (tier minimum %d)" % [outside_tree_count, min_outside_tree_count])
 	var outside_batches := 0
 	var outside_batch_shadow_ok := true
 	for chunk in world.terrain._chunks.values():
@@ -701,7 +807,7 @@ func _run() -> void:
 		"batches=%d shadows=%s" % [outside_batches, str(outside_batch_shadow_ok)])
 	var outside_collider_count := int(st.get("tree_colliders", 0))
 	check("outside_trees_have_real_mesh_colliders",
-		outside_collider_count == outside_tree_count and outside_tree_count > 300,
+		outside_collider_count == outside_tree_count and outside_tree_count > min_outside_tree_count,
 		"%d concave mesh colliders for %d trees" % [outside_collider_count, outside_tree_count])
 	var outside_assets_match: bool = world.terrain._trees.size() == world.map_builder._tree_meshes.size()
 	if outside_assets_match:

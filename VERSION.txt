@@ -1,6 +1,13 @@
-EIGHT PAGES 1.6.7
+EIGHT PAGES 1.6.8
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
+1.6.8 Slender pathing (#68). Replaced the time-based left/right flip with a scored
+     collision-ray fan and a persistent world-space detour side; it resets when
+     the route clears or chase state changes. Low-tier vegetation checks honor
+     reduced counts. Geometry tests cover all 100 maze
+     cells to the sanctum, all 4 portal approaches/exits, and stable blocker
+     avoidance/release. Sway pathing preview passed; headless selftests at
+     qualities 0, 1 and 2 each passed 92/0.
 1.6.7 labyrinth shadows (#67). Medium quality now renders a 48 m moon shadow
      for the maze and solid landmarks; batched foliage/fence shadows and dynamic
      flashlight shadows remain high-tier only. Added shadow-budget assertions and

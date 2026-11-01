@@ -4,6 +4,7 @@ extends Node
 ##   --autotest=win    : collects all eight pages and reaches the win screen
 ##   --autotest=shots  : poses the camera at landmarks and takes screenshots
 ##   --autotest=shadow_preview : renders the labyrinth under its moon shadow
+##   --autotest=pathing_preview : checks and captures Slender's obstacle detour
 ##
 ## Screenshots are written to $EIGHT_PAGES_SHOTS (default /tmp/eight_shots).
 
@@ -29,6 +30,8 @@ func _ready() -> void:
 		_run_shots()
 	elif mode == "shadow_preview":
 		_run_shadow_preview()
+	elif mode == "pathing_preview":
+		_run_pathing_preview()
 	elif mode == "endings":
 		_run_endings()
 	elif mode == "winscreen":
@@ -262,6 +265,67 @@ func _set_camera(pos: Vector3, look_at: Vector3) -> void:
 	var horiz: float = flat.length()
 	p.head.rotation.x = atan2(target.y, horiz)
 	p.pitch = p.head.rotation.x
+
+
+# --------------------------------------------------------------------------- #
+# Short geometry-only chase test, also used as a Sway visual preview.
+# --------------------------------------------------------------------------- #
+func _run_pathing_preview() -> void:
+	await _wait(1.2)
+	var p: CharacterBody3D = world.player
+	var sl: Node3D = world.slender
+	p.set_physics_process(false)
+	sl.set_process(false)
+	p.global_position = world.ground_position(Vector3(0.0, 0.0, 8.0), 0.15)
+	p.velocity = Vector3.ZERO
+	sl.global_position = world.ground_position(Vector3.ZERO, 0.0)
+	sl.visible = true
+	sl.set("_avoid_side_dir", Vector3.ZERO)
+	var blocker := StaticBody3D.new()
+	blocker.name = "PathingPreviewBlocker"
+	blocker.collision_layer = 1
+	blocker.collision_mask = 0
+	blocker.position = Vector3(0.0, 1.5, 1.5)
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(2.8, 3.0, 0.8)
+	shape.shape = box
+	blocker.add_child(shape)
+	var visual := MeshInstance3D.new()
+	var box_mesh := BoxMesh.new()
+	box_mesh.size = box.size
+	visual.mesh = box_mesh
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.105, 0.125, 0.15)
+	material.roughness = 0.96
+	visual.material_override = material
+	blocker.add_child(visual)
+	world.add_child(blocker)
+	await get_tree().physics_frame
+	var start: Vector3 = sl.global_position
+	sl.call("_move_toward_player", 5.2, 0.20)
+	var first: Vector3 = sl.global_position
+	var side: Vector3 = sl.get("_avoid_side_dir")
+	sl.call("_move_toward_player", 5.2, 0.20)
+	var second: Vector3 = sl.global_position
+	var stable := side.length() > 0.9 and (first - start).dot(side) > 0.05 \
+		and (second - first).dot(side) > 0.05
+	await _set_camera(Vector3(0.0, 0.0, 8.0), sl.global_position + Vector3(0.0, 1.8, 0.0))
+	p.handle.set_physics_mode(false)
+	p.handle.snap()
+	p.handle.set_physics_process(false)
+	p.handle.set_process(false)
+	await _wait(0.4)
+	await _shot("slender_detour")
+	blocker.queue_free()
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	sl.call("_move_toward_player", 5.2, 0.20)
+	var released: Vector3 = sl.get("_avoid_side_dir")
+	var ok := stable and released.length() < 0.01
+	_log_line("pathing preview %s side=%s first=%s second=%s released=%s" % [
+		"OK" if ok else "FAILED", str(side), str(first), str(second), str(released)])
+	get_tree().quit(0 if ok else 1)
 
 
 # --------------------------------------------------------------------------- #

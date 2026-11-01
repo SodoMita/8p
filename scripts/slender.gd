@@ -25,6 +25,9 @@ var lose_time := 0.0
 var enraged := false
 var _was_visible := false
 var _sway := 0.0
+## Remember the world-space side of a detour so a symmetric blocker cannot make
+## Slender alternate left/right as the direction to the player shifts.
+var _avoid_side_dir := Vector3.ZERO
 
 var _animation: RefCounted
 
@@ -58,6 +61,7 @@ func setup(p: Node3D, w: Node, mb: Node) -> void:
 
 func activate() -> void:
 	active = true
+	_avoid_side_dir = Vector3.ZERO
 	mode = Mode.HIDDEN
 	cooldown = maxf(6.0, 16.0 - 8.0 * Game.difficulty())
 	seen_time = 0.0
@@ -75,6 +79,7 @@ func reset() -> void:
 
 func deactivate() -> void:
 	active = false
+	_avoid_side_dir = Vector3.ZERO
 	visible = false
 
 
@@ -168,6 +173,7 @@ func _is_seen_by_player() -> bool:
 # behaviour
 # --------------------------------------------------------------------------- #
 func _begin_apparition() -> void:
+	_avoid_side_dir = Vector3.ZERO
 	var spot := _find_spot(17.0, 30.0)
 	if spot == Vector3.INF:
 		cooldown = 3.0
@@ -195,6 +201,7 @@ func _begin_chase() -> void:
 
 
 func _vanish(cd: float) -> void:
+	_avoid_side_dir = Vector3.ZERO
 	visible = false
 	_animation.reset_pose()
 	mode = Mode.HIDDEN
@@ -245,24 +252,16 @@ func _move_toward_player(speed: float, delta: float) -> void:
 			if flow != Vector3.ZERO:
 				dir = flow
 				used_maze = true
-	# steer around anything solid (trunks, walls, silo, truck, shed...)
+	# Outside the maze, score a small fan of real collision rays and keep the
+	# chosen side until the direct route clears. This avoids the old every-second
+	# left/right flip that made the chase jitter against symmetric tree trunks.
 	if space != null and not used_maze:
-		var hit := _probe_hit(space, dir)
-		if hit:
-			var side := Vector3(-dir.z, 0, dir.x)
-			var left_free := not _probe_hit(space, (dir * 0.4 + side).normalized())
-			var right_free := not _probe_hit(space, (dir * 0.4 - side).normalized())
-			if left_free or right_free:
-				if left_free and not right_free:
-					dir = (dir * 0.35 + side * 0.65).normalized()
-				elif right_free and not left_free:
-					dir = (dir * 0.35 - side * 0.65).normalized()
-				else:
-					var pick := 1.0 if (Time.get_ticks_msec() / 1000) % 2 == 0 else -1.0
-					dir = (dir * 0.35 + side * 0.65 * pick).normalized()
-			else:
-				# boxed in: retreat along the clearest axis
-				dir = (dir * -0.6 + side).normalized()
+		if _probe_hit(space, dir):
+			dir = _steer_around_obstacle(space, dir)
+		else:
+			_avoid_side_dir = Vector3.ZERO
+	else:
+		_avoid_side_dir = Vector3.ZERO
 	var step := dir * speed * delta
 	var next_pos := global_position + step
 	next_pos.y = _ground_height(next_pos)
@@ -280,14 +279,52 @@ func _move_toward_player(speed: float, delta: float) -> void:
 	global_position = next_pos
 
 
+func _steer_around_obstacle(space: PhysicsDirectSpaceState3D, forward: Vector3) -> Vector3:
+	var best := _best_detour(space, forward, _avoid_side_dir)
+	var chosen: Vector3 = best["dir"]
+	if _avoid_side_dir.length_squared() < 0.01:
+		var side := Vector3(-forward.z, 0.0, forward.x)
+		_avoid_side_dir = side if chosen.dot(side) >= 0.0 else -side
+	elif chosen.dot(_avoid_side_dir) < -0.05:
+		# Switch only when the other side offers materially more clearance; retain
+		# the new world-space choice on subsequent frames rather than oscillating.
+		_avoid_side_dir = -_avoid_side_dir
+	return chosen
+
+
+func _best_detour(space: PhysicsDirectSpaceState3D, forward: Vector3, preferred_side: Vector3) -> Dictionary:
+	var best_dir := forward
+	var best_score := -1e9
+	var side_hint := preferred_side.normalized() if preferred_side.length_squared() > 0.01 else Vector3.ZERO
+	for angle_deg in [-102.0, -84.0, -66.0, -48.0, -30.0, 30.0, 48.0, 66.0, 84.0, 102.0]:
+		var candidate := forward.rotated(Vector3.UP, deg_to_rad(angle_deg)).normalized()
+		var clearance := _probe_clearance(space, candidate, 2.4)
+		# Favour actual clearance first, then progress toward the player; the stored
+		# world-space side breaks symmetric ties consistently while skirting a trunk.
+		var score := clearance + candidate.dot(forward) * 0.45 + candidate.dot(side_hint) * 0.22
+		if score > best_score:
+			best_score = score
+			best_dir = candidate
+	return {"dir": best_dir, "score": best_score}
+
+
+func _probe_clearance(space: PhysicsDirectSpaceState3D, dir: Vector3, distance: float) -> float:
+	var from := global_position + Vector3(0, 1.1, 0)
+	var to := from + dir.normalized() * distance
+	var q := PhysicsRayQueryParameters3D.create(from, to)
+	q.collision_mask = 1 | 4
+	q.collide_with_areas = false
+	var hit := space.intersect_ray(q)
+	return distance if hit.is_empty() else from.distance_to(hit["position"])
+
+
 func _probe_hit(space: PhysicsDirectSpaceState3D, dir: Vector3) -> bool:
 	var from := global_position + Vector3(0, 1.1, 0)
 	var to := from + dir * 1.9
 	var q := PhysicsRayQueryParameters3D.create(from, to)
 	q.collision_mask = 1 | 4
 	q.collide_with_areas = false
-	var res := space.intersect_ray(q)
-	return not res.is_empty()
+	return not space.intersect_ray(q).is_empty()
 
 
 func _find_spot(min_d: float, max_d: float) -> Vector3:
