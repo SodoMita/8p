@@ -328,6 +328,7 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 | `flow` | **Title → BEGIN → World → pause → resume → movement → pull nail → take first page**, inside sway; interaction remains blocked while paused |
 | `desktop shots` | 26 sway-rendered screenshots of every landmark, Slender, HUD, note overlay and page cloth |
 | `mobile shots` | same tour at phone resolution with touch UI; asserts the injected virtual-stick drag produced the expected move vector |
+| `shadow preview` | paired Sway frames with moon shadow on/off, plus the flashlight-shadow tier preview |
 | `endings` | pause menu, jumpscare and death screen captures |
 | `win screen` | win sequence capture |
 
@@ -341,6 +342,7 @@ tools/run_sway.sh res://scenes/World.tscn -- --autotest=controls
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=perf --quality=1
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=1
 tools/run_sway.sh res://scenes/World.tscn -- --autotest=shots --quality=0 --touch
+bash tools/run_sway.sh res://scenes/World.tscn -- --autotest=shadow_preview --quality=1 --touch
 tools/run_sway.sh res://scenes/Title.tscn -- --flow
 ```
 
@@ -368,7 +370,10 @@ with `--touch` forcing the mobile UI.
 
 `--quality=0|1|2` (auto-detected: software GL → 0, Intel/Mali/Adreno → 1,
 everything else → 2) tunes fog, shadow casting, glow, tree count and particle-free
-lighting so the game stays playable on phones and on `llvmpipe`.
+lighting so the game stays playable on phones and on `llvmpipe`. Quality 1 keeps a
+48 m directional moon shadow for the maze and solid landmarks, while batched forest
+and fence shadows plus the moving flashlight shadow are reserved for quality 2;
+high quality extends the moon shadow to 60 m.
 
 ---
 

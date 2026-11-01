@@ -3,6 +3,7 @@ extends Node
 ##   --autotest        : collects pages, then lets Slender catch the player
 ##   --autotest=win    : collects all eight pages and reaches the win screen
 ##   --autotest=shots  : poses the camera at landmarks and takes screenshots
+##   --autotest=shadow_preview : renders the labyrinth under its moon shadow
 ##
 ## Screenshots are written to $EIGHT_PAGES_SHOTS (default /tmp/eight_shots).
 
@@ -26,6 +27,8 @@ func _ready() -> void:
 	_log_line("autotest start mode=%s quality=%d touch=%s seed=%d" % [mode, Game.quality, str(Game.touch_mode), world.world_seed])
 	if mode == "shots":
 		_run_shots()
+	elif mode == "shadow_preview":
+		_run_shadow_preview()
 	elif mode == "endings":
 		_run_endings()
 	elif mode == "winscreen":
@@ -259,6 +262,59 @@ func _set_camera(pos: Vector3, look_at: Vector3) -> void:
 	var horiz: float = flat.length()
 	p.head.rotation.x = atan2(target.y, horiz)
 	p.pitch = p.head.rotation.x
+
+
+# --------------------------------------------------------------------------- #
+# Short shadow regression preview: isolate the moonlight and frame the maze.
+# Run under sway with --quality=1 or --quality=2 to inspect the real render path.
+# --------------------------------------------------------------------------- #
+func _run_shadow_preview() -> void:
+	await _wait(1.5)
+	var landmarks: Array = world.map_builder.landmarks
+	var spots: Array = world.map_builder.page_spots
+	if landmarks.is_empty() or spots.is_empty():
+		_log_line("shadow preview FAILED: labyrinth anchor missing")
+		get_tree().quit(1)
+		return
+	var landmark: Dictionary = landmarks[0]
+	var center: Vector3 = landmark["pos"]
+	var page_pos: Vector3 = spots[0]["pos"]
+	var outward := Vector3(page_pos.x - center.x, 0.0, page_pos.z - center.z)
+	if outward.length() < 0.5:
+		outward = Vector3(1.0, 0.0, 0.0)
+	else:
+		outward = outward.normalized()
+	await _set_camera(center + outward * (float(landmark["radius"]) + 4.5), center + Vector3(0, 1.5, 0))
+	# Park the handheld camera at the final aim so the paired frames differ only
+	# in the shadow map, not in the rig settling after a scripted camera move.
+	world.player.handle.set_physics_mode(false)
+	world.player.handle.snap()
+	world.player.handle.set_physics_process(false)
+	world.player.handle.set_process(false)
+	world.player.flashlight.visible = false
+	world.player.fill_light.visible = false
+	var moon := world.get_node_or_null("MoonKeyLight") as DirectionalLight3D
+	var wall := world.map_builder.get_node_or_null("LabyrinthMesh") as MeshInstance3D
+	var shadows_ok := moon != null and moon.shadow_enabled == (Game.quality >= 1)
+	shadows_ok = shadows_ok and wall != null and wall.cast_shadow == (
+		GeometryInstance3D.SHADOW_CASTING_SETTING_ON if Game.quality >= 1 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+	_log_line("shadow preview quality=%d moon=%s wall=%s" % [
+		Game.quality, str(moon != null and moon.shadow_enabled), str(wall != null and wall.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)])
+	await _wait(0.7)
+	await _shot("labyrinth_moon_shadow_on")
+	# One matched frame with the light unchanged but its map disabled makes the
+	# actual wall/floor shadow contribution easy to compare in the Sway render.
+	if moon != null:
+		moon.shadow_enabled = false
+		await get_tree().process_frame
+		await _shot("labyrinth_moon_shadow_off")
+	# The third frame isolates the player's cone so quality 2 also exercises
+	# dynamic flashlight shadows; quality 1 intentionally keeps that map off.
+	world.player.flashlight.visible = true
+	world.player.flashlight.shadow_enabled = Game.quality >= 2
+	await _wait(0.3)
+	await _shot("labyrinth_flashlight_shadow")
+	get_tree().quit(0 if shadows_ok else 1)
 
 
 # --------------------------------------------------------------------------- #

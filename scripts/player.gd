@@ -161,6 +161,9 @@ func toggle_flashlight() -> void:
 func _apply_lamp() -> void:
 	if flashlight == null:
 		return
+	# Dynamic cone shadows are reserved for high quality; medium/mobile relies on
+	# the short-range moon shadow so the maze stays legible without a per-frame lamp map.
+	flashlight.shadow_enabled = Game.quality >= 2
 	# both modes are "the lamp is on": F swaps the warm torch for the camcorder's
 	# IR spot, it no longer turns the light off entirely
 	if flashlight_on:

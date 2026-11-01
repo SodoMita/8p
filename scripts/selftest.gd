@@ -134,6 +134,26 @@ func _run() -> void:
 		and lab_metal_node != null and lab_wires_node != null
 		and lab_body_node != null and lab_rzone != null,
 		"cells=%d walls=%d" % [int(lab.get("cells", 0)), int(lab.get("wall_count", 0))])
+	var moon_shadow_light := world.get_node_or_null("MoonKeyLight") as DirectionalLight3D
+	var flashlight_shadow_light := player.get_node_or_null("Head/Handle/CameraMount/Camera/Flashlight") as SpotLight3D
+	var expected_lab_shadow := Game.quality >= 1
+	var expected_batch_shadow := GeometryInstance3D.SHADOW_CASTING_SETTING_ON if Game.quality >= 2 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var batches_checked := 0
+	var batch_shadow_policy_ok := true
+	for node in world.map_builder.get_children():
+		if node is MultiMeshInstance3D:
+			batches_checked += 1
+			batch_shadow_policy_ok = batch_shadow_policy_ok and node.cast_shadow == expected_batch_shadow
+	check("labyrinth_shadow_quality_policy",
+		moon_shadow_light != null and moon_shadow_light.shadow_enabled == expected_lab_shadow
+		and lab_mesh_node != null and lab_mesh_node.cast_shadow == (
+			GeometryInstance3D.SHADOW_CASTING_SETTING_ON if expected_lab_shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF)
+		and flashlight_shadow_light != null and flashlight_shadow_light.shadow_enabled == (Game.quality >= 2)
+		and batches_checked > 0 and batch_shadow_policy_ok,
+		"quality=%d maze=%s lamp=%s batches=%d foliage=%s" % [
+			Game.quality, str(moon_shadow_light != null and moon_shadow_light.shadow_enabled),
+			str(flashlight_shadow_light != null and flashlight_shadow_light.shadow_enabled),
+			batches_checked, str(batch_shadow_policy_ok)])
 	check("labyrinth_detailed_wires",
 		int(lab.get("wire_count", 0)) >= 50 and int(lab.get("conduit_count", 0)) >= 15
 		and int(lab.get("junction_boxes", 0)) >= 6 and int(lab.get("substations", 0)) == 2
@@ -669,6 +689,16 @@ func _run() -> void:
 		"sample=%.3f hit=%s" % [outside_height, str(outside_hit_pos)])
 	var outside_tree_count := int(st.get("trees", 0))
 	check("terrain_has_trees", outside_tree_count > 300, str(outside_tree_count))
+	var outside_batches := 0
+	var outside_batch_shadow_ok := true
+	for chunk in world.terrain._chunks.values():
+		for node in chunk.get_children():
+			if node is MultiMeshInstance3D:
+				outside_batches += 1
+				outside_batch_shadow_ok = outside_batch_shadow_ok and node.cast_shadow == expected_batch_shadow
+	check("outside_forest_shadow_budget",
+		outside_batches > 0 and outside_batch_shadow_ok,
+		"batches=%d shadows=%s" % [outside_batches, str(outside_batch_shadow_ok)])
 	var outside_collider_count := int(st.get("tree_colliders", 0))
 	check("outside_trees_have_real_mesh_colliders",
 		outside_collider_count == outside_tree_count and outside_tree_count > 300,

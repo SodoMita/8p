@@ -2315,7 +2315,9 @@ func _add_multimesh(mesh: Mesh, mat: Material, xforms: Array, colors: Array, nod
 	# and the end-grain cut face); all other batches use a shared override.
 	if mat != null:
 		mmi.material_override = mat
-	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if Game.quality >= 1 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Keep batched foliage and fence shadow casters for the high tier only; the
+	# medium tier gets a short-range moon shadow for the maze without the forest cost.
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if Game.quality >= 2 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mmi)
 
 

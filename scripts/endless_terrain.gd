@@ -293,7 +293,8 @@ func _build_chunk(key: Vector2i) -> Node3D:
 		mmi.name = "Trees_%d" % m
 		mmi.multimesh = mm
 		mmi.material_override = tree_mat
-		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if quality >= 1 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# Exterior tree batches only enter the shadow map on the high tier.
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if quality >= 2 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(mmi)
 
 	# One static body per chunk, with one reusable concave mesh shape per tree.

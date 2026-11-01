@@ -170,11 +170,14 @@ func _setup_terrain() -> void:
 
 func _setup_moon() -> void:
 	var moon := DirectionalLight3D.new()
+	moon.name = "MoonKeyLight"
 	moon.light_color = Color(0.52, 0.62, 0.92)
 	moon.light_energy = 0.24
 	moon.rotation = Vector3(deg_to_rad(-58), deg_to_rad(28), 0)
-	moon.shadow_enabled = Game.quality >= 2
-	moon.directional_shadow_max_distance = 60.0
+	# Medium quality includes one short-range directional shadow map, enough for
+	# the static maze walls. High quality extends it to the forest canopy.
+	moon.shadow_enabled = Game.quality >= 1
+	moon.directional_shadow_max_distance = 48.0 if Game.quality == 1 else 60.0
 	moon.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	add_child(moon)
 

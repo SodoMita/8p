@@ -1,6 +1,11 @@
-EIGHT PAGES 1.6.6
+EIGHT PAGES 1.6.7
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
+1.6.7 labyrinth shadows (#67). Medium quality now renders a 48 m moon shadow
+     for the maze and solid landmarks; batched foliage/fence shadows and dynamic
+     flashlight shadows remain high-tier only. Added shadow-budget assertions and
+     an on/off Sway preview; q0/q1 touch and q1 desktop previews passed, with
+     88/0 headless selftests at quality 1 and 2.
 1.6.6 seeded rolling terrain (#51). The arena and streamed exterior now share a
      two-scale procedural heightfield with matching static mesh collision. Tree
      roots, ground props, pages, the gate road, player spawns and Slender follow
