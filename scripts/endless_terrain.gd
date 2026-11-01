@@ -60,10 +60,10 @@ func _load_assets() -> void:
 			_tree_collision_shapes.append(TreeCollisionMesh.from_visible_mesh(fallback))
 
 	ground_mat = StandardMaterial3D.new()
-	ground_mat.albedo_texture = load("res://assets/textures/ground_albedo.png")
+	ground_mat.albedo_texture = load("res://assets/textures/ground_albedo.webp")
 	ground_mat.normal_enabled = true
-	ground_mat.normal_texture = load("res://assets/textures/ground_normal.png")
-	ground_mat.roughness_texture = load("res://assets/textures/ground_rough.png")
+	ground_mat.normal_texture = load("res://assets/textures/ground_normal.webp")
+	ground_mat.roughness_texture = load("res://assets/textures/ground_rough.webp")
 	ground_mat.uv1_triplanar = true           # no stretching on a flat plane at any scale
 	ground_mat.uv1_scale = Vector3(0.32, 0.32, 0.32)
 	ground_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
@@ -75,11 +75,11 @@ func _load_assets() -> void:
 	else:
 		# Match MapBuilder._make_materials exactly if this node is previewed alone.
 		tree_mat = StandardMaterial3D.new()
-		tree_mat.albedo_texture = load("res://assets/textures/bark_albedo.png")
+		tree_mat.albedo_texture = load("res://assets/textures/bark_albedo.webp")
 		tree_mat.normal_enabled = true
-		tree_mat.normal_texture = load("res://assets/textures/bark_normal.png")
+		tree_mat.normal_texture = load("res://assets/textures/bark_normal.webp")
 		tree_mat.normal_scale = 0.75
-		tree_mat.roughness_texture = load("res://assets/textures/bark_rough.png")
+		tree_mat.roughness_texture = load("res://assets/textures/bark_rough.webp")
 		tree_mat.roughness = 1.0
 		tree_mat.uv1_triplanar = true
 		tree_mat.uv1_world_triplanar = false
@@ -91,11 +91,11 @@ func _load_assets() -> void:
 		tree_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 
 	road_mat = StandardMaterial3D.new()
-	road_mat.albedo_texture = load("res://assets/textures/ground_albedo.png")
+	road_mat.albedo_texture = load("res://assets/textures/ground_albedo.webp")
 	road_mat.albedo_color = Color(0.62, 0.52, 0.40)
 	road_mat.normal_enabled = true
-	road_mat.normal_texture = load("res://assets/textures/ground_normal.png")
-	road_mat.roughness_texture = load("res://assets/textures/ground_rough.png")
+	road_mat.normal_texture = load("res://assets/textures/ground_normal.webp")
+	road_mat.roughness_texture = load("res://assets/textures/ground_rough.webp")
 	road_mat.uv1_scale = Vector3(1.0, 1.0, 1.0)   # ribbon UVs are already in metres
 	road_mat.roughness = 1.0
 

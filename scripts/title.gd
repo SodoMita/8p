@@ -23,6 +23,8 @@ func _ready() -> void:
 		get_tree().root.add_child.call_deferred(load("res://scripts/flowtest.gd").new())
 	_serif = load("res://assets/fonts/DejaVuSerif-Bold.ttf")
 	_sans = load("res://assets/fonts/DejaVuSans.ttf")
+	_sans.fallbacks = [load("res://assets/fonts/NotoSansCJK-subset.otf")]
+	_serif.fallbacks = _sans.fallbacks
 	_build()
 	Sfx.resume_ambience()
 	Sfx.set_loop_volume("static_loop", -60.0)
@@ -74,7 +76,7 @@ func _build() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 
 	var bg := TextureRect.new()
-	bg.texture = load("res://assets/textures/title_bg.png")
+	bg.texture = load("res://assets/textures/title_bg.webp")
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
@@ -92,6 +94,7 @@ func _build() -> void:
 
 	# --- title ------------------------------------------------------------
 	var title := _label(TranslationManager.get_instance().get_string("title_main"), 88, Color(0.9, 0.89, 0.86), _serif)
+	title.name = "TitleLabel"
 	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.anchor_left = 0.0
@@ -103,6 +106,7 @@ func _build() -> void:
 	add_child(title)
 
 	var sub := _label(TranslationManager.get_instance().get_string("title_subtitle"), 20, Color(0.55, 0.56, 0.56))
+	sub.name = "SubtitleLabel"
 	sub.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	sub.anchor_left = 0.0
 	sub.anchor_right = 1.0
@@ -159,6 +163,7 @@ func _build() -> void:
 	add_child(_best_label)
 
 	var controls := _label(controls_text(), 15, Color(0.46, 0.46, 0.46))
+	controls.name = "controls_label"
 	controls.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	controls.anchor_top = 1.0
 	controls.anchor_bottom = 1.0
@@ -223,7 +228,10 @@ func _refresh_ui() -> void:
 	# Refresh title screen text
 	for child in get_children():
 		if child is Label:
-			pass # Handle specific labels
+			if child.name == "TitleLabel":
+				child.text = TranslationManager.get_instance().get_string("title_main")
+			elif child.name == "SubtitleLabel":
+				child.text = TranslationManager.get_instance().get_string("title_subtitle")
 	
 	# Rebuild menu buttons
 	for child in _menu.get_children():

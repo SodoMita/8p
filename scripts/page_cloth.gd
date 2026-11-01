@@ -46,7 +46,7 @@ var _mi: MeshInstance3D
 func _ready() -> void:
 	_mat = StandardMaterial3D.new()
 	var paper: Texture2D = _note_texture()
-	_mat.albedo_texture = paper if paper != null else load("res://assets/textures/page_blank.png")
+	_mat.albedo_texture = paper if paper != null else load("res://assets/textures/page_blank.webp")
 	_mat.roughness = 0.94
 	_mat.metallic = 0.0
 	_mat.metallic_specular = 0.2
@@ -65,13 +65,19 @@ func _ready() -> void:
 		_add_nails()
 
 
-## The message is baked into assets/textures/note_N.png at build time (see
+## The message is baked into assets/textures/note_N.webp at build time (see
 ## tools/gen_notes.py). Runtime viewport capture was tried first and proved
 ## fragile - with eight live SubViewports the sampled texture was sometimes the
 ## viewport's clear colour instead of the drawn page.
 func _note_texture() -> Texture2D:
 	var idx := clampi(note_index, 1, 8)
-	return load("res://assets/textures/note_%d.png" % idx)
+	var language := TranslationManager.get_instance().get_language()
+	var prefix := ""
+	if language == TranslationManager.Language.RU:
+		prefix = "ru_"
+	elif language == TranslationManager.Language.ZH:
+		prefix = "zh_"
+	return load("res://assets/textures/note_%s%d.webp" % [prefix, idx])
 
 
 func _add_nails() -> void:

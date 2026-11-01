@@ -43,11 +43,11 @@ func _build() -> void:
 	_base = _circle(JOY_RADIUS, Color(1, 1, 1, 0.05), Color(1, 1, 1, 0.18))
 	_knob = _circle(KNOB_RADIUS, Color(1, 1, 1, 0.11), Color(1, 1, 1, 0.34))
 	_run_btn = _circle(60, Color(1, 1, 1, 0.06), Color(1, 1, 1, 0.22))
-	_run_label = _center_label("RUN", 19, _run_btn)
+	_run_label = _center_label(TranslationManager.get_instance().get_string("touch_run"), 19, _run_btn)
 	_light_btn = _circle(46, Color(1, 1, 1, 0.06), Color(1, 1, 1, 0.22))
-	_center_label("LIGHT", 14, _light_btn)
+	_center_label(TranslationManager.get_instance().get_string("touch_light"), 14, _light_btn)
 	_take_btn = _circle(52, Color(1, 0.96, 0.85, 0.10), Color(1, 0.96, 0.85, 0.5))
-	_take_label = _center_label("TAKE", 16, _take_btn)
+	_take_label = _center_label(TranslationManager.get_instance().get_string("touch_take"), 16, _take_btn)
 	_take_btn.visible = false
 	for n in [_base, _knob, _run_btn, _light_btn, _take_btn]:
 		add_child(n)
@@ -78,6 +78,9 @@ func _set_radius(p: Panel, radius: float) -> void:
 func _center_label(text: String, size: int, parent: Control) -> Label:
 	var l := Label.new()
 	l.text = text
+	var font: Font = load("res://assets/fonts/DejaVuSans.ttf")
+	font.fallbacks = [load("res://assets/fonts/NotoSansCJK-subset.otf")]
+	l.add_theme_font_override("font", font)
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -113,7 +116,7 @@ func set_pickup_available(v: bool, action := "TAKE") -> void:
 	_pickup_available = v
 	_take_btn.visible = v
 	if _take_label != null:
-		_take_label.text = action
+		_take_label.text = TranslationManager.get_instance().get_string("touch_unpin" if action == "UNPIN" else "touch_take")
 		_take_label.add_theme_font_size_override("font_size", 13 if action == "UNPIN" else 16)
 
 

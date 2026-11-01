@@ -67,6 +67,7 @@ func get_string(key: String) -> String:
 
 
 func get_language() -> Language:
+	_ensure_loaded()
 	return _lang
 
 

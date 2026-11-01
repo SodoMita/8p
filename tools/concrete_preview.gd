@@ -32,11 +32,11 @@ func _run() -> void:
 	wall.position.y = 1.8
 	stage.add_child(wall)
 	var baseline := StandardMaterial3D.new()
-	baseline.albedo_texture = load("res://assets/textures/stone_albedo.png")
+	baseline.albedo_texture = load("res://assets/textures/stone_albedo.webp")
 	baseline.normal_enabled = true
-	baseline.normal_texture = load("res://assets/textures/stone_normal.png")
+	baseline.normal_texture = load("res://assets/textures/stone_normal.webp")
 	baseline.normal_scale = 0.85
-	baseline.roughness_texture = load("res://assets/textures/stone_rough.png")
+	baseline.roughness_texture = load("res://assets/textures/stone_rough.webp")
 	baseline.uv1_triplanar = true
 	baseline.uv1_world_triplanar = true
 	baseline.uv1_scale = Vector3.ONE / 1.2

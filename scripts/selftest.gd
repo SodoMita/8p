@@ -449,7 +449,7 @@ func _run() -> void:
 	if endgrain_pbr_ok:
 		var endgrain_std := endgrain_material as StandardMaterial3D
 		endgrain_pbr_ok = endgrain_std.albedo_texture != null \
-			and endgrain_std.albedo_texture.resource_path == "res://assets/textures/endgrain_albedo.png" \
+			and endgrain_std.albedo_texture.resource_path == "res://assets/textures/endgrain_albedo.webp" \
 			and endgrain_std.normal_texture != null \
 			and endgrain_std.roughness_texture != null \
 			and not endgrain_std.uv1_triplanar
@@ -487,6 +487,72 @@ func _run() -> void:
 	# pumpkins and dead bushes must actually be in the world
 	check("pumpkins_present", world.map_builder.pumpkin_count() > 8,
 		str(world.map_builder.pumpkin_count()))
+	var pumpkin_body: StaticBody3D = world.map_builder.get_node_or_null("PumpkinCollision")
+	var visual_transforms: Array[Transform3D] = []
+	for variant in world.map_builder._pumpkin_meshes.size():
+		var batch := world.map_builder.get_node_or_null("Pumpkins_%d" % variant) as MultiMeshInstance3D
+		if batch != null:
+			for i in batch.multimesh.instance_count:
+				# Headless renderer returns identity for MultiMesh transforms; the
+				# builder records the very same transforms supplied to the batch.
+				visual_transforms.append(Transform3D.IDENTITY)
+	var collision_matches := pumpkin_body != null and pumpkin_body.get_child_count() == visual_transforms.size()
+	if pumpkin_body != null:
+		for child in pumpkin_body.get_children():
+			var cs := child as CollisionShape3D
+			if cs == null or not cs.shape is ConvexPolygonShape3D:
+				collision_matches = false
+				continue
+			var found := false
+			for xf in world.map_builder.pumpkin_collision_transforms:
+				if xf.is_equal_approx(cs.transform):
+					found = true
+					break
+			if not found:
+				collision_matches = false
+	check("pumpkin_collision_matches_every_instance", collision_matches, "%d visuals" % visual_transforms.size())
+	var pumpkin_hit := false
+	if pumpkin_body != null:
+		var probe_shape := SphereShape3D.new()
+		probe_shape.radius = 0.08
+		for child in pumpkin_body.get_children():
+			var query := PhysicsShapeQueryParameters3D.new()
+			query.shape = probe_shape
+			query.transform.origin = pumpkin_body.to_global((child as CollisionShape3D).position)
+			for hit in get_viewport().world_3d.direct_space_state.intersect_shape(query, 32):
+				if hit.collider == pumpkin_body:
+					pumpkin_hit = true
+					break
+			if pumpkin_hit:
+				break
+	check("pumpkin_collision_physics_query", pumpkin_hit)
+
+	# Tables are complete, correctly formatted and backed by actual CJK glyphs.
+	var tm := TranslationManager.get_instance()
+	var saved_language := tm._lang
+	var tables_complete := true
+	var en: Dictionary = tm._tables[TranslationManager.Language.EN]
+	var cjk: Font = load("res://assets/fonts/NotoSansCJK-subset.otf")
+	var glyphs_ok := true
+	for lang in [TranslationManager.Language.EN, TranslationManager.Language.RU, TranslationManager.Language.ZH]:
+		tm._lang = lang
+		var table: Dictionary = tm._tables[lang]
+		for key in en:
+			if not table.has(key) or str(table[key]).is_empty():
+				tables_complete = false
+		var formatted_best := tm.get_string("end_best") % ["1:23"]
+		var formatted_stats := tm.get_string("end_stats") % [8, "1:23", formatted_best]
+		tables_complete = tables_complete and formatted_stats.contains("1:23")
+		if lang == TranslationManager.Language.ZH:
+			for value in table.values():
+				for character in str(value):
+					var code := character.unicode_at(0)
+					if code >= 0x3000 and not cjk.has_char(code):
+						glyphs_ok = false
+	tm._lang = saved_language
+	check("translation_tables_complete_and_formats_valid", tables_complete)
+	check("chinese_font_covers_translation_glyphs", glyphs_ok)
+	check("initial_objective_uses_translation", world.hud.objective.text == tm.get_string("hud_objective"))
 	var min_bush_count := 40 if Game.quality == 0 else 60
 	check("bushes_present", world.map_builder.bush_count() > min_bush_count,
 		"%d (tier minimum %d)" % [world.map_builder.bush_count(), min_bush_count])
@@ -665,6 +731,15 @@ func _run() -> void:
 	check("pages_have_no_light", light_free)
 	check("pages_are_not_emissive", dark)
 	check("pages_show_their_note", texted)
+	var page_language := TranslationManager.get_instance().get_language()
+	var page_prefix := "ru_" if page_language == TranslationManager.Language.RU else ("zh_" if page_language == TranslationManager.Language.ZH else "")
+	var localized_paper := true
+	for pg in pages_list:
+		var page_sheet: Node = pg.get("cloth")
+		var expected := "res://assets/textures/note_%s%d.webp" % [page_prefix, page_sheet.note_index]
+		if page_sheet._mat.albedo_texture.resource_path != expected:
+			localized_paper = false
+	check("page_textures_match_language", localized_paper)
 	# A real pin must pass through a visible page into the same world collider at
 	# the actual rendered surface. Exclude the nail itself: counting its cylinder
 	# as the supporting wall would reproduce the old fake-positive bug.
@@ -1081,4 +1156,4 @@ func _run() -> void:
 	await _wait(3.5)
 	check("caught_by_slender", sl.dead)
 	check("death_screen", world.hud.end_root.visible)
-	check("death_title", world.hud.end_title.text == "HE FOUND YOU", world.hud.end_title.text)
+	check("death_title", world.hud.end_title.text == TranslationManager.get_instance().get_string("end_lose_title"), world.hud.end_title.text)

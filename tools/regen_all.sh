@@ -27,8 +27,10 @@ python3 tools/gen_textures_real.py | tail -3
 echo "== 3/5 high-res concrete"
 python3 - >/dev/null <<'EOP' || true
 EOP
-python3 tools/gen_notes.py   # page notes on top of page_blank.png
 python3 tools/gen_concrete.py | tail -2
+
+python3 tools/png_to_webp.py  # generated PNGs are temporary; runtime uses lossless WebP
+python3 tools/gen_notes.py  # localized page textures from translations
 
 echo "== 4/5 fonts"
 for f in DejaVuSans.ttf DejaVuSerif-Bold.ttf; do
@@ -53,4 +55,4 @@ if [ "${1:-}" = "--title" ]; then
   "$GODOT" --headless --path . --import >/dev/null 2>&1 || true
 fi
 
-echo "assets: $(ls assets/textures/*.png | wc -l) textures, $(ls assets/audio/*.wav | wc -l) sounds, $(ls assets/models/*.res | wc -l) meshes"
+echo "assets: $(ls assets/textures/*.webp | wc -l) textures, $(ls assets/audio/*.wav | wc -l) sounds, $(ls assets/models/*.res | wc -l) meshes"
