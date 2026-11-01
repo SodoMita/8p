@@ -214,11 +214,13 @@ the lens/tape pass (and the on-screen REC/timecode furniture) off, and
   with flickering bulkhead lamps and spatial 3D 50 Hz `wire_hum_loop.ogg`
   transformer buzz, and 140–240 sagging catenary electric cables + severed
   copper-tipped drops converging on an overhead collector ring above the 2×2
-  Central Sanctum). An `Area3D` reverb zone (`scripts/reverb_zone.gd`) wraps
-  the labyrinth: crossing the threshold swaps footsteps from forest leaves to
-  cold flagstone, opens a 34 ms-predelay stone reverb tail on both 3D substation
-  hum emitters and the `World` bus (footsteps, breathing, whispers, screams),
-  and low-passes exterior wind behind the walls. Slender navigates its corridors
+  Central Sanctum). Its masonry wall and floor batches use the same metre-space
+  triplanar concrete PBR material as the other concrete surfaces. An `Area3D`
+  reverb zone (`scripts/reverb_zone.gd`) wraps the labyrinth: crossing the
+  threshold swaps footsteps from forest leaves to cold flagstone, opens a
+  34 ms-predelay stone reverb tail on both 3D substation hum emitters and the
+  `World` bus (footsteps, breathing, whispers, screams), and low-passes exterior
+  wind behind the walls. Slender navigates its corridors
   around corners via 100-cell centerline-aligned BFS; outside the maze, a scored
   collision-ray fan keeps a world-space detour side to avoid tree-trunk oscillation.
 * **Pumpkins and dead bushes.** Patches of ribbed, dirt-streaked pumpkins grow
@@ -323,7 +325,7 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 |---|---|
 | `controls` | the control paths, measured: mouse yaw/pitch scale and sign (with `invert_y` and sensitivity applied exactly once), **the camera transform itself turns** (not just the yaw variable), plain mouse motion turns the view **with touch mode on and the cursor free** (the bug that made PC aim dead), a finger's drag looks once (a double-application would be 2×), a finger on the glass suppresses the mouse twin and lifting it hands aim back, a click captures the pointer while a finger's click never does, `WASD` walks 30 physics ticks **in both modes**, the stick never moves the view, pitch clamps, `F` toggles the lamp, dismissing a note eats that key and the note stays gone, pause stops movement and resume restores it, the stick is not latched across a pause, and the overlay is silent while paused or frozen. Runs headless *and* inside sway (pointer capture is a no-op headless) |
 | `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports and 180° cuts resync, a stalled tick is clamped, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
-| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **inside and outside trees use visible-mesh trunk colliders** and the outside batches share the arena's meshes/material, **the chain-link fence is a closed ring of 329 colliders with an open 5 m gate**, stump bark and end-grain use separate PBR surfaces, pages are live cloth with no light, their nail ray must hit the same visible mesh and collision body, and pulling the nail releases the sheet, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, all 100 maze cells and four entrances route without wall cuts, the Slender holds and releases a collision-ray detour around a blocker, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
+| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **inside and outside trees use visible-mesh trunk colliders** and the outside batches share the arena's meshes/material, **the chain-link fence is a closed ring of 329 colliders with an open 5 m gate**, stump bark and end-grain use separate PBR surfaces, pages are live cloth with no light, their nail ray must hit the same visible mesh and collision body, and pulling the nail releases the sheet, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, all 100 maze cells and four entrances route without wall cuts, labyrinth wall/floor batches use the shared concrete PBR material, the Slender holds and releases a collision-ray detour around a blocker, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |
 | `death path` | Slender catches the player, jumpscare, death screen shown |
 | `flow` | **Title → BEGIN → World → pause → resume → movement → pull nail → take first page**, inside sway; interaction remains blocked while paused |

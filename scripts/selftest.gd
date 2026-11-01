@@ -150,6 +150,11 @@ func _run() -> void:
 		and lab_metal_node != null and lab_wires_node != null
 		and lab_body_node != null and lab_rzone != null,
 		"cells=%d walls=%d" % [int(lab.get("cells", 0)), int(lab.get("wall_count", 0))])
+	var concrete_material: Material = world.map_builder._mats.get("concrete")
+	check("labyrinth_uses_shared_concrete_material",
+		concrete_material != null and lab_mesh_node != null and lab_floor_node != null
+		and lab_mesh_node.material_override == concrete_material
+		and lab_floor_node.material_override == concrete_material)
 	var moon_shadow_light := world.get_node_or_null("MoonKeyLight") as DirectionalLight3D
 	var flashlight_shadow_light := player.get_node_or_null("Head/Handle/CameraMount/Camera/Flashlight") as SpotLight3D
 	var expected_lab_shadow := Game.quality >= 1

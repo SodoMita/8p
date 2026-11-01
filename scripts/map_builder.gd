@@ -248,9 +248,10 @@ func _make_materials() -> void:
 	pumpkin_skin.shader = load("res://shaders/pumpkin_skin.gdshader")
 	_mats["pumpkin"] = pumpkin_skin
 	_mats["lamp"] = _flat(Color(0.42, 0.39, 0.28), 0.24, 0.15)
-	# the labyrinth's industrial dressing
-	_mats["lab_wall"] = _triplanar("stone", 0.9, 0.96, 1.35)
-	_mats["lab_floor"] = _triplanar("stone", 1.0, 0.98, 1.15)
+	# Reuse the canonical concrete material for labyrinth masonry; keep its
+	# industrial metal and wire dressing on separate materials.
+	_mats["lab_wall"] = _mats["concrete"]
+	_mats["lab_floor"] = _mats["concrete"]
 	_mats["lab_metal"] = _flat(Color(1.0, 1.0, 1.0), 0.46, 0.72)
 	_mats["lab_wire"] = _flat(Color(1.0, 1.0, 1.0), 0.40, 0.22)
 

@@ -1,6 +1,10 @@
-EIGHT PAGES 1.6.8
+EIGHT PAGES 1.6.9
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
+1.6.9 labyrinth concrete material. Labyrinth masonry walls and floor now reuse
+     the canonical metre-space triplanar concrete PBR material instead of lab-
+     specific texture/normal variants. Added a material-identity selftest;
+     headless tests passed 99/0 at quality tiers 0, 1 and 2.
 1.6.8 Slender pathing (#68). Replaced the time-based left/right flip with a scored
      collision-ray fan and a persistent world-space detour side; it resets when
      the route clears or chase state changes. Low-tier vegetation checks honor
