@@ -11,8 +11,9 @@ extends Node3D
 
 const CHUNK := 32.0          # metres per chunk
 const VIEW := 3              # chunks in each direction around the player
-const GROUND_STEP := 4.0     # metres between ground vertices inside a chunk
+const GROUND_STEP := 2.0     # metres between ground vertices inside a chunk
 const TreeCollisionMesh = preload("res://scripts/tree_collision.gd")
+const TerrainSurfaceMesh = preload("res://scripts/terrain_surface.gd")
 
 var map_builder: Node = null
 var quality: int = 1
@@ -100,20 +101,25 @@ func _load_assets() -> void:
 
 
 func _build_floor() -> void:
-	# One enormous, flat collision slab under everything. The playable ground is
-	# flat, so this is all the collision the outside world needs - you can never
-	# fall out of the map no matter how far you walk.
+	# Deep safety slab under the streamed heightfield. Actual walking collision is
+	# supplied by each terrain mesh; this only catches a missing far-world chunk.
 	var body := StaticBody3D.new()
 	body.name = "WorldFloor"
+	body.collision_layer = 4
+	body.collision_mask = 5
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(4000.0, 2.0, 4000.0)
+	shape.size = Vector3(4000.0, 3.0, 4000.0)
 	var cs := CollisionShape3D.new()
 	cs.shape = shape
-	# top at -0.02, tucked under the arena floor (top at 0) so the two
-	# StaticBody slabs never fight over the same contact plane
-	cs.position = Vector3(0, -1.02, 0)
+	cs.position = Vector3(0.0, -3.0, 0.0) # top at -1.5 m, below the deepest valley
 	body.add_child(cs)
 	add_child(body)
+
+
+func _ground_height(point: Vector3) -> float:
+	if map_builder != null and map_builder.has_method("ground_height_at"):
+		return float(map_builder.ground_height_at(point))
+	return 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -124,20 +130,24 @@ func _build_road() -> void:
 		return
 	var pts := PackedVector3Array()
 	# start well inside the gate so the ribbon meets the arena floor cleanly
-	pts.append(gate_centre + Vector3(-8.0, 0, 0))
-	pts.append(gate_centre)
+	var start := gate_centre + Vector3(-8.0, 0.0, 0.0)
+	start.y = _ground_height(start)
+	pts.append(start)
+	var gate_point := gate_centre
+	gate_point.y = _ground_height(gate_point)
+	pts.append(gate_point)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 20261031
-	var p := gate_centre
+	var p := gate_point
 	var heading := 0.0            # radians, +X
-	var z := 0.0
 	for i in 26:
 		heading += rng.randf_range(-0.20, 0.20)
 		var step := rng.randf_range(16.0, 30.0)
-		p += Vector3(cos(heading), 0, sin(heading)) * step
+		p += Vector3(cos(heading), 0.0, sin(heading)) * step
 		# keep the road roughly heading away from the arena
 		if p.x < gate_centre.x + 12.0:
 			p.x = gate_centre.x + 12.0
+		p.y = _ground_height(p)
 		pts.append(p)
 	_road_pts = pts
 	var mesh: ArrayMesh = RoadRibbon.build(pts, 4.6, 3.0, 0.07, 4242, 3)
@@ -218,18 +228,25 @@ func _build_chunk(key: Vector2i) -> Node3D:
 		root.set_meta("arena", true)
 		return root
 
-	# --- ground ---------------------------------------------------------
-	var plane := PlaneMesh.new()
-	# exact chunk size: overlapping strips every seam z-fight badly
-	plane.size = Vector2(CHUNK, CHUNK)
-	plane.subdivide_width = int(CHUNK / GROUND_STEP)
-	plane.subdivide_depth = int(CHUNK / GROUND_STEP)
+	# --- sampled heightfield + matching static mesh collision ------------
+	var ground_mesh: ArrayMesh = TerrainSurfaceMesh.build_grid(
+		origin + Vector3(CHUNK * 0.5, 0.0, CHUNK * 0.5),
+		Vector2(CHUNK, CHUNK), int(CHUNK / GROUND_STEP), int(CHUNK / GROUND_STEP),
+		Callable(self, "_ground_height"), -0.02)
 	var mi := MeshInstance3D.new()
-	mi.mesh = plane
+	mi.name = "GroundMesh"
+	mi.mesh = ground_mesh
 	mi.material_override = ground_mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.position = origin + Vector3(CHUNK * 0.5, -0.02, CHUNK * 0.5)
 	root.add_child(mi)
+	var ground_body := StaticBody3D.new()
+	ground_body.name = "GroundCollision"
+	ground_body.collision_layer = 4
+	ground_body.collision_mask = 5
+	var ground_shape := CollisionShape3D.new()
+	ground_shape.shape = ground_mesh.create_trimesh_shape()
+	ground_body.add_child(ground_shape)
+	root.add_child(ground_body)
 
 	# --- trees ----------------------------------------------------------
 	var rng := RandomNumberGenerator.new()
@@ -242,7 +259,8 @@ func _build_chunk(key: Vector2i) -> Node3D:
 	var guard := 0
 	while placed < count and guard < count * 12:
 		guard += 1
-		var p := origin + Vector3(rng.randf() * CHUNK, 0, rng.randf() * CHUNK)
+		var p := origin + Vector3(rng.randf() * CHUNK, 0.0, rng.randf() * CHUNK)
+		p.y = _ground_height(p)
 		# chunks straddling the fence line would otherwise drop trees inside the
 		# arena; the fence sits at +-61, so reject anything within it
 		if absf(p.x) <= 62.0 and absf(p.z) <= 62.0:

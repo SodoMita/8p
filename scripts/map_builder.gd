@@ -11,6 +11,10 @@ extends Node3D
 ## Nothing here uses fixed coordinates, so the layout can never repeat.
 
 const HALF := 60.0
+const TERRAIN_SHAPE_AMPLITUDE := 0.84
+const TERRAIN_DETAIL_AMPLITUDE := 0.22
+const TERRAIN_EDGE_FADE := 12.0
+const TERRAIN_PAD_FADE := 5.0
 const TREES_DESKTOP := 620
 const TREES_MOBILE := 430
 const DEAD_TREE_MESHES := 6
@@ -22,6 +26,7 @@ const LAB_CELL := 2.45
 const LAB_WALL_THICK := 0.36
 const LAB_HALF := LAB_CELLS * LAB_CELL * 0.5  # 12.25 m (24.5 x 24.5 m footprint)
 const TreeCollisionMesh = preload("res://scripts/tree_collision.gd")
+const TerrainSurfaceMesh = preload("res://scripts/terrain_surface.gd")
 
 signal built
 
@@ -45,6 +50,10 @@ var world_seed := 0
 var _mats := {}
 var _noise := FastNoiseLite.new()
 var _density := FastNoiseLite.new()
+var _terrain_shape := FastNoiseLite.new()
+var _terrain_detail := FastNoiseLite.new()
+var _terrain_origin_height := 0.0
+var _terrain_pads: Array[Dictionary] = []
 var _tree_count := 0
 var _occupied: Array[Dictionary] = []
 var _placed_spacing: Array[float] = []
@@ -73,11 +82,22 @@ func build(seed_value: int, quality: int) -> void:
 	_density.seed = seed_value + 7
 	_density.frequency = 0.045
 	_density.fractal_octaves = 2
+	_terrain_shape.seed = seed_value + 431
+	_terrain_shape.frequency = 0.014
+	_terrain_shape.fractal_octaves = 3
+	_terrain_detail.seed = seed_value + 971
+	_terrain_detail.frequency = 0.042
+	_terrain_detail.fractal_octaves = 2
+	_terrain_pads.clear()
+	_terrain_origin_height = _raw_terrain_height(0.0, 0.0)
 
 	_load_meshes()
 	_make_materials()
-	_ground()
+	# A level spawn clearing keeps the first moments readable; the rest of the
+	# forest rolls naturally and each landmark gets its own gently blended pad.
+	_add_terrain_pad(Vector3.ZERO, 9.0, 0.0, 4.0)
 	_place_landmarks(quality)
+	_ground()
 	_forest(TREES_DESKTOP if quality >= 1 else TREES_MOBILE, quality)
 	_undergrowth(quality)
 	_pumpkins_and_bushes(quality)
@@ -368,25 +388,73 @@ func _flat(color: Color, rough := 0.8, metallic := 0.0) -> StandardMaterial3D:
 # ground
 # --------------------------------------------------------------------------- #
 func _ground() -> void:
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(150, 150)
-	plane.subdivide_width = 8
-	plane.subdivide_depth = 8
+	var terrain_mesh: ArrayMesh = TerrainSurfaceMesh.build_grid(
+		Vector3.ZERO, Vector2(150.0, 150.0), 75, 75,
+		Callable(self, "ground_height_at"))
 	var mi := MeshInstance3D.new()
-	mi.mesh = plane
+	mi.name = "GroundMesh"
+	mi.mesh = terrain_mesh
 	mi.material_override = _mats["ground"]
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 
 	var floor_body := StaticBody3D.new()
 	floor_body.name = "GroundCollision"
-	var floor_shape := CollisionShape3D.new()
+	floor_body.collision_layer = 4 # dedicated terrain layer; anchor rays ignore the ground
+	floor_body.collision_mask = 5 # player and loose physical page nails
+	var terrain_shape := CollisionShape3D.new()
+	terrain_shape.name = "TerrainTriangles"
+	terrain_shape.shape = terrain_mesh.create_trimesh_shape()
+	floor_body.add_child(terrain_shape)
+	# A buried safety slab catches only a fall through a missing terrain chunk;
+	# its top is safely below the lowest procedural valley.
+	var safety_shape := CollisionShape3D.new()
+	safety_shape.name = "SafetyFloor"
 	var floor_box := BoxShape3D.new()
-	floor_box.size = Vector3(150, 1, 150)
-	floor_shape.shape = floor_box
-	floor_shape.position = Vector3(0, -0.5, 0)
-	floor_body.add_child(floor_shape)
+	floor_box.size = Vector3(150.0, 3.0, 150.0)
+	safety_shape.shape = floor_box
+	safety_shape.position = Vector3(0.0, -3.0, 0.0)
+	floor_body.add_child(safety_shape)
 	add_child(floor_body)
+
+
+func _raw_terrain_height(x: float, z: float) -> float:
+	return _terrain_shape.get_noise_2d(x, z) * TERRAIN_SHAPE_AMPLITUDE \
+		+ _terrain_detail.get_noise_2d(x, z) * TERRAIN_DETAIL_AMPLITUDE
+
+
+func _smooth_01(value: float) -> float:
+	var t := clampf(value, 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+
+## Shared height query for the arena and the streamed outside terrain. The square
+## fence edge eases to sea level so the gate, posts and road meet without a lip.
+func ground_height_at(point: Vector3) -> float:
+	var edge := HALF + 1.0 - maxf(absf(point.x), absf(point.z))
+	var edge_blend := _smooth_01(absf(edge) / TERRAIN_EDGE_FADE)
+	var raw := (_raw_terrain_height(point.x, point.z) - _terrain_origin_height) * edge_blend
+	var height := raw
+	for pad in _terrain_pads:
+		var centre: Vector3 = pad["centre"]
+		var distance := Vector2(point.x - centre.x, point.z - centre.z).length()
+		var radius := float(pad["radius"])
+		if distance <= radius:
+			return float(pad["height"])
+		var fade := float(pad["fade"])
+		if fade > 0.0 and distance < radius + fade:
+			var blend := _smooth_01((distance - radius) / fade)
+			height = lerpf(float(pad["height"]), raw, blend)
+	return height
+
+
+func _add_terrain_pad(centre: Vector3, radius: float, height: float, fade := TERRAIN_PAD_FADE) -> void:
+	_terrain_pads.append({
+		"centre": Vector3(centre.x, 0.0, centre.z),
+		"radius": radius,
+		"height": height,
+		"fade": fade,
+	})
 
 
 # --------------------------------------------------------------------------- #
@@ -628,6 +696,11 @@ func _overlaps_landmarks(pos: Vector3, spacing: float, lab_spacing: float) -> bo
 
 
 func _build_landmark(type: String, base: Vector3, rot: float, s: float) -> void:
+	# Place the set piece on a locally flattened patch so its foundations and
+	# page anchors stay in contact while the surrounding forest rolls.
+	base.y = ground_height_at(base)
+	var pad_radius := (17.5 if type == "labyrinth" else 14.5) * s
+	_add_terrain_pad(base, pad_radius, base.y)
 	# all local geometry is rotated by `rot` and uniformly scaled by `s`
 	var xf := Transform3D(Basis(Vector3.UP, rot).scaled(Vector3(s, s, s)), base)
 	if type == "labyrinth":
@@ -2186,6 +2259,7 @@ func _forest(max_trees: int, quality: int) -> void:
 		var a := rng.randf() * TAU
 		var r := sqrt(rng.randf()) * (HALF - 2.0)
 		var p := Vector3(cos(a) * r, 0.0, sin(a) * r)
+		p.y = ground_height_at(p)
 		if Vector2(p.x, p.z).length() < 8.0:
 			continue
 		if _in_clearing(p, 1.5) or _too_close(p, 2.9):
@@ -2350,6 +2424,7 @@ func _pumpkins_and_bushes(quality: int) -> void:
 				var a := rng.randf() * TAU
 				var d := rng.randf_range(0.2, 1.9)
 				var p := centre + Vector3(cos(a) * d, 0.0, sin(a) * d)
+				p.y = ground_height_at(p)
 				if _point_inside_prop(p) or _too_close(p, 0.9):
 					continue
 				spots.append(p)
@@ -2381,7 +2456,9 @@ func _pumpkins_and_bushes(quality: int) -> void:
 						spots.append(pp)
 			spots.append(_lab_xf * Vector3(-1.32, 0.0, -1.82))
 			spots.append(_lab_xf * Vector3(1.32, 0.0, 1.82))
-		for p in spots:
+		for spot in spots:
+			var p: Vector3 = spot
+			p.y = ground_height_at(p)
 			var idx := rng.randi_range(0, _pumpkin_meshes.size() - 1)
 			var s := rng.randf_range(0.75, 1.35)
 			# some pumpkins have been knocked over
@@ -2412,6 +2489,7 @@ func _pumpkins_and_bushes(quality: int) -> void:
 			# bias toward the outer ring of the forest
 			var r := pow(rng.randf(), 0.6) * (HALF - 3.0)
 			var p := Vector3(cos(a) * r, 0.0, sin(a) * r)
+			p.y = ground_height_at(p)
 			if Vector2(p.x, p.z).length() < 9.0:
 				continue
 			if in_labyrinth(p, 1.2) or _point_inside_prop(p) or _too_close(p, 1.4):
@@ -2440,6 +2518,7 @@ func _ground_detail(quality: int) -> void:
 		var a := rng.randf() * TAU
 		var r := sqrt(rng.randf()) * (HALF - 1.0)
 		var p := Vector3(cos(a) * r, 0.0, sin(a) * r)
+		p.y = ground_height_at(p)
 		if in_labyrinth(p, 0.6) or _point_inside_prop(p):
 			continue
 		var s := rng.randf_range(0.35, 0.75)
@@ -2457,7 +2536,8 @@ func _ground_detail(quality: int) -> void:
 	for i in int(420 * quality_scale(quality)):
 		var a := rng.randf() * TAU
 		var r := sqrt(rng.randf()) * (HALF - 1.0)
-		var p := Vector3(cos(a) * r, 0.02, sin(a) * r)
+		var p := Vector3(cos(a) * r, 0.0, sin(a) * r)
+		p.y = ground_height_at(p) + 0.02
 		if in_labyrinth(p, 0.5):
 			continue
 		var s := rng.randf_range(0.7, 2.0)
@@ -2476,6 +2556,7 @@ func _random_clear_spot(min_from_trees: float, max_radius := HALF - 4.0) -> Vect
 		var a := rng.randf() * TAU
 		var r := sqrt(rng.randf()) * max_radius
 		var p := Vector3(cos(a) * r, 0.0, sin(a) * r)
+		p.y = ground_height_at(p)
 		if Vector2(p.x, p.z).length() < 7.0:
 			continue
 		if _too_close(p, min_from_trees):

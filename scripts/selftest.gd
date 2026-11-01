@@ -87,6 +87,35 @@ func _run() -> void:
 	print("[selftest] second signature: ", sig2)
 	check("procedural_layout_unique", sig != sig2)
 
+	# A seeded heightfield must have real relief, stay level at the spawn clearing,
+	# and taper to the fence so the chain-link remains planted in the ground.
+	var min_height := 999.0
+	var max_height := -999.0
+	for x in range(-50, 51, 10):
+		for z in range(-50, 51, 10):
+			var h := float(world.map_builder.ground_height_at(Vector3(float(x), 0.0, float(z))))
+			min_height = minf(min_height, h)
+			max_height = maxf(max_height, h)
+	check("terrain_height_varies", max_height - min_height > 0.45,
+		"range=%.2f m (%.2f to %.2f)" % [max_height - min_height, min_height, max_height])
+	check("terrain_spawn_clearing_level",
+		absf(world.map_builder.ground_height_at(Vector3(0.0, 0.0, 7.0))) < 0.001)
+	check("terrain_fence_edge_level",
+		absf(world.map_builder.ground_height_at(Vector3(61.0, 0.0, 0.0))) < 0.001)
+	var terrain_visual: MeshInstance3D = world.map_builder.get_node_or_null("GroundMesh") as MeshInstance3D
+	var terrain_body: StaticBody3D = world.map_builder.get_node_or_null("GroundCollision") as StaticBody3D
+	var terrain_collider: CollisionShape3D = terrain_body.get_node_or_null("TerrainTriangles") if terrain_body != null else null
+	check("terrain_mesh_and_collision",
+		terrain_visual != null and terrain_visual.mesh is ArrayMesh
+		and terrain_collider != null and terrain_collider.shape is ConcavePolygonShape3D)
+	var terrain_ray := PhysicsRayQueryParameters3D.create(
+		Vector3(0.0, 4.0, 0.0), Vector3(0.0, -2.0, 0.0), 4)
+	var terrain_hit: Dictionary = get_viewport().world_3d.direct_space_state.intersect_ray(terrain_ray)
+	var terrain_hit_pos: Vector3 = terrain_hit.get("position", Vector3.INF)
+	check("terrain_collision_ray_hits_surface",
+		not terrain_hit.is_empty() and absf(terrain_hit_pos.y) < 0.05,
+		str(terrain_hit_pos))
+
 	# Reachability, tested the way it actually matters: is there room to stand in
 	# front of the page? A capsule cast against real collision, not the scattering
 	# radius that `_point_inside_prop` uses for trees and props.
@@ -224,7 +253,7 @@ func _run() -> void:
 		else:
 			sp = sheet.world_center() if sheet != null and sheet.has_method("world_center") else (pg["node"] as Node3D).global_position
 			sp += Vector3.UP * 0.8
-		sp.y = 0.0
+		sp.y = float(world.map_builder.ground_height_at(sp))
 		var spot := {"name": pg.get("landmark", "?")}
 		if Vector2(sp.x, sp.z).length() > world.map_builder.HALF - 2.0:
 			all_reachable = false
@@ -609,7 +638,8 @@ func _run() -> void:
 	check("page_cloth_sags", sags)
 	var height_ok := true
 	for p in pages_list:
-		var y: float = (p["node"] as Node3D).global_position.y
+		var page_pos: Vector3 = (p["node"] as Node3D).global_position
+		var y := page_pos.y - float(world.map_builder.ground_height_at(page_pos))
 		if y < 1.1 or y > 1.9:
 			height_ok = false
 	check("pages_at_hand_height", height_ok)
@@ -618,6 +648,25 @@ func _run() -> void:
 	var st: Dictionary = world.terrain.stats() if world.terrain != null else {}
 	var terrain_ok: bool = not st.is_empty() and int(st.get("chunks", 0)) >= 9
 	check("terrain_chunks", terrain_ok, str(st.get("chunks", 0)))
+	var outside_heightfield_collision := false
+	for chunk in world.terrain._chunks.values():
+		if chunk.get_meta("arena", false):
+			continue
+		var outside_ground: StaticBody3D = chunk.get_node_or_null("GroundCollision") as StaticBody3D
+		var outside_shape: CollisionShape3D = outside_ground.get_child(0) as CollisionShape3D if outside_ground != null else null
+		if outside_shape != null and outside_shape.shape is ConcavePolygonShape3D:
+			outside_heightfield_collision = true
+	check("outside_heightfield_has_mesh_collision", outside_heightfield_collision)
+	var outside_probe := Vector3(66.0, 0.0, 0.0)
+	var outside_height := float(world.map_builder.ground_height_at(outside_probe))
+	var outside_ray := PhysicsRayQueryParameters3D.create(
+		Vector3(outside_probe.x, outside_height + 3.0, outside_probe.z),
+		Vector3(outside_probe.x, outside_height - 2.0, outside_probe.z), 4)
+	var outside_hit: Dictionary = get_viewport().world_3d.direct_space_state.intersect_ray(outside_ray)
+	var outside_hit_pos: Vector3 = outside_hit.get("position", Vector3.INF)
+	check("outside_terrain_collision_matches_height",
+		not outside_hit.is_empty() and absf(outside_hit_pos.y - outside_height) < 0.05,
+		"sample=%.3f hit=%s" % [outside_height, str(outside_hit_pos)])
 	var outside_tree_count := int(st.get("trees", 0))
 	check("terrain_has_trees", outside_tree_count > 300, str(outside_tree_count))
 	var outside_collider_count := int(st.get("tree_colliders", 0))
@@ -694,7 +743,7 @@ func _run() -> void:
 	Game.begin_run()
 
 	# ---------------------------------------------------------------- movement
-	player.global_position = Vector3(0, 0.2, 0)
+	player.global_position = world.ground_position(Vector3.ZERO, 0.2)
 	player.rotation.y = 0.0
 	await _wait(0.5)
 	var start := player.global_position
@@ -706,7 +755,7 @@ func _run() -> void:
 
 	# sprint should be faster and drain stamina
 	player.stamina = 100.0
-	player.global_position = Vector3(0, 0.2, 0)
+	player.global_position = world.ground_position(Vector3.ZERO, 0.2)
 	player.rotation.y = 0.0
 	await _wait(0.4)
 	start = player.global_position
@@ -776,7 +825,8 @@ func _run() -> void:
 	# walk straight into the outer stone labyrinth wall and verify it stops us
 	var walls: Dictionary = world.map_builder.landmarks[0]
 	var wall_pos: Vector3 = walls["pos"]
-	player.global_position = wall_pos + Vector3(0, 0.15, float(lab.get("half", 12.25)) + 2.6)
+	var wall_stand := wall_pos + Vector3(0.0, 0.0, float(lab.get("half", 12.25)) + 2.6)
+	player.global_position = world.ground_position(wall_stand, 0.15)
 	player.rotation.y = 0.0
 	await _wait(0.2)
 	start = player.global_position
@@ -792,19 +842,20 @@ func _run() -> void:
 	check("player_on_floor", player.is_on_floor(), str(player.global_position.y))
 
 	# ----------------------------------------------------------- reverb zone
-	player.global_position = Vector3(0, 0.15, 0)
+	player.global_position = world.ground_position(Vector3.ZERO, 0.15)
 	await _wait(0.2)
 	check("reverb_zone_outside_dry",
 		not Sfx.in_reverb_zone() and Sfx.reverb_wet() < 0.01 and Sfx.wind_cutoff_hz() > 18000.0,
 		"wet=%.3f lpf=%.0f" % [Sfx.reverb_wet(), Sfx.wind_cutoff_hz()])
 	var sanctum_p: Vector3 = lab.get("sanctum_pos", Vector3.ZERO)
-	player.global_position = Vector3(sanctum_p.x, 0.15, sanctum_p.z + 1.0)
+	player.global_position = world.ground_position(
+		Vector3(sanctum_p.x, 0.0, sanctum_p.z + 1.0), 0.15)
 	await _wait(0.25)
 	check("reverb_zone_inside_wet",
 		Sfx.in_reverb_zone() and Sfx.reverb_wet() > 0.45 and Sfx.wind_cutoff_hz() < 1200.0
 		and lab_rzone.reverb_bus_enabled,
 		"wet=%.3f lpf=%.0f" % [Sfx.reverb_wet(), Sfx.wind_cutoff_hz()])
-	player.global_position = Vector3(0, 0.15, 0)
+	player.global_position = world.ground_position(Vector3.ZERO, 0.15)
 	await _wait(0.2)
 	check("reverb_zone_exits_clean",
 		not Sfx.in_reverb_zone() and Sfx.reverb_wet() < 0.01,
@@ -814,7 +865,7 @@ func _run() -> void:
 	var target: Vector3 = (world.pages[0]["node"] as Node3D).global_position
 	var tnrm: Vector3 = world.pages[0]["normal"]
 	var stand: Vector3 = target + tnrm * 1.1
-	player.global_position = Vector3(stand.x, 0.15, stand.z)
+	player.global_position = world.ground_position(Vector3(stand.x, 0.0, stand.z), 0.15)
 	await _wait(0.4)
 	var sheet_pick: Node3D = world.pages[0]["cloth"]
 	var pin_body: RigidBody3D = sheet_pick.get_node_or_null("PhysicalPageNail") as RigidBody3D
@@ -838,7 +889,7 @@ func _run() -> void:
 	sl.set_process(false)
 	sl.visible = true
 	var cam: Camera3D = player.camera
-	player.global_position = Vector3(0, 0.2, 5.5)
+	player.global_position = world.ground_position(Vector3(0.0, 0.0, 5.5), 0.2)
 	player.rotation.y = 0.0
 	player.head.rotation.x = 0.0
 	await _wait(0.3)
@@ -846,18 +897,18 @@ func _run() -> void:
 	var clear_dir := Vector3(0, 0, -1)
 	for k in 24:
 		var a := TAU * float(k) / 24.0
-		var d := Vector3(sin(a), 0, -cos(a))
-		sl.global_position = player.global_position + d * 8.0
+		var d := Vector3(sin(a), 0.0, -cos(a))
+		sl.global_position = world.ground_position(player.global_position + d * 8.0, 0.0)
 		var q := PhysicsRayQueryParameters3D.create(cam.global_position, sl.global_position + Vector3(0, 2.2, 0), 1)
 		if sight_space.intersect_ray(q).is_empty():
 			clear_dir = d
 			break
-	sl.global_position = player.global_position + clear_dir * 8.0
+	sl.global_position = world.ground_position(player.global_position + clear_dir * 8.0, 0.0)
 	player.rotation.y = atan2(-clear_dir.x, -clear_dir.z)
 	await _wait(0.3)
 	check("slender_seen_in_front", sl._is_seen_by_player(),
 		"dir=%s frustum=%s" % [str(clear_dir), str(cam.is_position_in_frustum(sl.global_position + Vector3(0, 2.2, 0)))])
-	sl.global_position = player.global_position + clear_dir * -8.0
+	sl.global_position = world.ground_position(player.global_position + clear_dir * -8.0, 0.0)
 	await _wait(0.2)
 	check("slender_unseen_behind", not sl._is_seen_by_player())
 	sl.set_process(true)
@@ -888,7 +939,8 @@ func _run() -> void:
 
 	# ------------------------------------------------------------- death flow
 	sl.visible = true
-	sl.global_position = player.global_position + Vector3(0, 0, -2.0)
+	sl.global_position = world.ground_position(
+		player.global_position + Vector3(0.0, 0.0, -2.0), 0.0)
 	sl.force_chase()
 	await _wait(3.5)
 	check("caught_by_slender", sl.dead)

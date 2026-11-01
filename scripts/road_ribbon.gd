@@ -1,6 +1,6 @@
 class_name RoadRibbon
 extends RefCounted
-## Builds a reusable road / dirt-track ribbon mesh from a ground-level polyline.
+## Builds a reusable road / dirt-track ribbon mesh from a terrain-following polyline.
 ## The mesh is generated entirely in code and can be used by any 3D scene.
 
 ## Height of the road edges above the ground plane, in metres.
@@ -10,7 +10,7 @@ const COLUMNS := 3
 
 
 ## Builds a triangulated ribbon [ArrayMesh] following [param points].
-## [param points] is the centreline on the ground (Y is ignored).
+## [param points] is the centreline on the ground; Y follows the terrain height.
 ## [param width] is the full ribbon width in metres.
 ## [param uv_metres] is how many metres one texture tile spans along the road.
 ## [param camber] is the crown height of the centre above the edges, in metres.
@@ -94,13 +94,12 @@ static func length_of(points: PackedVector3Array) -> float:
 	return total
 
 
-## Drops consecutive duplicate points and flattens the polyline onto Y = 0.
+## Drops consecutive duplicate points while retaining their terrain heights.
 static func _sanitise(points: PackedVector3Array) -> PackedVector3Array:
 	var cleaned := PackedVector3Array()
 	for point in points:
-		var flat := Vector3(point.x, 0.0, point.z)
-		if cleaned.is_empty() or cleaned[cleaned.size() - 1].distance_squared_to(flat) > 1e-8:
-			cleaned.append(flat)
+		if cleaned.is_empty() or cleaned[cleaned.size() - 1].distance_squared_to(point) > 1e-8:
+			cleaned.append(point)
 	return cleaned
 
 
@@ -185,7 +184,6 @@ static func _apply_wobble(points: PackedVector3Array, width: float, seed_value: 
 		var offset := amplitude_a * sin(TAU * travelled / wavelength_a + phase_a)
 		offset += amplitude_b * sin(TAU * travelled / wavelength_b + phase_b)
 		var point := points[i] + right * offset
-		point.y = 0.0
 		points[i] = point
 
 

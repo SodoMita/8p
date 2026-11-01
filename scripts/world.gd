@@ -51,7 +51,7 @@ func _ready() -> void:
 	_setup_terrain()
 	# pages resolve their anchor against live collision, so this waits a physics frame
 	await _spawn_pages()
-	player.global_position = Vector3(0, 0.15, 2.0)
+	player.global_position = ground_position(Vector3(0.0, 0.0, 2.0), 0.15)
 	player.rotation.y = 0.0
 	# the camera rig was built during scene load, before the player was placed:
 	# re-seat it so the tether's frame matches where we actually stand
@@ -150,6 +150,15 @@ func _sync_pointer() -> void:
 	var mode := Input.MOUSE_MODE_CAPTURED if want else Input.MOUSE_MODE_VISIBLE
 	if Input.mouse_mode != mode:
 		Input.mouse_mode = mode
+
+
+## Returns a world point lifted above the generated terrain at the same X/Z.
+func ground_position(point: Vector3, clearance := 0.15) -> Vector3:
+	if map_builder != null and map_builder.has_method("ground_height_at"):
+		point.y = float(map_builder.ground_height_at(point)) + clearance
+	else:
+		point.y = clearance
+	return point
 
 
 func _setup_terrain() -> void:
@@ -279,8 +288,7 @@ func _anchor_ray(space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3,
 
 ## Is there space for the player's actual capsule in front of this surface?
 func _stand_room(space: PhysicsDirectSpaceState3D, p: Vector3, n: Vector3) -> bool:
-	var stand := p + n * 1.1
-	stand.y = 0.0
+	var stand := ground_position(p + n * 1.1, 0.0)
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.3
 	cap.height = 1.6
@@ -316,7 +324,8 @@ func _anchor_contacts_exactly(space: PhysicsDirectSpaceState3D, candidate: Dicti
 func _resolve_anchor(authored: Vector3, normal: Vector3) -> Dictionary:
 	var space: PhysicsDirectSpaceState3D = get_world_3d().direct_space_state
 	var n := normal.normalized()
-	var h_target: float = clampf(authored.y, 1.30, 1.65)
+	var terrain_y := float(map_builder.ground_height_at(authored)) if map_builder != null else 0.0
+	var h_target: float = terrain_y + clampf(authored.y - terrain_y, 1.30, 1.65)
 	var center := Vector3(authored.x, h_target, authored.z)
 	var primary := _anchor_ray(space, center + n * 1.5, center - n * 1.0)
 	var preferred_body: Object = primary.get("body")
@@ -458,7 +467,7 @@ func _spawn_pages() -> void:
 		sheet.set("hang_phase", randf() * TAU)
 		sheet.set("note_index", (note_index % PAGE_NOTES.size()) + 1)
 		sheet.set("pin_at_spawn", bool(anchor["anchored"]))
-		sheet.set("floor_height", 0.0)
+		sheet.set("floor_height", float(map_builder.ground_height_at(pos)))
 		root.add_child(sheet)
 		add_child(root)
 		pages.append({
@@ -700,8 +709,9 @@ func _on_caught() -> void:
 		if fwd.length() < 0.05:
 			pass
 	fwd = fwd.normalized()
-	slender.global_position = cam.global_position + fwd * 1.15 - Vector3(0, 2.2, 0)
-	slender.global_position.y = 0.0
+	var fatal_pos := cam.global_position + fwd * 1.15 - Vector3(0.0, 2.2, 0.0)
+	fatal_pos.y = float(map_builder.ground_height_at(fatal_pos))
+	slender.global_position = fatal_pos
 	slender.scale = Vector3(1.15, 1.15, 1.15)
 	var dir := cam.global_position - slender.global_position
 	dir.y = 0.0

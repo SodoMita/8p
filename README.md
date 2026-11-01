@@ -30,10 +30,21 @@ watching a character walk into it).
 Past the gate there is **no edge to fall off**. An endless, procedurally streamed
 forest continues in 32 m chunks around the player, and a dirt road leaves through
 the gate and wanders off to the horizon, so an escaped player always has somewhere
-to walk. A 4 km collision slab sits under all of it. The outside forest uses the
-same six bare-tree meshes, bark material, scale/lean range and buried roots as the
-arena forest. Both use static concave mesh colliders built from the visible lower
-trunk triangles; the streamed outside colliders disappear with their chunks.
+to walk. The 4 km collision slab is a deep safety floor beneath the streamed
+terrain. The outside forest uses the same six bare-tree meshes, bark material,
+scale/lean range and buried roots as the arena forest. Both use static concave mesh
+colliders built from the visible lower-trunk triangles; the streamed outside
+colliders disappear with their chunks.
+
+### Seeded rolling ground
+
+The forest floor is a **real, seeded heightfield**, not a flat plane: broad low
+rises blend with smaller irregularities for gentle, walkable relief. The same
+height query drives the arena mesh and collision, streamed terrain chunks, tree
+roots, undergrowth, pages, the road and Slender's footing. The spawn clearing and
+landmark foundations are gently levelled, while the terrain fades back to level
+along the fence so the posts and gate stay planted. The floor is collidable all
+along the streamed route, with a buried safety layer beneath it.
 
 ### Pages you can touch
 

@@ -65,7 +65,7 @@ func _run_demo() -> void:
 	# short scripted walk used to render a gameplay GIF from real frames
 	await _wait(1.5)
 	var p: Node3D = world.player
-	p.global_position = Vector3(0, 0.15, 6)
+	p.global_position = world.ground_position(Vector3(0.0, 0.0, 6.0), 0.15)
 	p.rotation.y = 0.0
 	p.head.rotation.x = -0.05
 	var frames := 0
@@ -116,7 +116,8 @@ func _run_winscreen() -> void:
 		var node: Node3D = page["node"]
 		var t: Vector3 = node.global_position
 		var normal: Vector3 = page["normal"]
-		p.global_position = Vector3(t.x + normal.x * 1.2, 0.15, t.z + normal.z * 1.2)
+		p.global_position = world.ground_position(
+			Vector3(t.x + normal.x * 1.2, 0.0, t.z + normal.z * 1.2), 0.15)
 		p.velocity = Vector3.ZERO
 		await _wait(0.4)
 		var sheet: Node3D = page["cloth"]
@@ -248,7 +249,7 @@ func _touch_up(id: int, pos: Vector2) -> void:
 
 func _set_camera(pos: Vector3, look_at: Vector3) -> void:
 	var p: Node3D = world.player
-	p.global_position = Vector3(pos.x, 0.12, pos.z)
+	p.global_position = world.ground_position(Vector3(pos.x, 0.0, pos.z), 0.12)
 	p.freeze()
 	await _wait(0.15)
 	var target: Vector3 = look_at - (p.head.global_position)
@@ -514,7 +515,8 @@ func _run_play() -> void:
 		var node: Node3D = page["node"]
 		var target: Vector3 = node.global_position
 		var normal: Vector3 = page["normal"]
-		p.global_position = Vector3(target.x + normal.x * 1.2, 0.12, target.z + normal.z * 1.2)
+		p.global_position = world.ground_position(
+			Vector3(target.x + normal.x * 1.2, 0.0, target.z + normal.z * 1.2), 0.12)
 		await _wait(0.45)
 		_log_line("walked to page %d at %s" % [i + 1, str(target)])
 		var sheet: Node3D = page["cloth"]
@@ -541,7 +543,7 @@ func _run_play() -> void:
 	# The three-page run may end beside a landmark wall. Put the deterministic
 	# chase check in the clear spawn area so the Slender path is not trapped by
 	# whichever procedural prop happened to be behind page three.
-	p.global_position = Vector3(0, 0.15, 2.0)
+	p.global_position = world.ground_position(Vector3(0.0, 0.0, 2.0), 0.15)
 	p.velocity = Vector3.ZERO
 	p.rotation.y = 0.0
 	await _wait(0.2)

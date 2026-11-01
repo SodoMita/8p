@@ -61,7 +61,8 @@ func _run() -> void:
 		var t0: Vector3 = (world.pages[0]["node"] as Node3D).global_position
 		var n0: Vector3 = world.pages[0]["normal"]
 		# stand close enough to pull the pin, but do not depend on auto-pickup
-		p.global_position = Vector3(t0.x + n0.x * 1.5, 0.15, t0.z + n0.z * 1.5)
+		p.global_position = world.ground_position(
+			Vector3(t0.x + n0.x * 1.5, 0.0, t0.z + n0.z * 1.5), 0.15)
 		p.velocity = Vector3.ZERO
 		await _wait(0.5)
 		print("[flow] near_page=", world.near_page, " collected=", Game.pages_collected)
@@ -75,7 +76,7 @@ func _run() -> void:
 	print("[flow] pickup blocked while paused=", paused_pickup_ok)
 
 	# walk a few metres with the touch API, then check pages counter updates
-	p.global_position = Vector3(0, 0.2, 0)
+	p.global_position = world.ground_position(Vector3.ZERO, 0.2)
 	p.velocity = Vector3.ZERO
 	p.rotation.y = 0.0
 	await _wait(0.3)
@@ -92,7 +93,8 @@ func _run() -> void:
 	if world.pages.size() > 0:
 		var t: Vector3 = (world.pages[0]["node"] as Node3D).global_position
 		var n: Vector3 = world.pages[0]["normal"]
-		p.global_position = Vector3(t.x + n.x * 1.2, 0.15, t.z + n.z * 1.2)
+		p.global_position = world.ground_position(
+			Vector3(t.x + n.x * 1.2, 0.0, t.z + n.z * 1.2), 0.15)
 		await _wait(0.5)
 		world.try_pickup(p) # pull the real pin
 		await _wait(0.25)

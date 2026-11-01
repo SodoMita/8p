@@ -1,6 +1,14 @@
-EIGHT PAGES 1.6.5
+EIGHT PAGES 1.6.6
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
+1.6.6 seeded rolling terrain (#51). The arena and streamed exterior now share a
+     two-scale procedural heightfield with matching static mesh collision. Tree
+     roots, ground props, pages, the gate road, player spawns and Slender follow
+     its sampled height; spawn and landmark foundations are flattened, and the
+     fence line eases to level ground. Dedicated terrain collision filtering
+     keeps page-anchor rays on real objects. Full Sway suite passed (85 world,
+     30 rig, 27 control checks); after the outside-heightfield ray assertion,
+     the targeted headless world suite passed 86/0.
 1.6.5 outside forest and real tree collisions (#49). Trees beyond the fence now
      use the same six leafless meshes, bark material, scale/lean range and buried
      roots as the arena forest. Both forests collide against reusable concave mesh

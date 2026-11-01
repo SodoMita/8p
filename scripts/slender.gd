@@ -82,6 +82,12 @@ func head_position() -> Vector3:
 	return global_position + Vector3(0, 3.68 * scale.y, 0)
 
 
+func _ground_height(point: Vector3) -> float:
+	if map_builder != null and map_builder.has_method("ground_height_at"):
+		return float(map_builder.ground_height_at(point))
+	return 0.0
+
+
 func _process(delta: float) -> void:
 	if not active or dead or player == null:
 		return
@@ -209,13 +215,13 @@ func _step_closer(factor: float) -> void:
 		return
 	var new_dist := maxf(5.5, dir.length() * factor)
 	var cand := target - dir.normalized() * new_dist
-	cand.y = 0.0
+	cand.y = _ground_height(cand)
 	if map_builder != null and not map_builder.is_walkable(cand, 0.45):
 		# If stepping along the sightline lands inside stone, step one cell down the maze path.
 		var flow: Vector3 = map_builder.labyrinth_flow_dir(global_position, target)
 		if flow != Vector3.ZERO:
 			var alt := global_position + flow * 2.6
-			alt.y = 0.0
+			alt.y = _ground_height(alt)
 			if map_builder.is_walkable(alt, 0.4):
 				global_position = alt
 		return
@@ -259,11 +265,13 @@ func _move_toward_player(speed: float, delta: float) -> void:
 				dir = (dir * -0.6 + side).normalized()
 	var step := dir * speed * delta
 	var next_pos := global_position + step
-	next_pos.y = 0.0
+	next_pos.y = _ground_height(next_pos)
 	if map_builder != null and map_builder.point_in_labyrinth_wall(next_pos, 0.28):
 		# Slide along corridor axis instead of clipping through a stone corner
 		var sx := Vector3(global_position.x + step.x, 0.0, global_position.z)
 		var sz := Vector3(global_position.x, 0.0, global_position.z + step.z)
+		sx.y = _ground_height(sx)
+		sz.y = _ground_height(sz)
 		if not map_builder.point_in_labyrinth_wall(sx, 0.28):
 			global_position = sx
 		elif not map_builder.point_in_labyrinth_wall(sz, 0.28):
@@ -317,7 +325,8 @@ func _find_spot(min_d: float, max_d: float) -> Vector3:
 			continue
 		if map_builder != null and not map_builder.is_walkable(p, 0.55):
 			continue
-		return Vector3(p.x, 0.0, p.z)
+		p.y = _ground_height(p)
+		return p
 	return Vector3.INF
 
 
@@ -339,7 +348,8 @@ func force_apparition_in_front(distance := 18.0) -> void:
 	var fwd := -player.global_transform.basis.z
 	fwd.y = 0.0
 	var p := player.global_position + fwd.normalized() * distance
-	global_position = Vector3(p.x, 0, p.z)
+	p.y = _ground_height(p)
+	global_position = p
 	_animation.reset_pose()
 	visible = true
 	mode = Mode.APPARITION

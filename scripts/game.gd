@@ -8,7 +8,7 @@ signal player_killed(reason: String)
 signal run_finished(won: bool)
 
 const TOTAL_PAGES := 8
-const VERSION := "1.6.2"
+const VERSION := "1.6.6"
 
 var pages_collected := 0
 var run_time := 0.0
