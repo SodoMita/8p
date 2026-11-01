@@ -59,6 +59,7 @@ var _occupied: Array[Dictionary] = []
 var _placed_spacing: Array[float] = []
 var _tree_meshes: Array[Mesh] = []
 var _pumpkin_meshes: Array[Mesh] = []
+var pumpkin_collision_transforms: Array[Transform3D] = []
 var _bush_meshes: Array[Mesh] = []
 var _snag_meshes: Array[Mesh] = []
 var _props := {}
@@ -135,11 +136,11 @@ func _load_meshes() -> void:
 # --------------------------------------------------------------------------- #
 func _pbr(name: String, repeats_per_metre := 1.0, rough := 1.0, normal_scale := 1.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
-	m.albedo_texture = load("res://assets/textures/%s_albedo.png" % name)
+	m.albedo_texture = load("res://assets/textures/%s_albedo.webp" % name)
 	m.normal_enabled = true
-	m.normal_texture = load("res://assets/textures/%s_normal.png" % name)
+	m.normal_texture = load("res://assets/textures/%s_normal.webp" % name)
 	m.normal_scale = normal_scale
-	m.roughness_texture = load("res://assets/textures/%s_rough.png" % name)
+	m.roughness_texture = load("res://assets/textures/%s_rough.webp" % name)
 	m.roughness = rough
 	m.metallic = 0.0
 	m.metallic_specular = 0.35
@@ -166,19 +167,19 @@ func _triplanar(tex: String, metres_per_repeat: float, rough: float, normal_scal
 	if tex == "stone":
 		var surface := ShaderMaterial.new()
 		surface.shader = load("res://shaders/concrete_surface.gdshader")
-		surface.set_shader_parameter("albedo_map", load("res://assets/textures/stone_albedo.png"))
-		surface.set_shader_parameter("normal_map", load("res://assets/textures/stone_normal.png"))
-		surface.set_shader_parameter("roughness_map", load("res://assets/textures/stone_rough.png"))
+		surface.set_shader_parameter("albedo_map", load("res://assets/textures/stone_albedo.webp"))
+		surface.set_shader_parameter("normal_map", load("res://assets/textures/stone_normal.webp"))
+		surface.set_shader_parameter("roughness_map", load("res://assets/textures/stone_rough.webp"))
 		surface.set_shader_parameter("metres_per_repeat", metres_per_repeat)
 		surface.set_shader_parameter("normal_strength", normal_scale)
 		surface.set_shader_parameter("roughness_multiplier", rough)
 		return surface
 	var m := StandardMaterial3D.new()
-	m.albedo_texture = load("res://assets/textures/%s_albedo.png" % tex)
+	m.albedo_texture = load("res://assets/textures/%s_albedo.webp" % tex)
 	m.normal_enabled = true
-	m.normal_texture = load("res://assets/textures/%s_normal.png" % tex)
+	m.normal_texture = load("res://assets/textures/%s_normal.webp" % tex)
 	m.normal_scale = normal_scale
-	m.roughness_texture = load("res://assets/textures/%s_rough.png" % tex)
+	m.roughness_texture = load("res://assets/textures/%s_rough.webp" % tex)
 	m.roughness = rough
 	m.metallic = 0.0
 	m.metallic_specular = 0.35
@@ -254,7 +255,7 @@ func _make_materials() -> void:
 	_mats["lab_wire"] = _flat(Color(1.0, 1.0, 1.0), 0.40, 0.22)
 
 	var link := StandardMaterial3D.new()
-	link.albedo_texture = load("res://assets/textures/chainlink.png")
+	link.albedo_texture = load("res://assets/textures/chainlink.webp")
 	link.albedo_color = Color(0.72, 0.74, 0.78)
 	link.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	link.alpha_scissor_threshold = 0.42
@@ -267,7 +268,7 @@ func _make_materials() -> void:
 	_mats["fabric"] = _flat(Color(0.16, 0.15, 0.13), 1.0, 0.0)
 
 	var grass := StandardMaterial3D.new()
-	grass.albedo_texture = load("res://assets/textures/grass.png")
+	grass.albedo_texture = load("res://assets/textures/grass.webp")
 	grass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	grass.alpha_scissor_threshold = 0.42
 	grass.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
@@ -279,7 +280,7 @@ func _make_materials() -> void:
 	_mats["grass"] = grass
 
 	var litter := StandardMaterial3D.new()
-	litter.albedo_texture = load("res://assets/textures/litter.png")
+	litter.albedo_texture = load("res://assets/textures/litter.webp")
 	litter.albedo_color = Color(0.5, 0.45, 0.38)
 	litter.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	litter.alpha_scissor_threshold = 0.28
@@ -2458,6 +2459,27 @@ func _pumpkins_and_bushes(quality: int) -> void:
 						spots.append(pp)
 			spots.append(_lab_xf * Vector3(-1.32, 0.0, -1.82))
 			spots.append(_lab_xf * Vector3(1.32, 0.0, 1.82))
+		var pumpkin_body := StaticBody3D.new()
+		pumpkin_body.name = "PumpkinCollision"
+		add_child(pumpkin_body)
+		# One low-poly pumpkin-shaped hull per variant; instance transforms match the visuals.
+		var pumpkin_shapes: Array[Shape3D] = []
+		for mesh in _pumpkin_meshes:
+			var bounds: AABB = mesh.get_aabb()
+			var radius := maxf(bounds.size.x, bounds.size.z) * 0.48
+			# Exclude the slender stem from the blocking hull.
+			var bottom := bounds.position.y
+			var top := bottom + bounds.size.y * 0.78
+			var points := PackedVector3Array()
+			for ring in 3:
+				var y := lerpf(bottom, top, ring / 2.0)
+				var r := radius * (1.0 if ring == 1 else 0.60)
+				for segment in 12:
+					var angle := TAU * segment / 12.0
+					points.append(Vector3(cos(angle) * r, y, sin(angle) * r))
+			var hull := ConvexPolygonShape3D.new()
+			hull.points = points
+			pumpkin_shapes.append(hull)
 		for spot in spots:
 			var p: Vector3 = spot
 			p.y = ground_height_at(p)
@@ -2472,7 +2494,13 @@ func _pumpkins_and_bushes(quality: int) -> void:
 			# the pumpkin mesh is centred on its middle, so lift it out of the dirt
 			var stone_lift := 0.035 if in_labyrinth(p, 0.4) else 0.0
 			var lift := Vector3(0, 0.27 * s + stone_lift, 0) if not tipped else Vector3(0, 0.19 * s + stone_lift, 0)
-			buckets[idx]["xf"].append(Transform3D(basis, p + lift))
+			var pumpkin_xf := Transform3D(basis, p + lift)
+			buckets[idx]["xf"].append(pumpkin_xf)
+			pumpkin_collision_transforms.append(pumpkin_xf)
+			var collider := CollisionShape3D.new()
+			collider.shape = pumpkin_shapes[idx]
+			collider.transform = pumpkin_xf
+			pumpkin_body.add_child(collider)
 			var t := rng.randf_range(0.72, 1.12)
 			buckets[idx]["col"].append(Color(t, t * 0.97, t * 0.9))
 		for i in _pumpkin_meshes.size():

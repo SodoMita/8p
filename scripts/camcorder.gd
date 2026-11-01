@@ -18,7 +18,7 @@ extends Control
 ## chromatic-aberration and IR softening taps on the low preset.
 
 const SHADER := "res://shaders/camcorder.gdshader"
-const NOISE := "res://assets/textures/noise.png"
+const NOISE := "res://assets/textures/noise.webp"
 
 @onready var post: ColorRect = $Post
 @onready var chrome: Control = $Chrome

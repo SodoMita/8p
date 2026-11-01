@@ -51,10 +51,10 @@ func _initialize() -> void:
 	plane.subdivide_depth = 40
 	ground.mesh = plane
 	var gm := StandardMaterial3D.new()
-	gm.albedo_texture = load("res://assets/textures/ground_albedo.png")
+	gm.albedo_texture = load("res://assets/textures/ground_albedo.webp")
 	gm.normal_enabled = true
-	gm.normal_texture = load("res://assets/textures/ground_normal.png")
-	gm.roughness_texture = load("res://assets/textures/ground_rough.png")
+	gm.normal_texture = load("res://assets/textures/ground_normal.webp")
+	gm.roughness_texture = load("res://assets/textures/ground_rough.webp")
 	gm.uv1_scale = Vector3(30, 30, 1)
 	gm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	ground.material_override = gm
@@ -64,10 +64,10 @@ func _initialize() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7319
 	var bark := StandardMaterial3D.new()
-	bark.albedo_texture = load("res://assets/textures/bark_albedo.png")
+	bark.albedo_texture = load("res://assets/textures/bark_albedo.webp")
 	bark.normal_enabled = true
-	bark.normal_texture = load("res://assets/textures/bark_normal.png")
-	bark.roughness_texture = load("res://assets/textures/bark_rough.png")
+	bark.normal_texture = load("res://assets/textures/bark_normal.webp")
+	bark.roughness_texture = load("res://assets/textures/bark_rough.webp")
 	bark.roughness = 1.0
 	bark.metallic = 0.0
 	bark.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -129,6 +129,6 @@ func _process(_delta: float) -> bool:
 		return false
 	_saved = true
 	var img := root.get_viewport().get_texture().get_image()
-	img.save_png("res://assets/textures/title_bg.png")
+	img.save_webp("res://assets/textures/title_bg.webp", true)
 	print("[title_bg] saved %dx%d" % [img.get_width(), img.get_height()])
 	return true

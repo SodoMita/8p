@@ -53,6 +53,8 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_serif = load("res://assets/fonts/DejaVuSerif-Bold.ttf")
 	_sans = load("res://assets/fonts/DejaVuSans.ttf")
+	_sans.fallbacks = [load("res://assets/fonts/NotoSansCJK-subset.otf")]
+	_serif.fallbacks = _sans.fallbacks
 	_build()
 	hide_pause()
 	hide_end()
@@ -138,7 +140,7 @@ func _build() -> void:
 	# --- static / grain overlay -----------------------------------------
 	static_rect = _shader_rect("res://shaders/static.gdshader")
 	static_mat = static_rect.material as ShaderMaterial
-	static_mat.set_shader_parameter("noise_tex", load("res://assets/textures/noise.png"))
+	static_mat.set_shader_parameter("noise_tex", load("res://assets/textures/noise.webp"))
 	static_mat.set_shader_parameter("intensity", 0.03)
 	root.add_child(static_rect)
 
@@ -302,7 +304,7 @@ func _build() -> void:
 	note_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	note_root.modulate.a = 0.0
 	var note_bg := TextureRect.new()
-	note_bg.texture = load("res://assets/textures/note.png")
+	note_bg.texture = load("res://assets/textures/note.webp")
 	note_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	note_bg.stretch_mode = TextureRect.STRETCH_SCALE
 	note_bg.size = Vector2(430, 540)
@@ -379,12 +381,12 @@ func _build_pause() -> void:
 	box.add_child(touch_btn)
 	touch_btn.set_meta("role", "touch_toggle")
 
-	var cam_btn := _button("CAMCORDER FX: ON", 18)
+	var cam_btn := _button(TranslationManager.get_instance().get_string("pause_camera_on"), 18)
 	cam_btn.pressed.connect(func(): camcorder_toggled.emit())
 	box.add_child(cam_btn)
 	cam_btn.set_meta("role", "camcorder_toggle")
 
-	var rig_btn := _button("HANDHELD CAMERA: ON", 18)
+	var rig_btn := _button(TranslationManager.get_instance().get_string("pause_handheld_on"), 18)
 	rig_btn.pressed.connect(func(): handheld_toggled.emit())
 	box.add_child(rig_btn)
 	rig_btn.set_meta("role", "handheld_toggle")
@@ -668,9 +670,9 @@ func update_touch_toggle_label(enabled: bool) -> void:
 		if c.has_meta("role") and c.get_meta("role") == "touch_toggle":
 			c.text = TranslationManager.get_instance().get_string("pause_touch_on" if enabled else "pause_touch_off")
 		elif c.has_meta("role") and c.get_meta("role") == "camcorder_toggle":
-			c.text = "CAMCORDER FX: " + ("ON" if Settings.camcorder else "OFF")
+			c.text = TranslationManager.get_instance().get_string("pause_camera_on" if Settings.camcorder else "pause_camera_off")
 		elif c.has_meta("role") and c.get_meta("role") == "handheld_toggle":
-			c.text = "HANDHELD CAMERA: " + ("ON" if Settings.camcorder_physics else "OFF")
+			c.text = TranslationManager.get_instance().get_string("pause_handheld_on" if Settings.camcorder_physics else "pause_handheld_off")
 
 
 func show_end(won: bool, pages: int, time_taken: float) -> void:

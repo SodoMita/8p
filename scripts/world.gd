@@ -67,7 +67,7 @@ func _ready() -> void:
 	_connect_hud()
 	hud.set_pages(0, Game.TOTAL_PAGES)
 	hud.set_touch_ui(Game.touch_mode)
-	hud.set_objective("FIND THE EIGHT PAGES")
+	hud.set_objective(TranslationManager.get_instance().get_string("hud_objective"))
 	_update_touch_toggle_label()
 
 	if Game.touch_mode:
@@ -441,7 +441,7 @@ func _spawn_pages() -> void:
 	for i in spots.size():
 		var spot: Dictionary = spots[i]
 		var note_index: int = note_order[i] if i < note_order.size() else 0
-		var note: String = PAGE_NOTES[note_index % PAGE_NOTES.size()]
+		var note: String = TranslationManager.get_instance().get_string("note_%d" % ((note_index % PAGE_NOTES.size()) + 1))
 		var root := Node3D.new()
 		root.name = "Page_%d" % i
 		# A pin is spawned only after the hint has been resolved to a real rendered
@@ -501,7 +501,7 @@ func _process(delta: float) -> void:
 
 	if _start_grace > 3.0 and not _toast_shown:
 		_toast_shown = true
-		hud.show_toast("FIND THE EIGHT PAGES  —  DO NOT STARE AT HIM", 5.0)
+		hud.show_toast(TranslationManager.get_instance().get_string("toast_intro"), 5.0)
 
 
 func _update_pages(_delta: float) -> void:
@@ -525,10 +525,10 @@ func _update_pages(_delta: float) -> void:
 		var page_sheet: Node3D = pages[near_page].get("cloth")
 		var pinned: bool = page_sheet != null and page_sheet.has_method("is_pinned") and page_sheet.is_pinned()
 		if pinned:
-			prompt = "TAP  UNPIN" if Game.touch_mode else "E  —  PULL THE PIN"
+			prompt = TranslationManager.get_instance().get_string("prompt_unpin_touch") if Game.touch_mode else TranslationManager.get_instance().get_string("prompt_unpin_key")
 			touch_action = "UNPIN"
 		else:
-			prompt = "TAP  TAKE" if Game.touch_mode else "E  —  TAKE PAGE"
+			prompt = TranslationManager.get_instance().get_string("prompt_take_touch") if Game.touch_mode else TranslationManager.get_instance().get_string("prompt_take_key")
 		hud.show_prompt(prompt)
 	else:
 		hud.show_prompt("")
@@ -597,9 +597,9 @@ func _update_hud() -> void:
 	if stage != _objective_stage:
 		_objective_stage = stage
 		match stage:
-			1: hud.show_toast("HE KNOWS YOU ARE HERE", 3.0)
-			2: hud.show_toast("THE STATIC IS HIS VOICE", 3.0)
-			3: hud.show_toast("ONE PAGE LEFT", 3.0)
+			1: hud.show_toast(TranslationManager.get_instance().get_string("toast_knows"), 3.0)
+			2: hud.show_toast(TranslationManager.get_instance().get_string("toast_static"), 3.0)
+			3: hud.show_toast(TranslationManager.get_instance().get_string("toast_one_left"), 3.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -614,7 +614,7 @@ func try_pickup(_p: Node) -> void:
 		# One press visibly pulls the real nail and frees the cloth. A second press
 		# takes the loose page; no proximity auto-pickup can skip the physical act.
 		sheet.unpin()
-		hud.show_toast("NAIL PULLED", 1.2)
+		hud.show_toast(TranslationManager.get_instance().get_string("toast_unpinned"), 1.2)
 		_update_pages(0.0)
 		return
 	_collect(near_page)
@@ -685,7 +685,7 @@ func _on_chase_start() -> void:
 	hud.camcorder_glitch(0.95)
 	hud.camcorder_punch(0.35)
 	player.shake_amount = 0.02
-	hud.show_toast("RUN", 1.4)
+	hud.show_toast(TranslationManager.get_instance().get_string("toast_run"), 1.4)
 
 
 func noise_emitted(_pos: Vector3, radius: float) -> void:
@@ -754,7 +754,7 @@ func _win() -> void:
 	Game.freeze_clock()
 	player.freeze()
 	slender.deactivate()
-	hud.show_toast("EIGHT PAGES", 2.0)
+	hud.show_toast(TranslationManager.get_instance().get_string("toast_complete"), 2.0)
 	Sfx.play("win", -9.0)
 	Sfx.set_heartbeat(0.0, -60.0)
 	Sfx.set_loop_volume("static_loop", -6.0)
