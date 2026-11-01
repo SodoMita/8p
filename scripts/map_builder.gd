@@ -21,6 +21,7 @@ const LAB_CELLS := 10
 const LAB_CELL := 2.45
 const LAB_WALL_THICK := 0.36
 const LAB_HALF := LAB_CELLS * LAB_CELL * 0.5  # 12.25 m (24.5 x 24.5 m footprint)
+const TreeCollisionMesh = preload("res://scripts/tree_collision.gd")
 
 signal built
 
@@ -36,6 +37,7 @@ var boundary_gate_leaves: Array = []
 var boundary_rails: Array = []
 var boundary_posts: Array = []
 var tree_positions: PackedVector3Array = PackedVector3Array()
+var tree_collision_instances: Array[Dictionary] = []
 var landmarks: Array[Dictionary] = []
 var labyrinth: Dictionary = {}
 var world_seed := 0
@@ -2168,6 +2170,8 @@ func _too_close(p: Vector3, dist: float) -> bool:
 
 
 func _forest(max_trees: int, quality: int) -> void:
+	tree_positions.clear()
+	tree_collision_instances.clear()
 	var buckets: Array = []
 	for i in _tree_meshes.size():
 		buckets.append({"xf": [], "col": []})
@@ -2196,14 +2200,17 @@ func _forest(max_trees: int, quality: int) -> void:
 		var basis := Basis.from_euler(tilt).scaled(Vector3(s, s, s))
 		var is_snag := rng.randf() < 0.14
 		var tint := Color(1, 1, 1).darkened(rng.randf_range(0.0, 0.45))
+		var tree_xf := Transform3D(basis, p + Vector3(0, -0.12, 0))
 		if is_snag and snag_buckets.size() > 0:
 			var bi := rng.randi_range(0, snag_buckets.size() - 1)
-			snag_buckets[bi]["xf"].append(Transform3D(basis, p))
+			snag_buckets[bi]["xf"].append(tree_xf)
 			snag_buckets[bi]["col"].append(tint)
+			tree_collision_instances.append({"snag": true, "mesh_index": bi, "transform": tree_xf})
 		else:
 			var bi2 := rng.randi_range(0, buckets.size() - 1)
-			buckets[bi2]["xf"].append(Transform3D(basis, p))
+			buckets[bi2]["xf"].append(tree_xf)
 			buckets[bi2]["col"].append(tint)
+			tree_collision_instances.append({"snag": false, "mesh_index": bi2, "transform": tree_xf})
 		tree_positions.append(p)
 	_tree_count = tree_positions.size()
 
@@ -2242,14 +2249,24 @@ func _tree_collisions() -> void:
 	var body := StaticBody3D.new()
 	body.name = "TreeCollision"
 	add_child(body)
-	for t in tree_positions:
-		var shape := CylinderShape3D.new()
-		shape.radius = 0.42
-		shape.height = 7.0
+	var shape_cache := {}
+	var collider_i := 0
+	for instance in tree_collision_instances:
+		var snag: bool = bool(instance["snag"])
+		var mesh_index: int = int(instance["mesh_index"])
+		var key := ("snag_%d" % mesh_index) if snag else ("tree_%d" % mesh_index)
+		if not shape_cache.has(key):
+			var mesh: Mesh = _snag_meshes[mesh_index] if snag else _tree_meshes[mesh_index]
+			shape_cache[key] = TreeCollisionMesh.from_visible_mesh(mesh)
+		var shape: Shape3D = shape_cache[key]
+		if shape == null:
+			continue
 		var col := CollisionShape3D.new()
+		col.name = "TreeMesh_%d" % collider_i
 		col.shape = shape
-		col.position = t + Vector3(0, 2.2, 0)
+		col.transform = instance["transform"]
 		body.add_child(col)
+		collider_i += 1
 
 
 # --------------------------------------------------------------------------- #

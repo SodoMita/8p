@@ -12,6 +12,7 @@ extends Node3D
 const CHUNK := 32.0          # metres per chunk
 const VIEW := 3              # chunks in each direction around the player
 const GROUND_STEP := 4.0     # metres between ground vertices inside a chunk
+const TreeCollisionMesh = preload("res://scripts/tree_collision.gd")
 
 var map_builder: Node = null
 var quality: int = 1
@@ -23,6 +24,7 @@ var _road: MeshInstance3D = null
 var _road_pts := PackedVector3Array()
 var _road_body: StaticBody3D = null
 var _trees: Array[Mesh] = []
+var _tree_collision_shapes: Array[ConcavePolygonShape3D] = []
 var _mats := {}
 
 var ground_mat: StandardMaterial3D
@@ -43,14 +45,18 @@ func setup(mb: Node, focus_node: Node3D, q: int) -> void:
 
 
 func _load_assets() -> void:
+	_trees.clear()
+	_tree_collision_shapes.clear()
 	for i in 6:
 		var m: Mesh = load("res://assets/models/tree_%d.res" % i)
 		if m != null:
 			_trees.append(m)
+			_tree_collision_shapes.append(TreeCollisionMesh.from_visible_mesh(m))
 	if _trees.is_empty():
 		var fallback: Mesh = load("res://assets/models/tree_0.res")
 		if fallback != null:
 			_trees.append(fallback)
+			_tree_collision_shapes.append(TreeCollisionMesh.from_visible_mesh(fallback))
 
 	ground_mat = StandardMaterial3D.new()
 	ground_mat.albedo_texture = load("res://assets/textures/ground_albedo.png")
@@ -61,16 +67,27 @@ func _load_assets() -> void:
 	ground_mat.uv1_scale = Vector3(0.32, 0.32, 0.32)
 	ground_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 
-	tree_mat = StandardMaterial3D.new()
-	tree_mat.albedo_texture = load("res://assets/textures/bark_albedo.png")
-	tree_mat.normal_enabled = true
-	tree_mat.normal_texture = load("res://assets/textures/bark_normal.png")
-	tree_mat.roughness_texture = load("res://assets/textures/bark_rough.png")
-	tree_mat.roughness = 1.0
-	# the meshes carry their own UVs spread over each trunk's surface, so keep the
-	# texture at 1:1 instead of tiling it again per-metre
-	tree_mat.uv1_scale = Vector3(0.42, 0.42, 1.0)
-	tree_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	var builder_mats: Dictionary = map_builder.get("_mats") if map_builder != null else {}
+	var shared_bark: Material = builder_mats.get("bark")
+	if shared_bark is StandardMaterial3D:
+		tree_mat = shared_bark as StandardMaterial3D
+	else:
+		# Match MapBuilder._make_materials exactly if this node is previewed alone.
+		tree_mat = StandardMaterial3D.new()
+		tree_mat.albedo_texture = load("res://assets/textures/bark_albedo.png")
+		tree_mat.normal_enabled = true
+		tree_mat.normal_texture = load("res://assets/textures/bark_normal.png")
+		tree_mat.normal_scale = 0.75
+		tree_mat.roughness_texture = load("res://assets/textures/bark_rough.png")
+		tree_mat.roughness = 1.0
+		tree_mat.uv1_triplanar = true
+		tree_mat.uv1_world_triplanar = false
+		tree_mat.uv1_triplanar_sharpness = 4.0
+		tree_mat.uv1_scale = Vector3.ONE * 0.62
+		tree_mat.albedo_color = Color(1.55, 1.50, 1.42)
+		tree_mat.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+		tree_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		tree_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 
 	road_mat = StandardMaterial3D.new()
 	road_mat.albedo_texture = load("res://assets/textures/ground_albedo.png")
@@ -151,7 +168,8 @@ func _process(_delta: float) -> void:
 var _last_key := Vector2i(999999, 999999)
 var _view := VIEW
 var _want := {}
-const BUILD_BUDGET := 6     # chunks built per frame, so a long walk never hitches
+const BUILD_BUDGET := 4          # desktop chunks per frame, including mesh colliders
+const BUILD_BUDGET_MOBILE := 2    # keep collision registration smooth on phones
 
 
 func _chunk_of(p: Vector3) -> Vector2i:
@@ -179,8 +197,9 @@ func _update_chunks(_initial: bool) -> void:
 ## single frame, which is a visible hitch on a phone.
 func _build_missing() -> void:
 	var made := 0
+	var budget := BUILD_BUDGET if quality >= 1 else BUILD_BUDGET_MOBILE
 	for key in _want.keys():
-		if made >= BUILD_BUDGET:
+		if made >= budget:
 			return
 		if not _chunks.has(key):
 			_chunks[key] = _build_chunk(key)
@@ -232,8 +251,11 @@ func _build_chunk(key: Vector2i) -> Node3D:
 		if p.x > gate_centre.x - 14.0 and road_distance(p) < 3.6:
 			continue
 		var idx := rng.randi_range(0, _trees.size() - 1)
-		var s := rng.randf_range(0.85, 1.45)
-		var b := Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(s, s * rng.randf_range(0.9, 1.3), s))
+		# Use the same silhouettes, uniform scale, slight lean and buried root as
+		# the arena forest; only their seeded positions differ beyond the fence.
+		var s := rng.randf_range(0.78, 1.35)
+		var tilt := Vector3(rng.randf_range(-0.045, 0.045), rng.randf() * TAU, rng.randf_range(-0.045, 0.045))
+		var b := Basis.from_euler(tilt).scaled(Vector3.ONE * s)
 		buckets[idx]["xf"].append(Transform3D(b, p + Vector3(0, -0.12, 0)))
 		var t := rng.randf_range(0.65, 1.05)
 		buckets[idx]["col"].append(Color(t, t, t))
@@ -250,10 +272,30 @@ func _build_chunk(key: Vector2i) -> Node3D:
 			mm.set_instance_transform(i, buckets[m]["xf"][i])
 			mm.set_instance_color(i, buckets[m]["col"][i])
 		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "Trees_%d" % m
 		mmi.multimesh = mm
 		mmi.material_override = tree_mat
-		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if quality >= 1 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(mmi)
+
+	# One static body per chunk, with one reusable concave mesh shape per tree.
+	# The shape is built from that exact variant's visible lower-trunk triangles,
+	# so a tree that appears outside the fence is a physical barrier too.
+	var collision_body := StaticBody3D.new()
+	collision_body.name = "TreeCollision"
+	var collider_count := 0
+	for m in _trees.size():
+		if m >= _tree_collision_shapes.size() or _tree_collision_shapes[m] == null:
+			continue
+		for xf in buckets[m]["xf"]:
+			var col := CollisionShape3D.new()
+			col.name = "TreeMesh_%d" % collider_count
+			col.shape = _tree_collision_shapes[m]
+			col.transform = xf
+			collision_body.add_child(col)
+			collider_count += 1
+	if collider_count > 0:
+		root.add_child(collision_body)
 	return root
 
 
@@ -288,13 +330,19 @@ func road_distance(p: Vector3) -> float:
 
 func stats() -> Dictionary:
 	var trees := 0
+	var tree_colliders := 0
 	for n in _chunks.values():
 		for c in n.get_children():
 			if c is MultiMeshInstance3D:
 				trees += c.multimesh.instance_count
+			elif c is StaticBody3D and c.name == "TreeCollision":
+				for shape_node in c.get_children():
+					if shape_node is CollisionShape3D and shape_node.shape is ConcavePolygonShape3D:
+						tree_colliders += 1
 	return {
 		"chunks": _chunks.size(),
 		"trees": trees,
+		"tree_colliders": tree_colliders,
 		"road": _road != null,
 		"road_points": 0,
 	}

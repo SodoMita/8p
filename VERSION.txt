@@ -1,6 +1,13 @@
-EIGHT PAGES 1.6.4
+EIGHT PAGES 1.6.5
 Godot 4.7.2 · GL Compatibility · GDScript
 -----------------------------------------
+1.6.5 outside forest and real tree collisions (#49). Trees beyond the fence now
+     use the same six leafless meshes, bark material, scale/lean range and buried
+     roots as the arena forest. Both forests collide against reusable concave mesh
+     shapes made from the visible lower-trunk triangles (the player contact band),
+     rather than cylinders or collision-free MultiMeshes. Chunk streaming removes
+     those colliders with their trees; phone chunk-build budget is reduced to keep
+     physics registration smooth. The suite is 79 world + 30 rig + 27 control checks.
 1.6.4 stump cut faces (#70). Stumps now use separate bark-side and end-grain cap
      surfaces. The visible cut face gets its own UV-mapped PBR maps with irregular
      growth rings, a pith knot, narrow radial splits and fine relief; the forest

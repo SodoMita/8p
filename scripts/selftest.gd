@@ -618,7 +618,18 @@ func _run() -> void:
 	var st: Dictionary = world.terrain.stats() if world.terrain != null else {}
 	var terrain_ok: bool = not st.is_empty() and int(st.get("chunks", 0)) >= 9
 	check("terrain_chunks", terrain_ok, str(st.get("chunks", 0)))
-	check("terrain_has_trees", int(st.get("trees", 0)) > 300, str(st.get("trees", 0)))
+	var outside_tree_count := int(st.get("trees", 0))
+	check("terrain_has_trees", outside_tree_count > 300, str(outside_tree_count))
+	var outside_collider_count := int(st.get("tree_colliders", 0))
+	check("outside_trees_have_real_mesh_colliders",
+		outside_collider_count == outside_tree_count and outside_tree_count > 300,
+		"%d concave mesh colliders for %d trees" % [outside_collider_count, outside_tree_count])
+	var outside_assets_match: bool = world.terrain._trees.size() == world.map_builder._tree_meshes.size()
+	if outside_assets_match:
+		for i in world.terrain._trees.size():
+			outside_assets_match = outside_assets_match and world.terrain._trees[i].resource_path == world.map_builder._tree_meshes[i].resource_path
+	check("outside_tree_meshes_match_inside", outside_assets_match)
+	check("outside_tree_material_matches_inside", world.terrain.tree_mat == world.map_builder._mats["bark"])
 	check("road_out_of_gate", bool(st.get("road", false)))
 	var floor_ok := false
 	for c in world.terrain.get_children() if world.terrain != null else []:
@@ -632,6 +643,30 @@ func _run() -> void:
 	check("landmarks_count", world.map_builder.landmarks.size() == 8, str(world.map_builder.landmarks.size()))
 	check("page_spots_count", world.map_builder.page_spots.size() == 8)
 	check("tree_count", world.map_builder.tree_count() > 400, str(world.map_builder.tree_count()))
+	var inside_tree_body := world.map_builder.get_node_or_null("TreeCollision") as StaticBody3D
+	var inside_mesh_colliders := 0
+	var inside_tree_collision_ok := inside_tree_body != null
+	if inside_tree_body != null:
+		for child in inside_tree_body.get_children():
+			if not child is CollisionShape3D or not (child as CollisionShape3D).shape is ConcavePolygonShape3D:
+				inside_tree_collision_ok = false
+				continue
+			var cs := child as CollisionShape3D
+			var mesh_shape := cs.shape as ConcavePolygonShape3D
+			inside_tree_collision_ok = inside_tree_collision_ok and mesh_shape.get_faces().size() >= 3
+			if inside_mesh_colliders < world.map_builder.tree_collision_instances.size():
+				var expected_xf: Transform3D = world.map_builder.tree_collision_instances[inside_mesh_colliders]["transform"]
+				inside_tree_collision_ok = inside_tree_collision_ok \
+					and cs.transform.origin.distance_to(expected_xf.origin) < 0.001 \
+					and cs.transform.basis.x.distance_to(expected_xf.basis.x) < 0.001 \
+					and cs.transform.basis.y.distance_to(expected_xf.basis.y) < 0.001 \
+					and cs.transform.basis.z.distance_to(expected_xf.basis.z) < 0.001
+			inside_mesh_colliders += 1
+	inside_tree_collision_ok = inside_tree_collision_ok \
+		and inside_mesh_colliders == world.map_builder.tree_collision_instances.size() \
+		and inside_mesh_colliders == world.map_builder.tree_count()
+	check("inside_trees_use_visible_mesh_colliders", inside_tree_collision_ok,
+		"%d mesh colliders" % inside_mesh_colliders)
 	check("pages_spawned", world.pages.size() == 8)
 	var all_inside := true
 	for p in pages_list:

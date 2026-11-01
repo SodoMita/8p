@@ -30,7 +30,10 @@ watching a character walk into it).
 Past the gate there is **no edge to fall off**. An endless, procedurally streamed
 forest continues in 32 m chunks around the player, and a dirt road leaves through
 the gate and wanders off to the horizon, so an escaped player always has somewhere
-to walk. A 4 km collision slab sits under all of it.
+to walk. A 4 km collision slab sits under all of it. The outside forest uses the
+same six bare-tree meshes, bark material, scale/lean range and buried roots as the
+arena forest. Both use static concave mesh colliders built from the visible lower
+trunk triangles; the streamed outside colliders disappear with their chunks.
 
 ### Pages you can touch
 
@@ -259,7 +262,7 @@ eight_pages/
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 75 world assertions
+│   ├── selftest.gd          # 79 world assertions
 │   ├── camera_test.gd       # 30 assertions on the handheld camera rig
 │   ├── controls_test.gd     # 27 assertions on the control paths
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
@@ -298,7 +301,7 @@ eight_pages/
 Logic checks run headless; pointer capture, flow and rendered shots run in sway (Wayland).
 
 ```bash
-tools/test_all.sh                  # 75 world + 30 rig + 27 control checks + scripted runs in sway
+tools/test_all.sh                  # 79 world + 30 rig + 27 control checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 
@@ -308,7 +311,7 @@ What the suite covers (`tools/test_all.sh`, logs in `/tmp/eight_test_out`):
 |---|---|
 | `controls` | the control paths, measured: mouse yaw/pitch scale and sign (with `invert_y` and sensitivity applied exactly once), **the camera transform itself turns** (not just the yaw variable), plain mouse motion turns the view **with touch mode on and the cursor free** (the bug that made PC aim dead), a finger's drag looks once (a double-application would be 2×), a finger on the glass suppresses the mouse twin and lifting it hands aim back, a click captures the pointer while a finger's click never does, `WASD` walks 30 physics ticks **in both modes**, the stick never moves the view, pitch clamps, `F` toggles the lamp, dismissing a note eats that key and the note stays gone, pause stops movement and resume restores it, the stick is not latched across a pause, and the overlay is silent while paused or frozen. Runs headless *and* inside sway (pointer capture is a no-op headless) |
 | `camtest` | the camera really is carried by a rigid body: idle settle, **turning lags then catches up without overshoot**, teleports and 180° cuts resync, a stalled tick is clamped, walking shakes the rig within its tether, impacts kick and recover, never NaN or flyaway under sprint + shake + impact, procedural fallback behaves the same, switching back works |
-| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **the chain-link fence is a closed ring of 329 colliders with an open 5 m gate**, pages are live cloth with no light, their nail ray must hit the same visible mesh and collision body, and pulling the nail releases the sheet, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
+| `selftest` | **every tree triangle is wound to match its vertex normals** and every face survives a "step out along the normal and shoot back" test (nothing is inside-out), **inside and outside trees use visible-mesh trunk colliders** and the outside batches share the arena's meshes/material, **the chain-link fence is a closed ring of 329 colliders with an open 5 m gate**, stump bark and end-grain use separate PBR surfaces, pages are live cloth with no light, their nail ray must hit the same visible mesh and collision body, and pulling the nail releases the sheet, endless terrain chunks + road exist and a second floor slab catches anything that leaves the fence, 8 distinct pages in bounds, layouts differ between seeds, landmarks spread ≥18 m, every page spot walkable, win bookkeeping, walking/sprinting, stamina, mouse & touch look (**both alive in touch mode**), wall + floor collision, pickup → HUD → note → Slender woken, gaze detection, chase → capture → death screen |
 | `win path` | scripted collection of all 8 pages reaches the win screen |
 | `death path` | Slender catches the player, jumpscare, death screen shown |
 | `flow` | **Title → BEGIN → World → pause → resume → movement → pull nail → take first page**, inside sway; interaction remains blocked while paused |
