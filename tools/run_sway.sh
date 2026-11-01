@@ -39,20 +39,14 @@ fi
 export WAYLAND_DISPLAY=$(basename "$SOCK")
 sleep 1
 
-"$GODOT" --path "$PROJECT" --display-driver wayland --rendering-driver opengl3 \
-  --resolution 1280x720 "$@" &
+# GNU timeout owns the lifetime ceiling, so a completed preview does not leave
+# a sleeping watchdog subprocess behind while the caller waits for cleanup.
+timeout --kill-after=2s 240s "$GODOT" --path "$PROJECT" \
+  --display-driver wayland --rendering-driver opengl3 --resolution 1280x720 "$@" &
 GODOT_PID=$!
 echo "run_sway: sway=$SWAY_PID godot=$GODOT_PID display=$WAYLAND_DISPLAY"
-
-# hard ceiling so a hung game can never stall the whole suite.
-# NOTE: keep the watchdog's stdout closed, otherwise it keeps the caller's
-# pipe open for the whole sleep duration.
-( sleep 240; kill -9 $GODOT_PID 2>/dev/null ) >/dev/null 2>&1 &
-WATCHDOG=$!
-wait $GODOT_PID
+wait "$GODOT_PID"
 CODE=$?
-kill $WATCHDOG 2>/dev/null
-wait $WATCHDOG 2>/dev/null
-kill $SWAY_PID 2>/dev/null
+kill "$SWAY_PID" 2>/dev/null
 wait 2>/dev/null
 exit $CODE

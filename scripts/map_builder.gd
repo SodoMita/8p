@@ -204,6 +204,22 @@ func _make_materials() -> void:
 	_mats["wood"].uv1_world_triplanar = false
 	_mats["wood"].albedo_color = Color(1.42, 1.38, 1.31)
 	_mats["wood"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+	# The stump's top is a separately UV-mapped end-grain surface. Do not use
+	# bark triplanar here: that was why the cut face read as more bark.
+	_mats["endgrain"] = _pbr("endgrain", 1.0, 0.96, 0.40)
+	_mats["endgrain"].uv1_triplanar = false
+	_mats["endgrain"].uv1_world_triplanar = false
+	_mats["endgrain"].albedo_color = Color(1.45, 1.24, 1.04)
+	_mats["endgrain"].diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+	var stump_resource: Mesh = _props.get("stump")
+	if stump_resource != null and stump_resource.get_surface_count() >= 2:
+		# ResourceLoader caches meshes globally; duplicate before setting per-map
+		# materials so a second procedural run cannot replace the first map's
+		# bark/end-grain references.
+		stump_resource = stump_resource.duplicate() as Mesh
+		_props["stump"] = stump_resource
+		stump_resource.surface_set_material(0, _mats["bark"])
+		stump_resource.surface_set_material(1, _mats["endgrain"])
 	# approved pumpkin rind from the restore branch (its own shader material)
 	var pumpkin_skin := ShaderMaterial.new()
 	pumpkin_skin.shader = load("res://shaders/pumpkin_skin.gdshader")
@@ -2214,7 +2230,10 @@ func _add_multimesh(mesh: Mesh, mat: Material, xforms: Array, colors: Array, nod
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = node_name
 	mmi.multimesh = mm
-	mmi.material_override = mat
+	# A null override deliberately preserves per-surface materials (stump bark
+	# and the end-grain cut face); all other batches use a shared override.
+	if mat != null:
+		mmi.material_override = mat
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if Game.quality >= 1 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mmi)
 
@@ -2275,7 +2294,8 @@ func _undergrowth(quality: int) -> void:
 			var s := rng.randf_range(0.7, 1.5)
 			xf.append(Transform3D(Basis.from_euler(Vector3(0, rng.randf() * TAU, 0)).scaled(Vector3(s, s, s)), p))
 			col.append(Color(1, 1, 1).darkened(rng.randf_range(0.0, 0.4)))
-		_add_multimesh(stump_mesh, _mats["bark"], xf, col, "Stumps")
+		var stump_override: Material = null if stump_mesh.get_surface_count() >= 2 else _mats["bark"]
+		_add_multimesh(stump_mesh, stump_override, xf, col, "Stumps")
 
 	if shrub_mesh != null:
 		var xf: Array = []

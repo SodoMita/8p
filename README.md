@@ -259,7 +259,7 @@ eight_pages/
 │   ├── hud.gd               # all gameplay UI in code (no .tscn needed)
 │   ├── touch_controls.gd    # virtual stick / swipe look / buttons
 │   ├── autotest.gd          # scripted runs + screenshot tours
-│   ├── selftest.gd          # 71 world assertions
+│   ├── selftest.gd          # 75 world assertions
 │   ├── camera_test.gd       # 30 assertions on the handheld camera rig
 │   ├── controls_test.gd     # 27 assertions on the control paths
 │   └── flowtest.gd          # Title → BEGIN → World → pause → pickup
@@ -298,7 +298,7 @@ eight_pages/
 Logic checks run headless; pointer capture, flow and rendered shots run in sway (Wayland).
 
 ```bash
-tools/test_all.sh                  # 71 world + 30 rig + 27 control checks + scripted runs in sway
+tools/test_all.sh                  # 75 world + 30 rig + 27 control checks + scripted runs in sway
 tools/test_all.sh --with-web --with-android
 ```
 
@@ -423,8 +423,9 @@ exponential spring instead of a body.
 ```bash
 python3 tools/gen_assets.py       # base textures, audio, paper — run this FIRST
 python3 tools/gen_sfx.py          # audio only (assets/audio/*.ogg)
-python3 tools/gen_textures_real.py   # PBR ground / bark / stone / grass / litter
-godot --headless --path . --script tools/gen_trees.gd     # bare-tree meshes
+python3 tools/gen_textures_real.py   # PBR ground / bark / end-grain / stone / grass / litter
+godot --headless --path . --script tools/gen_trees.gd     # all bare-tree meshes
+godot --headless --path . --script tools/gen_trees.gd -- --stump-only # stump cut-face mesh only
 godot --path . --script tools/gen_title_bg.gd             # menu backdrop (needs GL)
 godot --headless --path . --import                        # refresh .import files
 ```
@@ -435,12 +436,16 @@ painted ones.
 
 * **Textures** — `gen_textures_real.py` builds tiling **PBR sets** (albedo,
   normal, roughness) for soil, bark and concrete from layered value noise plus
-  Poisson-scattered needles, twigs and pebbles; `gen_assets.py` supplies the aged
-  paper, the note sheet, the UI noise and the audio. The menu backdrop is a real
-  render of the bare-tree meshes (`gen_title_bg.gd`), not a painting.
+  Poisson-scattered needles, twigs and pebbles; it also makes the stump's
+  non-tiling end-grain maps with irregular annual rings, a pith knot and radial
+  splits. `gen_assets.py` supplies the aged paper, note sheet, UI noise and audio.
+  The menu backdrop is a real render of the bare-tree meshes (`gen_title_bg.gd`),
+  not a painting.
 * **Meshes** — `gen_trees.gd` bakes six trunks, two snags, a fallen log, a stump
   and a dead shrub as `.res` meshes with world-space bark UVs and visible root
-  flares; they are drawn with `MultiMesh` and per-instance tints.
+  flares. The stump cut top is a distinct UV-mapped surface; its batched instances
+  retain separate bark and end-grain materials. The meshes are drawn with
+  `MultiMesh` and per-instance tints.
 * **Audio** — all 24 Ogg Vorbis streams (`assets/audio/*.ogg`) are synthesised
   in `tools/gen_sfx.py`. The screams are not
   noise bursts: a voice is an additive stack of harmonics whose amplitudes follow

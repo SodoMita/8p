@@ -14,6 +14,12 @@ const BARK_TILE := 0.55   # metres of bark per texture repeat (world-space UVs)
 func _init() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 	var t0 := Time.get_ticks_msec()
+	# Rebuild just the revised stump without rewriting every other baked model.
+	if OS.get_cmdline_user_args().has("--stump-only"):
+		_save(_stump(), "stump_0.res")
+		print("[gen_trees] stump-only rebuild done in %d ms" % (Time.get_ticks_msec() - t0))
+		quit(0)
+		return
 
 	# --- 6 full dead spruce/pine variants ------------------------------------
 	for i in 6:
@@ -72,12 +78,8 @@ func _init() -> void:
 		_tube(st2, [at, at + dir * 0.9], [0.09, 0.03], 4, false)
 	_save(_commit(st2), "log_0.res")
 
-	# --- stump ---------------------------------------------------------------
-	var st3 := SurfaceTool.new()
-	st3.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_tube(st3, [Vector3(0, 0, 0), Vector3(0.015, 0.36, 0.008), Vector3(0.04, 0.72, 0.022)],
-		[0.55, 0.46, 0.38], 10, true)
-	_save(_commit(st3), "stump_0.res")
+	# --- stump with bark sides and a separate, visibly cut end-grain top ------
+	_save(_stump(), "stump_0.res")
 
 	# --- dead shrub: a fan of thin twigs, no leaves --------------------------
 	var rng3 := RandomNumberGenerator.new()
@@ -107,6 +109,83 @@ func _init() -> void:
 
 	print("[gen_trees] done in %d ms" % (Time.get_ticks_msec() - t0))
 	quit(0)
+
+
+# --------------------------------------------------------------------------- #
+# stump: the top is a distinct cut-end surface, not bark wrapped over a cap
+# --------------------------------------------------------------------------- #
+func _stump() -> ArrayMesh:
+	var pts: Array[Vector3] = [
+		Vector3(0, 0, 0),
+		Vector3(0.015, 0.36, 0.008),
+		Vector3(0.04, 0.72, 0.022),
+	]
+	var radii: Array[float] = [0.55, 0.46, 0.38]
+	const SIDES := 16
+
+	var bark_st := SurfaceTool.new()
+	bark_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Keep the buried bottom cap, but leave the visible cut face to its own PBR
+	# surface. This guarantees the sidewall keeps bark while the top gets grain.
+	_tube(bark_st, pts, radii, SIDES, true, true)
+	var stump_mesh := _commit(bark_st)
+
+	var grain_st := SurfaceTool.new()
+	grain_st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var frames := _tube_frames(pts)
+	_endgrain_face(grain_st, frames[frames.size() - 1], radii[radii.size() - 1], SIDES)
+	_commit(grain_st, stump_mesh)
+	return stump_mesh
+
+
+func _endgrain_face(st: SurfaceTool, frame: Array, radius: float, sides: int) -> void:
+	# Concentric mesh rings stay almost planar; the normal/albedo maps carry the
+	# fine saw marks, pores and growth-ring relief. The outer ring is exact-match
+	# to the bark mesh, so no bright seam or floating cap can appear.
+	const RADIAL_STEPS := 14
+	var fwd: Vector3 = frame[0]
+	var right: Vector3 = frame[1]
+	var up: Vector3 = frame[2]
+	var center: Vector3 = frame[3]
+	var ring_rows: Array[PackedVector3Array] = []
+	var uv_rows: Array[PackedVector2Array] = []
+	for j in range(1, RADIAL_STEPS + 1):
+		var t := float(j) / float(RADIAL_STEPS)
+		var row := PackedVector3Array()
+		var uv_row := PackedVector2Array()
+		for k in sides:
+			var a := TAU * float(k) / float(sides)
+			# Slightly irregular interior rings; they taper to zero at the edge so
+			# the cut closes perfectly against the matching bark silhouette.
+			var warp := (0.010 * sin(a * 3.0 + t * 10.0) + 0.006 * cos(a * 5.0 - t * 13.0)) * sin(PI * t)
+			var rr := radius * t * (1.0 + warp)
+			row.append(center + (right * cos(a) + up * sin(a)) * rr)
+			uv_row.append(Vector2(0.5 + 0.5 * t * cos(a), 0.5 + 0.5 * t * sin(a)))
+		ring_rows.append(row)
+		uv_rows.append(uv_row)
+
+	# Triangle fan from the centre, wound toward the cut-face normal.
+	for k in sides:
+		var next := (k + 1) % sides
+		_add_endgrain_vertex(st, center, fwd, Vector2(0.5, 0.5))
+		_add_endgrain_vertex(st, ring_rows[0][next], fwd, uv_rows[0][next])
+		_add_endgrain_vertex(st, ring_rows[0][k], fwd, uv_rows[0][k])
+	# Continue as concentric annuli. Every triangle faces out along the cut plane.
+	for j in range(RADIAL_STEPS - 1):
+		for k in sides:
+			var next := (k + 1) % sides
+			_add_endgrain_vertex(st, ring_rows[j][k], fwd, uv_rows[j][k])
+			_add_endgrain_vertex(st, ring_rows[j + 1][next], fwd, uv_rows[j + 1][next])
+			_add_endgrain_vertex(st, ring_rows[j + 1][k], fwd, uv_rows[j + 1][k])
+			_add_endgrain_vertex(st, ring_rows[j][k], fwd, uv_rows[j][k])
+			_add_endgrain_vertex(st, ring_rows[j][next], fwd, uv_rows[j][next])
+			_add_endgrain_vertex(st, ring_rows[j + 1][next], fwd, uv_rows[j + 1][next])
+
+
+func _add_endgrain_vertex(st: SurfaceTool, p: Vector3, n: Vector3, uv: Vector2) -> void:
+	st.set_normal(n)
+	st.set_uv(uv)
+	st.add_vertex(p)
 
 
 # --------------------------------------------------------------------------- #
@@ -178,33 +257,10 @@ func _twig_tip(st: SurfaceTool, rng: RandomNumberGenerator, p: Vector3, d: Vecto
 # --------------------------------------------------------------------------- #
 # low level: tapered tube along a polyline
 # --------------------------------------------------------------------------- #
-func _tube(st: SurfaceTool, pts: Array[Vector3], radii: Array[float], sides: int, capped: bool) -> void:
+func _tube(st: SurfaceTool, pts: Array[Vector3], radii: Array[float], sides: int,
+		capped: bool, omit_top_cap := false) -> void:
 	var rings := pts.size()
-	var frames: Array = []
-	var prev_right := Vector3.ZERO
-	for i in rings:
-		var fwd := Vector3.UP
-		if i == 0:
-			fwd = (pts[1] - pts[0]).normalized()
-		elif i == rings - 1:
-			fwd = (pts[i] - pts[i - 1]).normalized()
-		else:
-			fwd = (pts[i + 1] - pts[i - 1]).normalized()
-		# parallel transport: reusing one fixed reference vector made the frame
-		# snap 180 degrees when the tangent crossed the reference axis, which
-		# wound those quads backwards (the "inverted normals" on trunks)
-		var right: Vector3
-		if prev_right == Vector3.ZERO:
-			var ref := Vector3.RIGHT if absf(fwd.dot(Vector3.UP)) > 0.9 else Vector3.UP
-			right = fwd.cross(ref).normalized()
-		else:
-			right = (prev_right - fwd * prev_right.dot(fwd))
-			if right.length() < 1e-4:
-				right = fwd.cross(Vector3.UP)
-			right = right.normalized()
-		prev_right = right
-		var up := right.cross(fwd).normalized()
-		frames.append([fwd, right, up, B(pts, i)])
+	var frames := _tube_frames(pts)
 
 	for i in rings - 1:
 		for s in sides:
@@ -227,11 +283,41 @@ func _tube(st: SurfaceTool, pts: Array[Vector3], radii: Array[float], sides: int
 				Vector2(u0, v0), Vector2(u0, v1), Vector2(u1, v1), Vector2(u1, v0))
 
 	if capped:
-		# both ends get a fan so you never look into a hollow mesh (an open top
-		# reads as inverted normals because you see the inside back-faces)
+		# A stump's visible cut end is a separate material surface; do not cap it
+		# with bark. All other tubes keep closed ends to prevent hollow-looking
+		# meshes under grazing light.
 		_cap_fan(st, frames[0], radii[0], sides, -1.0)
-		if radii[rings - 1] > 0.02:
+		if not omit_top_cap and radii[rings - 1] > 0.02:
 			_cap_fan(st, frames[rings - 1], radii[rings - 1], sides, 1.0)
+
+
+func _tube_frames(pts: Array[Vector3]) -> Array:
+	var frames: Array = []
+	var prev_right := Vector3.ZERO
+	for i in pts.size():
+		var fwd := Vector3.UP
+		if i == 0:
+			fwd = (pts[1] - pts[0]).normalized()
+		elif i == pts.size() - 1:
+			fwd = (pts[i] - pts[i - 1]).normalized()
+		else:
+			fwd = (pts[i + 1] - pts[i - 1]).normalized()
+		# parallel transport: reusing one fixed reference vector made the frame
+		# snap 180 degrees when the tangent crossed the reference axis, which
+		# wound those quads backwards (the "inverted normals" on trunks).
+		var right: Vector3
+		if prev_right == Vector3.ZERO:
+			var ref := Vector3.RIGHT if absf(fwd.dot(Vector3.UP)) > 0.9 else Vector3.UP
+			right = fwd.cross(ref).normalized()
+		else:
+			right = (prev_right - fwd * prev_right.dot(fwd))
+			if right.length() < 1e-4:
+				right = fwd.cross(Vector3.UP)
+			right = right.normalized()
+		prev_right = right
+		var up := right.cross(fwd).normalized()
+		frames.append([fwd, right, up, pts[i]])
+	return frames
 
 
 func _cap_fan(st: SurfaceTool, f: Array, radius: float, sides: int, sign_dir: float) -> void:
@@ -385,10 +471,10 @@ func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3,
 	st.set_normal(nd); st.set_normal(nd); st.set_uv(ud); st.add_vertex(d)
 
 
-func _commit(st: SurfaceTool) -> ArrayMesh:
+func _commit(st: SurfaceTool, existing: ArrayMesh = null) -> ArrayMesh:
 	st.index()
 	st.generate_tangents()
-	return st.commit()
+	return st.commit(existing)
 
 
 func _save(mesh: ArrayMesh, name: String) -> void:

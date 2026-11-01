@@ -1,6 +1,6 @@
 extends SceneTree
 ## Neutral-light inspection renders of the procedural models.
-## xvfb-run -a godot --path . --script tools/model_preview.gd
+## bash tools/run_sway.sh --script tools/model_preview.gd
 
 func _initialize() -> void:
 	call_deferred("_render_models")
@@ -30,6 +30,7 @@ func _render_models() -> void:
 	var map = load("res://scripts/map_builder.gd").new()
 	stage.add_child(map)
 	map.rng.seed = 2026
+	map._load_meshes()
 	map._make_materials()
 	var floor_mesh := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
@@ -52,6 +53,20 @@ func _render_models() -> void:
 	tree.material_override = map._mats["bark"]
 	tree.position = Vector3(60, 0, 0)
 	stage.add_child(tree)
+	# Exercise the same multi-surface material path as the in-world stump batch:
+	# bark stays on the sides while end-grain PBR is kept on each cap.
+	var stump_batch := MultiMesh.new()
+	stump_batch.transform_format = MultiMesh.TRANSFORM_3D
+	stump_batch.mesh = map._props["stump"]
+	stump_batch.instance_count = 3
+	for i in 3:
+		var s := 0.75 + float(i) * 0.25
+		var xf := Transform3D(Basis().scaled(Vector3.ONE * s), Vector3((i - 1) * 1.15, 0, 0))
+		stump_batch.set_instance_transform(i, xf)
+	var stumps := MultiMeshInstance3D.new()
+	stumps.multimesh = stump_batch
+	stumps.position = Vector3(120, 0, 0)
+	stage.add_child(stumps)
 	# Close-up follow-up views: multiple seeded pumpkins and chamfered concrete.
 	for i in 3:
 		var pumpkin := MeshInstance3D.new()
@@ -69,7 +84,8 @@ func _render_models() -> void:
 		["stones", Vector3(28, 5, 10), Vector3(20, 1, 0)],
 		["silo", Vector3(-10, 7, 13), Vector3(-20, 3.6, 0)],
 		["creature", Vector3(42.4, 2.6, 6.4), Vector3(40, 1.9, 0)],
-		["tree", Vector3(68, 7, 14), Vector3(60, 6, 0)]
+		["tree", Vector3(68, 7, 14), Vector3(60, 6, 0)],
+		["stump", Vector3(121.3, 1.8, 3.2), Vector3(120, 0.34, 0)]
 	]
 	DirAccess.make_dir_recursive_absolute("res://screenshots/models")
 	for shot in shots:
@@ -78,6 +94,7 @@ func _render_models() -> void:
 				child.visible = absf(child.position.x - shot[2].x) < 12.0
 		creature.visible = shot[0] == "creature"
 		tree.visible = shot[0] == "tree"
+		stumps.visible = shot[0] == "stump"
 		camera.position = shot[1]
 		camera.look_at(shot[2])
 		await process_frame

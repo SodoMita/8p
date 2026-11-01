@@ -256,28 +256,66 @@ func _run() -> void:
 			print("[selftest]   missing mesh ", file)
 			continue
 		var mesh: ArrayMesh = load(path)
-		var arrays := mesh.surface_get_arrays(0)
-		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-		var norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
-		var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
-		var tris := (idx.size() if idx.size() > 0 else verts.size()) / 3
-		var bad := 0
-		for t in tris:
-			var i0: int = idx[t * 3] if idx.size() > 0 else t * 3
-			var i1: int = idx[t * 3 + 1] if idx.size() > 0 else t * 3 + 1
-			var i2: int = idx[t * 3 + 2] if idx.size() > 0 else t * 3 + 2
-			var geo: Vector3 = (verts[i1] - verts[i0]).cross(verts[i2] - verts[i0])
-			if geo.length() < 1e-9:
-				continue
-			var avg: Vector3 = (norms[i0] + norms[i1] + norms[i2]) / 3.0
-			if avg.length() < 1e-6:
-				continue
-			if geo.normalized().dot(avg.normalized()) <= 0.0:
-				bad += 1
-		if bad > 0:
-			mesh_ok = false
-			print("[selftest]   %s has %d inverted triangles" % [file, bad])
+		for surface_i in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(surface_i)
+			var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+			var tris := (idx.size() if idx.size() > 0 else verts.size()) / 3
+			var bad := 0
+			for t in tris:
+				var i0: int = idx[t * 3] if idx.size() > 0 else t * 3
+				var i1: int = idx[t * 3 + 1] if idx.size() > 0 else t * 3 + 1
+				var i2: int = idx[t * 3 + 2] if idx.size() > 0 else t * 3 + 2
+				var geo: Vector3 = (verts[i1] - verts[i0]).cross(verts[i2] - verts[i0])
+				if geo.length() < 1e-9:
+					continue
+				var avg: Vector3 = (norms[i0] + norms[i1] + norms[i2]) / 3.0
+				if avg.length() < 1e-6:
+					continue
+				if geo.normalized().dot(avg.normalized()) <= 0.0:
+					bad += 1
+			if bad > 0:
+				mesh_ok = false
+				print("[selftest]   %s surface %d has %d inverted triangles" % [file, surface_i, bad])
 	check("mesh_normals_outward", mesh_ok)
+
+	# The stump must keep bark on its sides and use a distinct, correctly mapped
+	# end-grain material for the exposed saw-cut top.
+	var stump_mesh: Mesh = world.map_builder._props.get("stump")
+	var stump_surfaces_ok := stump_mesh != null and stump_mesh.get_surface_count() == 2
+	if stump_surfaces_ok:
+		stump_surfaces_ok = stump_mesh.surface_get_material(0) == world.map_builder._mats["bark"] \
+			and stump_mesh.surface_get_material(1) == world.map_builder._mats["endgrain"]
+	check("stump_separate_bark_and_endgrain_surfaces", stump_surfaces_ok)
+	var stump_batch := world.map_builder.get_node_or_null("Stumps") as MultiMeshInstance3D
+	var stump_batch_ok: bool = stump_batch != null and stump_batch.multimesh != null \
+		and stump_batch.multimesh.mesh != null and stump_batch.material_override == null \
+		and stump_batch.multimesh.mesh.surface_get_material(1) == world.map_builder._mats["endgrain"]
+	check("stump_batch_preserves_endgrain_surface_material", stump_batch_ok)
+	var endgrain_material: Material = world.map_builder._mats.get("endgrain")
+	var endgrain_pbr_ok := endgrain_material is StandardMaterial3D
+	if endgrain_pbr_ok:
+		var endgrain_std := endgrain_material as StandardMaterial3D
+		endgrain_pbr_ok = endgrain_std.albedo_texture != null \
+			and endgrain_std.albedo_texture.resource_path == "res://assets/textures/endgrain_albedo.png" \
+			and endgrain_std.normal_texture != null \
+			and endgrain_std.roughness_texture != null \
+			and not endgrain_std.uv1_triplanar
+	check("stump_cut_face_uses_uv_pbr_endgrain", endgrain_pbr_ok)
+	var cut_face_ok := false
+	if stump_mesh != null and stump_mesh.get_surface_count() == 2:
+		var cut_arrays := stump_mesh.surface_get_arrays(1)
+		var cut_vertices: PackedVector3Array = cut_arrays[Mesh.ARRAY_VERTEX]
+		var cut_normals: PackedVector3Array = cut_arrays[Mesh.ARRAY_NORMAL]
+		var cut_uvs: PackedVector2Array = cut_arrays[Mesh.ARRAY_TEX_UV]
+		cut_face_ok = cut_vertices.size() > 0 and cut_normals.size() == cut_vertices.size() and cut_uvs.size() == cut_vertices.size()
+		for i in cut_vertices.size():
+			if cut_normals[i].dot(Vector3.UP) < 0.98 or cut_uvs[i].x < -0.001 or cut_uvs[i].x > 1.001 \
+					or cut_uvs[i].y < -0.001 or cut_uvs[i].y > 1.001:
+				cut_face_ok = false
+				break
+	check("stump_cut_face_has_up_normals_and_cap_uvs", cut_face_ok)
 
 	# Keep the approved rind/stem material and its companion mesh labels together.
 	var pumpkin_material: Material = world.map_builder._mats["pumpkin"]

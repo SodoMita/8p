@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Realistic PBR texture set for EIGHT PAGES.
 
-Produces albedo + normal + roughness maps for bark, forest ground, stone and
-dry grass, all tileable and procedurally synthesised (no photo sources).
+Produces procedural albedo + normal + roughness maps for bark, forest ground,
+stone, dry grass and stump end grain (no photo sources).
 """
 import math
 import os
@@ -490,12 +490,90 @@ def self_check() -> bool:
     return ok
 
 
+def make_endgrain(size=1024):
+    """Weathered stump cut face: irregular annual rings, pith, cracks and pores.
+
+    This is UV-mapped only to the separate cut-cap mesh surface; it is not
+    projected onto the bark sides. Values are constructed in linear light then
+    encoded to sRGB for the albedo image.
+    """
+    h = w = size
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    x = (xx + 0.5) / w * 2.0 - 1.0
+    y = (yy + 0.5) / h * 2.0 - 1.0
+    angle = np.arctan2(y, x)
+    radius = np.sqrt(x * x + y * y)
+    macro = fbm(h, w, 4, 3, 0.60, seed=71)
+    middle = fbm(h, w, 5, 12, 0.54, seed=72)
+    fine = fbm(h, w, 6, 54, 0.50, seed=73)
+    grit = fbm(h, w, 5, 140, 0.48, seed=74)
+
+    # Growth rings drift with grain and are slightly eccentric, never perfect
+    # printed circles. About seventeen rings per radius gives believable scale
+    # on the 76 cm stump without turning the face into a target graphic.
+    radial_warp = (macro - 0.5) * 0.055 + (middle - 0.5) * 0.018
+    radial_warp += 0.012 * np.sin(angle * 3.0 + radius * 15.0)
+    radial_warp += 0.006 * np.sin(angle * 7.0 - radius * 23.0)
+    eccentric_radius = radius * (1.0 + 0.035 * np.cos(angle - 0.62) + 0.018 * np.sin(2.0 * angle + 1.1))
+    phase = (eccentric_radius + radial_warp) * 17.0
+    phase_fraction = phase - np.floor(phase)
+    latewood = np.exp(-0.5 * ((phase_fraction - 0.84) / 0.075) ** 2)
+    springwood = 0.5 + 0.5 * np.cos(2.0 * np.pi * (phase_fraction - 0.20))
+
+    # Radial splits are sparse and tapered, with wavering edges; cracks are
+    # shallow, narrow, and brown rather than black ink lines.
+    rng = np.random.default_rng(75)
+    cracks = np.zeros((h, w), dtype=np.float32)
+    for i in range(6):
+        base_angle = float(i) * (math.tau / 6.0) + rng.uniform(-0.24, 0.24)
+        width = rng.uniform(0.0022, 0.0045)
+        start = rng.uniform(0.12, 0.38)
+        path = base_angle + 0.012 * np.sin(radius * rng.uniform(15.0, 26.0) + rng.uniform(0, math.tau))
+        delta = np.arctan2(np.sin(angle - path), np.cos(angle - path))
+        angular_width = width / np.maximum(radius, 0.08)
+        line = np.exp(-0.5 * (delta / angular_width) ** 2)
+        active = np.clip((radius - start) / 0.04, 0.0, 1.0)
+        cracks = np.maximum(cracks, line * active)
+
+    # A small off-centre knot and pale, weather-dried rim break up the rings.
+    knot_r = np.sqrt((x - 0.075) ** 2 + (y + 0.045) ** 2)
+    knot = np.exp(-0.5 * ((knot_r - 0.058) / 0.018) ** 2)
+    rim = np.clip((radius - 0.70) / 0.30, 0.0, 1.0) ** 1.6
+    mottling = 0.88 + 0.18 * macro + 0.12 * middle + 0.07 * fine
+    ring_tone = 0.92 + 0.10 * springwood - 0.28 * latewood
+
+    # Grey-brown cut wood with a warmer heart, darker latewood lines and muted
+    # weathering at the exposed edge. Contrast is restrained so it reads as
+    # real end grain rather than painted concentric stripes.
+    linear = np.empty((h, w, 3), dtype=np.float32)
+    linear[..., 0] = 0.235 + 0.040 * macro + 0.020 * grit
+    linear[..., 1] = 0.163 + 0.034 * macro + 0.016 * grit
+    linear[..., 2] = 0.103 + 0.028 * macro + 0.012 * grit
+    linear *= (mottling * ring_tone * (1.0 - 0.36 * cracks + 0.06 * knot))[..., None]
+    linear[..., 0] += (0.020 * knot + 0.012 * rim)
+    linear[..., 1] += 0.004 * knot + 0.010 * rim
+    linear[..., 2] += 0.003 * rim
+    linear = np.clip(linear, 0.01, 0.65)
+
+    # Fine transverse pores and slight relief in growth bands and splits.
+    height = 0.50 + 0.075 * springwood - 0.095 * latewood - 0.17 * cracks + (fine - 0.5) * 0.055 + (grit - 0.5) * 0.025
+    normal = normal_map(height, strength=24.0)
+    rough = np.clip(0.91 + 0.045 * grit + 0.035 * cracks - 0.025 * springwood, 0.78, 0.99)
+
+    srgb = np.where(linear <= 0.0031308, linear * 12.92, 1.055 * np.power(linear, 1.0 / 2.4) - 0.055)
+    save_rgb(np.clip(srgb, 0.0, 1.0) * 255.0, "endgrain_albedo.png")
+    Image.fromarray(normal, "RGB").save(os.path.join(TEX, "endgrain_normal.png"), optimize=True)
+    print("  texture: endgrain_normal.png")
+    save_gray(rough, "endgrain_rough.png")
+
+
 if __name__ == "__main__":
     os.makedirs(TEX, exist_ok=True)
     if not self_check():
         raise SystemExit("normal_map() green channel is inverted - refusing to write textures")
     print("Generating realistic PBR textures...")
     make_bark()
+    make_endgrain()
     make_ground()
     make_stone()
     make_pumpkin()
